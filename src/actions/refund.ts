@@ -1,7 +1,7 @@
 'use server'
 
 import { db } from "@/lib/db"
-import { cards, orders, refundRequests } from "@/lib/db/schema"
+import { cards, orders, refundRequests, loginUsers } from "@/lib/db/schema"
 import { and, eq, sql } from "drizzle-orm"
 import { revalidatePath } from "next/cache"
 
@@ -46,6 +46,13 @@ export async function markOrderRefunded(orderId: string) {
     await db.transaction(async (tx) => {
         const order = await tx.query.orders.findFirst({ where: eq(orders.orderId, orderId) })
         if (!order) throw new Error("Order not found")
+
+        // Refund points if used
+        if (order.userId && order.pointsUsed && order.pointsUsed > 0) {
+            await tx.update(loginUsers)
+                .set({ points: sql`${loginUsers.points} + ${order.pointsUsed}` })
+                .where(eq(loginUsers.userId, order.userId))
+        }
 
         // Update order status
         await tx.update(orders).set({ status: 'refunded' }).where(eq(orders.orderId, orderId))
