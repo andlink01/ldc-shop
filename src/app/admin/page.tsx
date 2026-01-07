@@ -1,7 +1,7 @@
 import { db } from "@/lib/db"
 import { orders } from "@/lib/db/schema"
 import { desc } from "drizzle-orm"
-import { getProducts, getDashboardStats, getSetting, getVisitorCount } from "@/lib/db/queries"
+import { getProducts, getDashboardStats, getSetting, getVisitorCount, getRecentOrders } from "@/lib/db/queries"
 import { AdminProductsContent } from "@/components/admin/products-content"
 
 export default async function AdminPage() {
@@ -32,7 +32,7 @@ export default async function AdminPage() {
         })(),
         (async () => {
             try {
-                return await db.query.orders.findMany({ orderBy: [desc(orders.createdAt)], limit: 10 })
+                return await getRecentOrders(10)
             } catch {
                 return []
             }
