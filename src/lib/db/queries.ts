@@ -7,7 +7,6 @@ async function ensureProductsColumns() {
         ALTER TABLE products ADD COLUMN IF NOT EXISTS compare_at_price DECIMAL(10, 2);
         ALTER TABLE products ADD COLUMN IF NOT EXISTS is_hot BOOLEAN DEFAULT FALSE;
     `)
-        `)
 }
 
 async function ensureOrdersColumns() {
@@ -55,8 +54,8 @@ export async function getProducts() {
             isActive: products.isActive,
             sortOrder: products.sortOrder,
             purchaseLimit: products.purchaseLimit,
-            stock: sql<number>`count(case when COALESCE(${ cards.isUsed }, false) = false then 1 end):: int`,
-            sold: sql<number>`count(case when COALESCE(${ cards.isUsed }, false) = true then 1 end):: int`
+            stock: sql<number>`count(case when COALESCE(${cards.isUsed}, false) = false then 1 end):: int`,
+            sold: sql<number>`count(case when COALESCE(${cards.isUsed}, false) = true then 1 end):: int`
         })
             .from(products)
             .leftJoin(cards, eq(products.id, cards.productId))
@@ -78,8 +77,8 @@ export async function getActiveProducts() {
             category: products.category,
             isHot: products.isHot,
             purchaseLimit: products.purchaseLimit,
-            stock: sql<number>`count(case when COALESCE(${ cards.isUsed }, false) = false then 1 end):: int`,
-            sold: sql<number>`count(case when COALESCE(${ cards.isUsed }, false) = true then 1 end):: int`
+            stock: sql<number>`count(case when COALESCE(${cards.isUsed}, false) = false then 1 end):: int`,
+            sold: sql<number>`count(case when COALESCE(${cards.isUsed}, false) = true then 1 end):: int`
         })
             .from(products)
             .leftJoin(cards, eq(products.id, cards.productId))
@@ -101,7 +100,7 @@ export async function getProduct(id: string) {
             category: products.category,
             isHot: products.isHot,
             purchaseLimit: products.purchaseLimit,
-            stock: sql<number>`count(case when COALESCE(${ cards.isUsed }, false) = false then 1 end):: int`
+            stock: sql<number>`count(case when COALESCE(${cards.isUsed}, false) = false then 1 end):: int`
         })
             .from(products)
             .leftJoin(cards, eq(products.id, cards.productId))
@@ -144,9 +143,9 @@ export async function getDashboardStats() {
 
 export async function getRecentOrders(limit: number = 10) {
     return await withOrderColumnFallback(async () => {
-        return await db.query.orders.findMany({ 
-            orderBy: [desc(orders.createdAt)], 
-            limit 
+        return await db.query.orders.findMany({
+            orderBy: [desc(orders.createdAt)],
+            limit
         })
     })
 }
@@ -189,7 +188,7 @@ export async function getCategories(): Promise<Array<{ id: number; name: string;
             id: categories.id,
             name: categories.name,
             icon: categories.icon,
-            sortOrder: sql<number>`COALESCE(${ categories.sortOrder }, 0):: int`,
+            sortOrder: sql<number>`COALESCE(${categories.sortOrder}, 0):: int`,
         }).from(categories).orderBy(asc(categories.sortOrder), asc(categories.name))
         return rows
     } catch (error: any) {
@@ -218,10 +217,10 @@ export async function searchActiveProducts(params: {
     const whereParts: any[] = [eq(products.isActive, true)]
     if (category && category !== 'all') whereParts.push(eq(products.category, category))
     if (q) {
-        const like = `% ${ q }% `
+        const like = `% ${q}% `
         whereParts.push(or(
-            sql`${ products.name } ILIKE ${ like } `,
-            sql`COALESCE(${ products.description }, '') ILIKE ${ like } `
+            sql`${products.name} ILIKE ${like} `,
+            sql`COALESCE(${products.description}, '') ILIKE ${like} `
         ))
     }
     const whereExpr = and(...whereParts)
@@ -235,13 +234,13 @@ export async function searchActiveProducts(params: {
             orderByParts.push(desc(products.price))
             break
         case 'stockDesc':
-            orderByParts.push(desc(sql<number>`count(case when ${ cards.isUsed } = false then 1 end):: int`))
+            orderByParts.push(desc(sql<number>`count(case when ${cards.isUsed} = false then 1 end):: int`))
             break
         case 'soldDesc':
-            orderByParts.push(desc(sql<number>`count(case when ${ cards.isUsed } = true then 1 end):: int`))
+            orderByParts.push(desc(sql<number>`count(case when ${cards.isUsed} = true then 1 end):: int`))
             break
         case 'hot':
-            orderByParts.push(desc(sql<number>`case when ${ products.isHot } = true then 1 else 0 end`))
+            orderByParts.push(desc(sql<number>`case when ${products.isHot} = true then 1 else 0 end`))
             orderByParts.push(asc(products.sortOrder), desc(products.createdAt))
             break
         default:
@@ -260,8 +259,8 @@ export async function searchActiveProducts(params: {
             category: products.category,
             isHot: products.isHot,
             purchaseLimit: products.purchaseLimit,
-            stock: sql<number>`count(case when COALESCE(${ cards.isUsed }, false) = false then 1 end):: int`,
-            sold: sql<number>`count(case when COALESCE(${ cards.isUsed }, false) = true then 1 end):: int`
+            stock: sql<number>`count(case when COALESCE(${cards.isUsed}, false) = false then 1 end):: int`,
+            sold: sql<number>`count(case when COALESCE(${cards.isUsed}, false) = true then 1 end):: int`
         })
             .from(products)
             .leftJoin(cards, eq(products.id, cards.productId))
@@ -293,7 +292,7 @@ export async function getProductReviews(productId: string) {
 
 export async function getProductRating(productId: string): Promise<{ average: number; count: number }> {
     const result = await db.select({
-        avg: sql<number>`COALESCE(AVG(${ reviews.rating }), 0):: float`,
+        avg: sql<number>`COALESCE(AVG(${reviews.rating}), 0):: float`,
         count: sql<number>`COUNT(*):: int`
     })
         .from(reviews)
@@ -530,9 +529,9 @@ export async function cancelExpiredOrders(filters: { productId?: string; userId?
                 SET status = 'cancelled'
                 WHERE status = 'pending'
                   AND created_at < NOW() - INTERVAL '5 minutes'
-    AND(${ productId }:: text IS NULL OR product_id = ${ productId })
-    AND(${ userId }:: text IS NULL OR user_id = ${ userId })
-    AND(${ orderId }:: text IS NULL OR order_id = ${ orderId })
+    AND(${productId}:: text IS NULL OR product_id = ${productId})
+    AND(${userId}:: text IS NULL OR user_id = ${userId})
+    AND(${orderId}:: text IS NULL OR order_id = ${orderId})
                 RETURNING order_id
         `);
 
@@ -554,7 +553,7 @@ export async function cancelExpiredOrders(filters: { productId?: string; userId?
                     await tx.execute(sql`
                         UPDATE cards
                         SET reserved_order_id = NULL, reserved_at = NULL
-                        WHERE reserved_order_id = ${ expiredOrderId } AND COALESCE(is_used, false) = false
+                        WHERE reserved_order_id = ${expiredOrderId} AND COALESCE(is_used, false) = false
         `);
                 } catch (error: any) {
                     if (!isMissingTableOrColumn(error)) throw error;
