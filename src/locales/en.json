@@ -208,7 +208,13 @@
             "approve": "Approve",
             "reject": "Reject",
             "adminNote": "Admin note",
-            "adminNotePrompt": "Optional note for this request:"
+            "adminNotePrompt": "Optional note for this request:",
+            "statusValues": {
+                "pending": "Pending",
+                "approved": "Approved",
+                "rejected": "Rejected",
+                "processed": "Processed"
+            }
         },
         "stats": {
             "today": "Today",

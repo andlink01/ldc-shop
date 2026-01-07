@@ -95,7 +95,9 @@ export function AdminRefundsContent({ requests }: { requests: any[] }) {
                   )}
                 </TableCell>
                 <TableCell>
-                  <Badge variant={statusVariant(r.status)} className="uppercase text-xs">{r.status || 'pending'}</Badge>
+                  <Badge variant={statusVariant(r.status)} className="uppercase text-xs">
+                    {t(`admin.refunds.statusValues.${r.status || 'pending'}`)}
+                  </Badge>
                 </TableCell>
                 <TableCell className="text-muted-foreground text-xs">
                   <ClientDate value={r.createdAt} format="dateTime" />

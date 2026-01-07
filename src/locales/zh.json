@@ -208,7 +208,13 @@
             "approve": "同意",
             "reject": "拒绝",
             "adminNote": "管理员备注",
-            "adminNotePrompt": "可选：给该申请留个备注："
+            "adminNotePrompt": "可选：给该申请留个备注：",
+            "statusValues": {
+                "pending": "待处理",
+                "approved": "已同意",
+                "rejected": "已拒绝",
+                "processed": "已处理"
+            }
         },
         "stats": {
             "today": "今日",
