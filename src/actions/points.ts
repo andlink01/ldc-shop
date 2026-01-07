@@ -42,23 +42,29 @@ export async function checkIn() {
         revalidatePath('/')
         return { success: true, points: reward }
     } catch (error: any) {
-        // Handle "Missing Table" error for daily_checkins (Auto-migration)
-        if (error.message?.includes('does not exist') || error.code === '42P01') {
-            await db.execute(sql`
-                CREATE TABLE IF NOT EXISTS daily_checkins (
-                    id SERIAL PRIMARY KEY,
-                    user_id TEXT NOT NULL,
-                    created_at TIMESTAMP DEFAULT NOW()
-                );
-                CREATE UNIQUE INDEX IF NOT EXISTS daily_checkins_user_date_unique ON daily_checkins(user_id, date(created_at));
-                ALTER TABLE login_users ADD COLUMN IF NOT EXISTS points INTEGER DEFAULT 0 NOT NULL;
-            `)
-            // Retry once
+        if (isMissingTable(error)) {
+            await ensureDailyCheckinsTable()
             return checkIn()
         }
         console.error("Check-in error:", error)
         return { success: false, error: "Check-in failed" }
     }
+}
+
+async function ensureDailyCheckinsTable() {
+    await db.execute(sql`
+        CREATE TABLE IF NOT EXISTS daily_checkins (
+            id SERIAL PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT NOW()
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS daily_checkins_user_date_unique ON daily_checkins(user_id, date(created_at));
+        ALTER TABLE login_users ADD COLUMN IF NOT EXISTS points INTEGER DEFAULT 0 NOT NULL;
+    `)
+}
+
+function isMissingTable(error: any) {
+    return error.message?.includes('does not exist') || error.code === '42P01'
 }
 
 export async function getUserPoints() {
@@ -77,11 +83,20 @@ export async function getCheckinStatus() {
     const session = await auth()
     if (!session?.user?.id) return { checkedIn: false }
 
-    const existing = await db.execute(sql`
-        SELECT id FROM daily_checkins 
-        WHERE user_id = ${session.user.id} 
-        AND date(created_at) = date(now())
-    `)
+    try {
+        const existing = await db.execute(sql`
+            SELECT id FROM daily_checkins 
+            WHERE user_id = ${session.user.id} 
+            AND date(created_at) = date(now())
+        `)
 
-    return { checkedIn: existing.rowCount ? existing.rowCount > 0 : false }
+        return { checkedIn: existing.rowCount ? existing.rowCount > 0 : false }
+    } catch (error: any) {
+        if (isMissingTable(error)) {
+            await ensureDailyCheckinsTable()
+            return { checkedIn: false }
+        }
+        console.error("Check-in status error:", error)
+        return { checkedIn: false }
+    }
 }
