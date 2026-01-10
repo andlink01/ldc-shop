@@ -43,6 +43,33 @@ export function RefundButton({ order }: { order: any }) {
 
             setShowMarkDone(true)
             toast.info(t('admin.orders.refundInfo'))
+
+            // Auto-verify: Check every 2 seconds, up to 10 times (20s)
+            let attempts = 0
+            const maxAttempts = 10
+            const interval = setInterval(async () => {
+                attempts++
+                try {
+                    // Don't set main loading state to avoid blocking UI during polling
+                    const result = await verifyOrderRefundStatus(order.orderId)
+                    if (result.success && result.status === 0) { // Refunded
+                        clearInterval(interval)
+                        toast.success(t('admin.orders.verifySuccessRefunded'))
+                        // Revalidation happens in server action, so UI should update on refresh or if we trigger it.
+                        // Since server action revalidates path, next router refresh might be needed or handled by revalidatePath?
+                        // revalidatePath updates server cache, client router needs to refresh to see new data if not pushed.
+                        // But verifying logic updates DB, so if we refresh router it should show 'refunded'
+                        // verifyOrderRefundStatus calls revalidatePath.
+                        // Let's just stop polling.
+                    }
+                    if (attempts >= maxAttempts) {
+                        clearInterval(interval)
+                    }
+                } catch (e) {
+                    console.error("Auto verify failed", e)
+                }
+            }, 2000)
+
         } catch (e: any) {
             toast.error(e.message)
         } finally {
