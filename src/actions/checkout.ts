@@ -149,20 +149,21 @@ export async function createOrder(productId: string, email?: string, usePoints: 
     const orderId = generateOrderId()
 
     const reserveAndCreate = async () => {
-        await db.transaction(async (tx) => {
-            // Verify and Deduct Points inside transaction
-            if (pointsToUse > 0) {
-                const updatedUser = await tx.update(loginUsers)
-                    .set({ points: sql`${loginUsers.points} - ${pointsToUse}` })
-                    .where(and(eq(loginUsers.userId, user!.id!), sql`${loginUsers.points} >= ${pointsToUse}`))
-                    .returning({ points: loginUsers.points });
+        // Import inside function to avoid circular deps if any, though epay/db are safe
+        const { queryOrderStatus } = await import("@/lib/epay")
 
-                if (!updatedUser.length) {
-                    throw new Error('insufficient_points');
-                }
-            }
+        // 1. Try to find FREE stock first (most efficient)
+        // We do this in a loop to handle the "Expired but actually Paid" case
+        // If we find an expired one that is actually Paid, we fix it and try again.
 
-            const reservedResult = await tx.execute(sql`
+        let attempts = 0
+        const maxAttempts = 3 // Don't loop forever
+
+        while (attempts < maxAttempts) {
+            attempts++
+
+            // A. Try strictly free card
+            let reservedResult = await db.execute(sql`
                 UPDATE cards
                 SET reserved_order_id = ${orderId}, reserved_at = NOW()
                 WHERE id = (
@@ -170,61 +171,145 @@ export async function createOrder(productId: string, email?: string, usePoints: 
                     FROM cards
                     WHERE product_id = ${productId}
                       AND COALESCE(is_used, false) = false
-                      AND (reserved_at IS NULL OR reserved_at < NOW() - INTERVAL '1 minute')
+                      AND reserved_at IS NULL
                     LIMIT 1
                     FOR UPDATE SKIP LOCKED
                 )
                 RETURNING id, card_key
             `);
 
-            if (!reservedResult.rows.length) {
-                throw new Error('stock_locked');
+            if (reservedResult.rows.length > 0) {
+                // Found free card!
+                await createOrderRecord(reservedResult, isZeroPrice, pointsToUse, finalAmount, user, email, product, orderId)
+                return
             }
 
-            const cardKey = reservedResult.rows[0].card_key as string;
-            const cardId = reservedResult.rows[0].id as number;
+            // B. If no free card, look for expired ones to "steal" or "fix"
+            const expiredCandidates = await db.execute(sql`
+                SELECT id, reserved_order_id
+                FROM cards
+                WHERE product_id = ${productId}
+                  AND COALESCE(is_used, false) = false
+                  AND reserved_at < NOW() - INTERVAL '1 minute'
+                LIMIT 1
+                FOR UPDATE SKIP LOCKED
+            `)
 
-            // If Zero Price: Mark card used and order delivered immediately
-            if (isZeroPrice) {
-                await tx.update(cards).set({
-                    isUsed: true,
-                    usedAt: new Date(),
-                    reservedOrderId: null,
-                    reservedAt: null
-                }).where(eq(cards.id, cardId));
+            if (expiredCandidates.rows.length === 0) {
+                // No free and no expired => Stock Locked / Out of Stock
+                throw new Error('stock_locked')
+            }
 
-                await tx.insert(orders).values({
-                    orderId,
-                    productId: product.id,
-                    productName: product.name,
-                    amount: finalAmount.toString(), // 0.00
-                    email: email || user?.email || null,
-                    userId: user?.id || null,
-                    username: user?.username || null,
-                    status: 'delivered',
-                    cardKey: cardKey,
-                    paidAt: new Date(),
-                    deliveredAt: new Date(),
-                    tradeNo: 'POINTS_REDEMPTION',
-                    pointsUsed: pointsToUse
-                });
+            const candidate = expiredCandidates.rows[0]
+            const candidateCardId = candidate.id
+            const candidateOrderId = candidate.reserved_order_id as string
 
+            // Verify the candidate order status
+            let isPaid = false
+            try {
+                if (candidateOrderId) {
+                    const statusRes = await queryOrderStatus(candidateOrderId)
+                    if (statusRes.success && statusRes.status === 1) {
+                        isPaid = true
+                    }
+                }
+            } catch (e) {
+                console.error("Failed to verify candidate order", e)
+                // If verify fails, conservative approach: don't steal.
+                // But if we don't steal, we might block forever.
+                // Let's assume if query fails, we skip this one? Or treat as unpaid? 
+                // Treat as unpaid to avoid indefinite lock? Or treat as paid to be safe?
+                // Safe: treat as paid (don't steal).
+                // But then we might fail order creation. 
+                // Let's treat as 'skip' aka 'continue loop' without fixing?
+                // Actually, if we can't verify, we probably shouldn't steal.
+                continue
+            }
+
+            if (isPaid) {
+                // It was paid! Fix the data.
+                await db.execute(sql`
+                    UPDATE cards SET is_used = true, used_at = NOW() WHERE id = ${candidateCardId};
+                    UPDATE orders SET status = 'paid', paid_at = NOW() WHERE order_id = ${candidateOrderId} AND status = 'pending';
+                `)
+                // Continue loop to find next available card
+                continue
             } else {
-                // Normal Pending Order
-                await tx.insert(orders).values({
-                    orderId,
-                    productId: product.id,
-                    productName: product.name,
-                    amount: finalAmount.toString(),
-                    email: email || user?.email || null,
-                    userId: user?.id || null,
-                    username: user?.username || null,
-                    status: 'pending',
-                    pointsUsed: pointsToUse
-                });
+                // It is NOT paid (or cancelled/refunded/pending-timeout). Steal it!
+                reservedResult = await db.execute(sql`
+                    UPDATE cards
+                    SET reserved_order_id = ${orderId}, reserved_at = NOW()
+                    WHERE id = ${candidateCardId}
+                    RETURNING id, card_key
+                `)
+
+                if (reservedResult.rows.length > 0) {
+                    await createOrderRecord(reservedResult, isZeroPrice, pointsToUse, finalAmount, user, email, product, orderId)
+                    return
+                }
+                // If update failed (race?), continue loop
             }
-        });
+        }
+
+        throw new Error('stock_locked')
     };
+
+    const createOrderRecord = async (reservedResult: any, isZeroPrice: boolean, pointsToUse: number, finalAmount: number, user: any, email: any, product: any, orderId: string) => {
+        const cardKey = reservedResult.rows[0].card_key as string;
+        const cardId = reservedResult.rows[0].id as number;
+
+        // ... Verify points again if needed inside tx (already checked in outer logic? No, need to do it here)
+        if (pointsToUse > 0) {
+            const updatedUser = await db.update(loginUsers)
+                .set({ points: sql`${loginUsers.points} - ${pointsToUse}` })
+                .where(and(eq(loginUsers.userId, user!.id!), sql`${loginUsers.points} >= ${pointsToUse}`))
+                .returning({ points: loginUsers.points });
+
+            if (!updatedUser.length) {
+                throw new Error('insufficient_points');
+            }
+        }
+
+        // If Zero Price: Mark card used and order delivered immediately
+        if (isZeroPrice) {
+            await db.update(cards).set({
+                isUsed: true,
+                usedAt: new Date(),
+                reservedOrderId: null,
+                reservedAt: null
+            }).where(eq(cards.id, cardId));
+
+            await db.insert(orders).values({
+                orderId,
+                productId: product.id,
+                productName: product.name,
+                amount: finalAmount.toString(), // 0.00
+                email: email || user?.email || null,
+                userId: user?.id || null,
+                username: user?.username || null,
+                status: 'delivered',
+                cardKey: cardKey,
+                paidAt: new Date(),
+                deliveredAt: new Date(),
+                tradeNo: 'POINTS_REDEMPTION',
+                pointsUsed: pointsToUse
+            });
+
+        } else {
+            // Normal Pending Order
+            await db.insert(orders).values({
+                orderId,
+                productId: product.id,
+                productName: product.name,
+                amount: finalAmount.toString(),
+                email: email || user?.email || null,
+                userId: user?.id || null,
+                username: user?.username || null,
+                status: 'pending',
+                pointsUsed: pointsToUse
+            });
+        }
+    }
 
     try {
         await reserveAndCreate();
