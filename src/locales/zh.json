@@ -71,6 +71,7 @@
         "outOfStock": "商品已售罄",
         "limitExceeded": "超出限购次数，您不能再购买此商品",
         "stockLocked": "库存已被锁定，请稍后再试",
+        "stockLockedMessage": "该商品库存已被锁定，如果用户五分钟内未支付，库存将自动释放，请稍后再来！",
         "userBlocked": "本商品对您已限购",
         "paymentTimeoutNotice": "未支付订单将在 5 分钟后自动取消。",
         "purchaseLimit": "限购: {{limit}}",
