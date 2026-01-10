@@ -140,7 +140,7 @@ export default async function Home() {
       }
       return {
         ...p,
-        stockCount: p.stock,
+        stockCount: p.stock + (p.locked || 0),
         soldCount: p.sold || 0,
         rating: rating.average,
         reviewCount: rating.count
