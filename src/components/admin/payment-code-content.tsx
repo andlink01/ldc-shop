@@ -13,6 +13,15 @@ export function AdminPaymentCodeContent({ payLink, payee }: { payLink: string; p
         return `https://api.qrserver.com/v1/create-qr-code/?size=260x260&data=${encoded}`
     }, [payLink])
 
+    const displayLink = useMemo(() => {
+        try {
+            const url = new URL(payLink)
+            return `${url.protocol}//${url.host}${url.pathname}`
+        } catch {
+            return payLink.split('?')[0]
+        }
+    }, [payLink])
+
     return (
         <div className="max-w-2xl space-y-6">
             <Card className="tech-card">
@@ -48,9 +57,9 @@ export function AdminPaymentCodeContent({ payLink, payee }: { payLink: string; p
                                     target="_blank"
                                     rel="noreferrer"
                                 >
-                                    {payLink}
+                                    {displayLink}
                                 </a>
-                                <CopyButton text={payLink} iconOnly />
+                                <CopyButton text={displayLink} iconOnly />
                             </div>
                         </div>
                     </div>
