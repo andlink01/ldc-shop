@@ -14,6 +14,10 @@ services:
       # App URL (Change to your domain in production)
       - NEXT_PUBLIC_APP_URL=http://localhost:3000
       
+      # Auth (Required for OAuth behind reverse proxy)
+      - AUTH_URL=http://localhost:3000
+      - AUTH_TRUST_HOST=true
+      
       # Secrets (Replace with your actual values)
       - OAUTH_CLIENT_ID=replace_with_client_id
       - OAUTH_CLIENT_SECRET=replace_with_client_secret
