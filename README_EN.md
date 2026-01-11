@@ -68,6 +68,8 @@ The shared `vercel.app` domain is sometimes flagged by firewalls or payment gate
 
 ## 🐳 Docker Deployment (Docker Compose)
 
+> ⚠️ **Experimental**: Docker deployment has not been fully tested and may have unknown issues. **We recommend using Vercel deployment** for better stability.
+
 If you have your own server (VPS/NAS), you can deploy simply with Docker:
 
 1.  Clone the repository:
