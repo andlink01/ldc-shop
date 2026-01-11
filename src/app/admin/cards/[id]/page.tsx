@@ -53,7 +53,7 @@ export default async function CardsPage({ params }: { params: Promise<{ id: stri
         <CardsContent
             productId={id}
             productName={product.name}
-            unusedCards={unusedCards.map(c => ({ id: c.id, cardKey: c.cardKey }))}
+            unusedCards={unusedCards.map((c: any) => ({ id: c.id, cardKey: c.cardKey }))}
         />
     )
 }
