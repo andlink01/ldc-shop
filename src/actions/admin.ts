@@ -32,6 +32,16 @@ export async function saveProduct(formData: FormData) {
     const isHot = formData.get('isHot') === 'on'
 
     const doSave = async () => {
+        // Auto-create category if it doesn't exist
+        if (category) {
+            await ensureCategoriesTable()
+            await db.execute(sql`
+                INSERT INTO categories (name, updated_at) 
+                VALUES (${category}, NOW()) 
+                ON CONFLICT (name) DO NOTHING
+            `)
+        }
+
         await db.insert(products).values({
             id,
             name,

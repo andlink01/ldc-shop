@@ -52,7 +52,7 @@ export async function SiteHeader() {
                     <HeaderNav isAdmin={isAdmin} />
                 </div>
                 <div className="hidden md:flex flex-1 justify-center px-4">
-                    <HeaderSearch className="max-w-[460px]" />
+                    {/* HeaderSearch removed as per user request */}
                 </div>
                 <div className="flex items-center justify-end gap-2 md:gap-3">
                     <nav className="flex items-center space-x-2">
