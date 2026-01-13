@@ -21,8 +21,6 @@ jobs:
         uses: actions/github-script@v6
         with:
           script: |
-
-
             try {
               // Configure Git
               await exec.exec('git', ['config', '--global', 'user.name', 'GitHub Actions']);
