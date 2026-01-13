@@ -77,28 +77,7 @@
 
 请参考 [`_workers_next/README.md`](./_workers_next/README.md) 使用 Wrangler 命令部署与配置。
 
-## 🐳 Docker 一般部署 (Docker Compose)
 
-> ⚠️ **实验性功能**: Docker 部署尚未经过充分测试，可能存在未知问题。**建议优先使用 Vercel 部署**，稳定性更佳。
-
-如果你拥有自己的服务器（VPS/NAS），可以使用 Docker 一键部署：
-
-1.  克隆仓库：
-    ```bash
-    git clone https://github.com/chatgptuk/ldc-shop.git
-    cd ldc-shop
-    ```
-2.  修改 `docker-compose.yml` 中的环境变量：
-    - 此文件默认启动一个 PostgreSQL 数据库。
-    - 请务必修改 `OAUTH_CLIENT_ID`, `OAUTH_CLIENT_SECRET`, `MERCHANT_ID`, `MERCHANT_KEY` 等关键参数。
-3.  启动服务：
-    ```bash
-    docker-compose up -d
-    ```
-4.  访问 `http://localhost:3000` 即可使用。
-    - 数据库文件会持久化在当前目录的 `./postgres-data` 文件夹中。
-
-## 🔄 自动更新 (Auto Update)
 
 如果你使用 Vercel 一键部署，默认可能不会包含 GitHub Actions 配置文件。你需要手动创建它来实现每天自动同步上游最新代码（并触发 Vercel 重部署）。
 
