@@ -6,7 +6,8 @@
 
 A robust, serverless virtual goods shop built with **Next.js 16**, **Vercel Postgres**, **Shadcn UI**, and **Linux DO Connect**.
 
-> 💡 **Also available as Cloudflare Workers version:** [View deployment guide → `_workers_v2/README.md`](./_workers_v2/README.md)
+> 💡 **Also available as Cloudflare Workers version (Next.js + OpenNext + D1):** [View deployment guide → `_workers_next/README.md`](./_workers_next/README.md)
+> This is a full-stack Next.js implementation based on OpenNext adapter, running on Cloudflare Workers with D1 database, providing the same feature set as the Vercel version.
 
 ## ✨ Features
 - **Modern Stack**: Next.js 16 (App Router), Tailwind CSS, TypeScript.
@@ -58,7 +59,7 @@ The database (Vercel Postgres) will be automatically provisioned and linked.
 
 ## ☁️ Cloudflare Workers Command Deploy
 
-See [`_workers_v2/README.md`](./_workers_v2/README.md) for Wrangler-based deployment and configuration steps.
+See [`_workers_next/README.md`](./_workers_next/README.md) for Wrangler-based deployment and configuration steps.
 
 ## 💡 Recommendation: Custom Domain
 

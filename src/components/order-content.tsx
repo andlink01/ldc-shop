@@ -291,7 +291,7 @@ export function OrderContent({ order, canViewKey, isOwner, refundRequest }: Orde
                         </div>
                     )}
 
-                    {isOwner && (order.status === 'paid' || order.status === 'delivered') && (
+                    {isOwner && (order.status === 'paid' || order.status === 'delivered') && Number(order.amount) > 0 && (
                         <>
                             <Separator className="bg-border/50" />
                             <div className="space-y-3">

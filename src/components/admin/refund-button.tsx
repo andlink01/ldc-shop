@@ -15,6 +15,7 @@ export function RefundButton({ order }: { order: any }) {
 
     if (order.status !== 'delivered' && order.status !== 'paid') return null
     if (!order.tradeNo) return null
+    if (Number(order.amount) <= 0) return null // No refund for orders paid entirely with points
 
     const handleClientRefund = async () => {
         // if (!confirm(t('admin.orders.refundConfirm'))) return // No double confirm for fallback
