@@ -50,7 +50,7 @@
    - **Build command**: `npm install && npx opennextjs-cloudflare build`
    - **Deploy command**: `npx wrangler deploy`
 
-4. 点击 **Deploy**（首次可能会失败，因为还没绑定数据库，继续下一步）
+4. 点击 **Deploy**
 
 #### 3. 绑定 D1 数据库
 
