@@ -78,6 +78,16 @@
 
 > ⚠️ **重要**: `NEXT_PUBLIC_APP_URL` **必须**设置为 Text 类型，不能用 Secret，否则支付签名会失败！
 
+**回调地址配置：**
+
+假设你的 Workers 域名是 `https://ldc-shop.xxx.workers.dev`：
+
+| 平台 | 配置项 | 地址 |
+|------|--------|------|
+| Linux DO Connect | 回调地址 (Callback URL) | `https://ldc-shop.xxx.workers.dev/api/auth/callback/linuxdo` |
+| EPay / Linux DO Credit | 通知 URL (Notify URL) | `https://ldc-shop.xxx.workers.dev/api/notify` |
+| EPay / Linux DO Credit | 回调 URL (Return URL) | `https://ldc-shop.xxx.workers.dev/callback` |
+
 #### 5. 重新部署
 
 回到 **Deployments** 页面，点击最新部署记录的 **Retry deployment**。
