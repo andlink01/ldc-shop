@@ -20,7 +20,7 @@ export default async function Home() {
 
   // Fetch ratings for all products in parallel
   const productsWithRatings = await Promise.all(
-    products.map(async (p) => {
+    products.map(async (p: any) => {
       let rating = { average: 0, count: 0 };
       try {
         rating = await getProductRating(p.id);
