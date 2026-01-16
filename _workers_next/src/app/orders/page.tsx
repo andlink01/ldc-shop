@@ -34,7 +34,7 @@ export default async function OrdersPage() {
             const reviewedOrders = await db.select({ orderId: reviews.orderId })
                 .from(reviews)
                 .where(inArray(reviews.orderId, deliveredOrderIds))
-            reviewedOrderIds = reviewedOrders.map(r => r.orderId)
+            reviewedOrderIds = reviewedOrders.map((r: { orderId: string }) => r.orderId)
         } catch {
             // Ignore errors (table might not exist)
         }
