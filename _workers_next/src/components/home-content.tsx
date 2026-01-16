@@ -339,7 +339,7 @@ export function HomeContent({ products, announcement, visitorCount, categories: 
                                             size="sm"
                                             className={cn(
                                                 "h-8 px-4 text-xs font-medium rounded-full shadow-sm hover:shadow-md transition-all active:scale-95 cursor-pointer",
-                                                product.stockCount > 0 ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted"
+                                                product.stockCount > 0 ? "bg-foreground text-background hover:bg-foreground/90" : "bg-muted text-muted-foreground hover:bg-muted"
                                             )}
                                             disabled={product.stockCount <= 0}
                                         >

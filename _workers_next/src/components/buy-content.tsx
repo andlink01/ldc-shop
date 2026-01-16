@@ -257,7 +257,7 @@ export function BuyContent({
                                             {product.purchaseWarning && !warningConfirmed ? (
                                                 <Dialog open={showWarningDialog} onOpenChange={setShowWarningDialog}>
                                                     <DialogTrigger asChild>
-                                                        <Button className="w-full tech-button">
+                                                        <Button size="lg" className="w-full md:w-auto bg-foreground text-background hover:bg-foreground/90">
                                                             {t('common.buyNow')}
                                                         </Button>
                                                     </DialogTrigger>
@@ -280,7 +280,7 @@ export function BuyContent({
                                                             <Button onClick={() => {
                                                                 setWarningConfirmed(true)
                                                                 setShowWarningDialog(false)
-                                                            }}>
+                                                            }} className="bg-foreground text-background hover:bg-foreground/90">
                                                                 {t('buy.confirmWarning')}
                                                             </Button>
                                                         </div>

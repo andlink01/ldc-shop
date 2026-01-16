@@ -164,7 +164,7 @@ export function BuyButton({ productId, price, productName, disabled, quantity = 
                         <Button variant="outline" onClick={() => setOpen(false)} disabled={loading}>
                             {t('common.cancel')}
                         </Button>
-                        <Button onClick={handleBuy} disabled={loading}>
+                        <Button onClick={handleBuy} disabled={loading} className="bg-foreground text-background hover:bg-foreground/90">
                             {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                             {finalPrice === 0 ? t('buy.modal.payWithPoints') : t('buy.modal.proceedPayment')}
                         </Button>
