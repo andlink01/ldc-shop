@@ -17,16 +17,18 @@ export function MobileNav({ isLoggedIn, isAdmin }: MobileNavProps) {
 
     if (!isLoggedIn) return null
 
+    const isZh = t('common.myOrders').includes('订单')
+    
     const navItems = [
         {
             href: "/",
-            label: t('home.title').split(' ')[0] || "首页",
+            label: isZh ? "首页" : "Home",
             icon: Home,
             active: pathname === "/"
         },
         {
             href: "/orders",
-            label: t('common.myOrders'),
+            label: isZh ? "订单" : "Orders",
             icon: Package,
             active: pathname === "/orders" || pathname.startsWith("/order/")
         },
@@ -38,7 +40,7 @@ export function MobileNav({ isLoggedIn, isAdmin }: MobileNavProps) {
         }] : []),
         {
             href: "/profile",
-            label: t('common.myOrders').includes('订单') ? "我的" : "Me",
+            label: isZh ? "我的" : "Me",
             icon: User,
             active: pathname === "/profile"
         }

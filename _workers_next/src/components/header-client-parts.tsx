@@ -89,17 +89,15 @@ export function HeaderUserMenuItems({ isAdmin }: { isAdmin: boolean }) {
     return (
         <>
             <DropdownMenuItem asChild>
+                <Link href="/profile">{t('common.myOrders').includes('订单') ? "我的" : "Me"}</Link>
+            </DropdownMenuItem>
+            <DropdownMenuItem asChild>
                 <Link href="/orders">{t('common.myOrders')}</Link>
             </DropdownMenuItem>
             {isAdmin && (
-                <>
-                    <DropdownMenuItem asChild>
-                        <Link href="/admin/collect">{t('payment.adminMenu')}</Link>
-                    </DropdownMenuItem>
-                    <DropdownMenuItem asChild>
-                        <Link href="/admin">{t('common.dashboard')}</Link>
-                    </DropdownMenuItem>
-                </>
+                <DropdownMenuItem asChild>
+                    <Link href="/admin/settings">{t('common.admin')}</Link>
+                </DropdownMenuItem>
             )}
         </>
     )

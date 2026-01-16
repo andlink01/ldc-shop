@@ -10,7 +10,7 @@ export function FooterContent({ customFooter }: FooterContentProps) {
     const { t } = useI18n()
 
     return (
-        <footer className="border-t border-border/50 py-6 md:py-0 bg-gradient-to-t from-muted/30 to-transparent">
+        <footer className="border-t border-border/50 py-6 pb-20 md:py-0 md:pb-0 bg-gradient-to-t from-muted/30 to-transparent">
             <div className="container flex flex-col items-center justify-between gap-4 md:h-20 md:flex-row">
                 <div className="flex flex-col items-center gap-4 px-8 md:flex-row md:gap-2 md:px-0">
                     <p className="text-center text-xs leading-loose text-muted-foreground/80 md:text-left">
