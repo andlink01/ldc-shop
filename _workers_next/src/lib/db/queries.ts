@@ -269,7 +269,8 @@ export async function getProduct(id: string) {
 
 // Get product for admin (includes inactive products)
 export async function getProductForAdmin(id: string) {
-    return await withProductColumnFallback(async () => {
+    // Try with all columns first
+    try {
         const result = await db.select({
             id: products.id,
             name: products.name,
@@ -287,7 +288,33 @@ export async function getProductForAdmin(id: string) {
             .where(eq(products.id, id));
 
         return result[0] || null;
-    })
+    } catch (error: any) {
+        // If purchaseWarning column doesn't exist, try without it
+        const errorString = JSON.stringify(error);
+        if (errorString.includes('no such column') || errorString.includes('purchase_warning')) {
+            const result = await db.select({
+                id: products.id,
+                name: products.name,
+                description: products.description,
+                price: products.price,
+                compareAtPrice: products.compareAtPrice,
+                image: products.image,
+                category: products.category,
+                isHot: products.isHot,
+                isActive: products.isActive,
+                purchaseLimit: products.purchaseLimit,
+            })
+                .from(products)
+                .where(eq(products.id, id));
+
+            const product = result[0];
+            if (product) {
+                return { ...product, purchaseWarning: null };
+            }
+            return null;
+        }
+        throw error;
+    }
 }
 
 // Dashboard Stats
