@@ -292,6 +292,7 @@ export function BuyContent({
                                                     price={product.price}
                                                     productName={product.name}
                                                     quantity={quantity}
+                                                    autoOpen={warningConfirmed && !!product.purchaseWarning}
                                                 />
                                             )}
                                         </div>

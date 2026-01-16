@@ -16,31 +16,44 @@ interface BuyButtonProps {
     productName: string
     disabled?: boolean
     quantity?: number
+    autoOpen?: boolean // Auto-open dialog when mounted (for after warning confirmation)
 }
 
-export function BuyButton({ productId, price, productName, disabled, quantity = 1 }: BuyButtonProps) {
+export function BuyButton({ productId, price, productName, disabled, quantity = 1, autoOpen = false }: BuyButtonProps) {
     const [loading, setLoading] = useState(false)
     const [open, setOpen] = useState(false)
     const [points, setPoints] = useState(0)
     const [usePoints, setUsePoints] = useState(false)
     const [pointsLoading, setPointsLoading] = useState(false)
+    const [hasAutoOpened, setHasAutoOpened] = useState(false)
     const { t } = useI18n()
 
     const numericalPrice = Number(price) * quantity
 
-    const handleInitialClick = async () => {
+    const openDialog = async () => {
         if (disabled) return
         setOpen(true)
         setPointsLoading(true)
         try {
             const p = await getUserPoints()
             setPoints(p)
-            // Auto-check if points cover full price? Maybe not. Let user decide.
         } catch (e) {
             console.error(e)
         } finally {
             setPointsLoading(false)
         }
+    }
+
+    // Auto-open dialog when autoOpen is true (after warning confirmation)
+    useEffect(() => {
+        if (autoOpen && !hasAutoOpened && !disabled) {
+            setHasAutoOpened(true)
+            openDialog()
+        }
+    }, [autoOpen, hasAutoOpened, disabled])
+
+    const handleInitialClick = async () => {
+        await openDialog()
     }
 
     const handleBuy = async () => {
