@@ -7,6 +7,7 @@ import { cancelExpiredOrders } from "@/lib/db/queries"
 import { generateOrderId, generateSign } from "@/lib/crypto"
 import { eq, sql, and, or, isNull, lt } from "drizzle-orm"
 import { cookies } from "next/headers"
+import { notifyAdminPaymentSuccess } from "@/lib/notifications"
 
 export async function createOrder(productId: string, quantity: number = 1, email?: string, usePoints: boolean = false) {
     const session = await auth()
@@ -328,6 +329,16 @@ export async function createOrder(productId: string, quantity: number = 1, email
                 pointsUsed: pointsToUse,
                 quantity: qty
             });
+
+            // Notify admin for points-only payment
+            notifyAdminPaymentSuccess({
+                orderId,
+                productName: product.name,
+                amount: pointsToUse.toString() + ' (积分)',
+                username: username || user?.username,
+                email: email || user?.email,
+                tradeNo: 'POINTS_REDEMPTION'
+            }).catch(err => console.error('[Notification] Points payment notify failed:', err));
 
         } else {
             await db.insert(orders).values({
