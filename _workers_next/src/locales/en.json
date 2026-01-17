@@ -298,7 +298,15 @@
             "json": "JSON",
             "csvWithSecrets": "CSV (include secrets)",
             "d1Sql": "D1 SQL (INSERT OR IGNORE)",
-            "fullDumpHint": "The SQL format is compatible with Cloudflare D1 imports and is similar to scripts/export-data.ts."
+            "fullDumpHint": "The SQL format is compatible with Cloudflare D1 imports and is similar to scripts/export-data.ts.",
+            "importTitle": "Data Import",
+            "importDesc": "Upload SQL file (supports Vercel export format) for migration or restore.",
+            "selectFile": "Select SQL File",
+            "importBtn": "Start Import",
+            "importing": "Importing...",
+            "importSuccess": "Import completed! Success: {{count}}, Failed/Skipped: {{errors}}",
+            "tabExport": "Data Export",
+            "tabImport": "Data Import"
         },
         "reviews": {
             "title": "Reviews",

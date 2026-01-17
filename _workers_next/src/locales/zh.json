@@ -298,7 +298,15 @@
             "json": "JSON",
             "csvWithSecrets": "CSV（包含敏感字段）",
             "d1Sql": "D1 SQL（INSERT OR IGNORE）",
-            "fullDumpHint": "SQL 格式兼容 Cloudflare D1 导入，内容与 scripts/export-data.ts 类似。"
+            "fullDumpHint": "SQL 格式兼容 Cloudflare D1 导入，内容与 scripts/export-data.ts 类似。",
+            "importTitle": "数据导入",
+            "importDesc": "上传 SQL 文件（支持 Vercel 导出格式）进行数据迁移或恢复。",
+            "selectFile": "选择 SQL 文件",
+            "importBtn": "开始导入",
+            "importing": "导入中...",
+            "importSuccess": "导入完成！成功：{{count}}，失败/跳过：{{errors}}",
+            "tabExport": "数据导出",
+            "tabImport": "数据导入"
         },
         "reviews": {
             "title": "评价管理",
