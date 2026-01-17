@@ -104,7 +104,7 @@ export async function processOrderFulfillment(orderId: string, paidAmount: numbe
 
                 // Send email with card keys
                 if (order.email) {
-                    sendOrderEmail({
+                    await sendOrderEmail({
                         to: order.email,
                         orderId: orderId,
                         productName: product?.name || 'Product',
@@ -220,7 +220,7 @@ export async function processOrderFulfillment(orderId: string, paidAmount: numbe
 
             // Send email with card keys
             if (order.email) {
-                sendOrderEmail({
+                await sendOrderEmail({
                     to: order.email,
                     orderId: orderId,
                     productName: product?.name || 'Product',

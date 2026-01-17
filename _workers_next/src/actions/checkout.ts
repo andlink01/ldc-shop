@@ -350,7 +350,7 @@ export async function createOrder(productId: string, quantity: number = 1, email
             // Send email with card keys
             const orderEmail = email || user?.email;
             if (orderEmail) {
-                sendOrderEmail({
+                await sendOrderEmail({
                     to: orderEmail,
                     orderId,
                     productName: product.name,
