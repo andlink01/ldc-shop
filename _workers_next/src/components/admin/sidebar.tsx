@@ -46,7 +46,7 @@ export function AdminSidebar({ username }: { username: string }) {
                     <Link href="/admin/collect"><QrCode className="mr-2 h-4 w-4" />{t('payment.adminMenu')}</Link>
                 </Button>
                 <Button variant="ghost" asChild className="justify-start">
-                    <Link href="/admin/notifications"><Bell className="mr-2 h-4 w-4" />{t('admin.notifications.title')}</Link>
+                    <Link href="/admin/notifications"><Bell className="mr-2 h-4 w-4" />{t('admin.settings.notifications.title')}</Link>
                 </Button>
             </nav>
             <div className="mt-auto pt-6 border-t">

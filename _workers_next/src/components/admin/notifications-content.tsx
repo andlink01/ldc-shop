@@ -4,10 +4,11 @@ import { useState } from "react"
 import { useI18n } from "@/lib/i18n/context"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
+import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
 import { toast } from "sonner"
 import { saveNotificationSettings, testNotification } from "@/actions/admin"
+import { Bell, CreditCard, RotateCcw, ExternalLink } from "lucide-react"
 
 interface NotificationsContentProps {
     settings: {
@@ -40,9 +41,9 @@ export function NotificationsContent({ settings }: NotificationsContentProps) {
         try {
             const res = await testNotification()
             if (res.success) {
-                toast.success(t('admin.notifications.testSuccess'))
+                toast.success(t('admin.settings.notifications.testSuccess'))
             } else {
-                toast.error(t('admin.notifications.testFailed', { error: res.error }))
+                toast.error(t('admin.settings.notifications.testFailed', { error: res.error }))
             }
         } catch (e: any) {
             toast.error(t('common.error'))
@@ -53,53 +54,127 @@ export function NotificationsContent({ settings }: NotificationsContentProps) {
 
     return (
         <div className="space-y-6">
-            <h2 className="text-3xl font-bold tracking-tight">{t('admin.notifications.title')}</h2>
+            <h2 className="text-3xl font-bold tracking-tight">{t('admin.settings.notifications.title')}</h2>
 
+            {/* 功能介绍卡片 */}
+            <Card className="border-primary/20 bg-primary/5">
+                <CardHeader className="pb-3">
+                    <CardTitle className="flex items-center gap-2 text-lg">
+                        <Bell className="h-5 w-5" />
+                        {t('admin.settings.notifications.featureTitle')}
+                    </CardTitle>
+                    <CardDescription>{t('admin.settings.notifications.featureDesc')}</CardDescription>
+                </CardHeader>
+                <CardContent>
+                    <div className="grid gap-3 text-sm">
+                        <div className="flex items-start gap-3 p-3 bg-background rounded-lg border">
+                            <CreditCard className="h-5 w-5 text-green-500 mt-0.5 shrink-0" />
+                            <div>
+                                <p className="font-medium">{t('admin.settings.notifications.triggerPayment')}</p>
+                                <p className="text-muted-foreground">{t('admin.settings.notifications.triggerPaymentDesc')}</p>
+                            </div>
+                        </div>
+                        <div className="flex items-start gap-3 p-3 bg-background rounded-lg border">
+                            <RotateCcw className="h-5 w-5 text-orange-500 mt-0.5 shrink-0" />
+                            <div>
+                                <p className="font-medium">{t('admin.settings.notifications.triggerRefund')}</p>
+                                <p className="text-muted-foreground">{t('admin.settings.notifications.triggerRefundDesc')}</p>
+                            </div>
+                        </div>
+                    </div>
+                </CardContent>
+            </Card>
+
+            {/* 配置表单 */}
             <Card>
                 <CardHeader>
-                    <CardTitle>Telegram Bot</CardTitle>
+                    <CardTitle>Telegram Bot {t('admin.settings.notifications.configTitle')}</CardTitle>
+                    <CardDescription>{t('admin.settings.notifications.configDesc')}</CardDescription>
                 </CardHeader>
                 <CardContent>
                     <form action={handleSave} className="space-y-4">
                         <div className="space-y-2">
-                            <Label>{t('admin.notifications.telegramBotToken')}</Label>
+                            <Label>{t('admin.settings.notifications.telegramBotToken')}</Label>
                             <Input
                                 name="telegramBotToken"
                                 value={token}
                                 onChange={e => setToken(e.target.value)}
-                                placeholder={t('admin.notifications.telegramBotTokenPlaceholder') || ''}
+                                placeholder={t('admin.settings.notifications.telegramBotTokenPlaceholder') || ''}
+                                type="password"
                             />
                         </div>
                         <div className="space-y-2">
-                            <Label>{t('admin.notifications.telegramChatId')}</Label>
+                            <Label>{t('admin.settings.notifications.telegramChatId')}</Label>
                             <Input
                                 name="telegramChatId"
                                 value={chatId}
                                 onChange={e => setChatId(e.target.value)}
-                                placeholder={t('admin.notifications.telegramChatIdPlaceholder') || ''}
+                                placeholder={t('admin.settings.notifications.telegramChatIdPlaceholder') || ''}
                             />
-                        </div>
-
-                        <div className="bg-muted p-4 rounded-md text-sm text-muted-foreground space-y-2">
-                            <p className="font-semibold">{t('admin.notifications.guide')}</p>
-                            <p>{t('admin.notifications.guideCreateBot')}</p>
-                            <p>{t('admin.notifications.guideGetChatId')}</p>
                         </div>
 
                         <div className="flex gap-4">
                             <Button type="submit" disabled={isLoading}>
-                                {isLoading ? t('common.processing') : t('admin.notifications.save')}
+                                {isLoading ? t('common.processing') : t('admin.settings.notifications.save')}
                             </Button>
 
                             {token && chatId && (
                                 <Button type="button" variant="secondary" onClick={handleTest} disabled={isTesting}>
-                                    {isTesting ? t('common.processing') : t('admin.notifications.test')}
+                                    {isTesting ? t('common.processing') : t('admin.settings.notifications.test')}
                                 </Button>
                             )}
                         </div>
                     </form>
                 </CardContent>
             </Card>
+
+            {/* 配置指南 */}
+            <Card>
+                <CardHeader>
+                    <CardTitle className="text-lg">{t('admin.settings.notifications.guide')}</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                    <div className="space-y-3">
+                        <div className="flex gap-3">
+                            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground text-xs font-medium">1</span>
+                            <div>
+                                <p className="font-medium">{t('admin.settings.notifications.step1Title')}</p>
+                                <p className="text-sm text-muted-foreground">{t('admin.settings.notifications.step1Desc')}</p>
+                                <a
+                                    href="https://t.me/BotFather"
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex items-center gap-1 text-sm text-primary hover:underline mt-1"
+                                >
+                                    @BotFather <ExternalLink className="h-3 w-3" />
+                                </a>
+                            </div>
+                        </div>
+                        <div className="flex gap-3">
+                            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground text-xs font-medium">2</span>
+                            <div>
+                                <p className="font-medium">{t('admin.settings.notifications.step2Title')}</p>
+                                <p className="text-sm text-muted-foreground">{t('admin.settings.notifications.step2Desc')}</p>
+                            </div>
+                        </div>
+                        <div className="flex gap-3">
+                            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground text-xs font-medium">3</span>
+                            <div>
+                                <p className="font-medium">{t('admin.settings.notifications.step3Title')}</p>
+                                <p className="text-sm text-muted-foreground">{t('admin.settings.notifications.step3Desc')}</p>
+                            </div>
+                        </div>
+                        <div className="flex gap-3">
+                            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground text-xs font-medium">4</span>
+                            <div>
+                                <p className="font-medium">{t('admin.settings.notifications.step4Title')}</p>
+                                <p className="text-sm text-muted-foreground">{t('admin.settings.notifications.step4Desc')}</p>
+                            </div>
+                        </div>
+                    </div>
+                </CardContent>
+            </Card>
         </div>
     )
 }
+
