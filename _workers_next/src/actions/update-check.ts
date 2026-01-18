@@ -1,8 +1,6 @@
 "use server"
 
-// Get current version from package.json
-// This is baked into the build
-const CURRENT_VERSION = "0.2.6"
+import { APP_VERSION } from "@/lib/version"
 
 // Upstream repository to check for updates
 const UPSTREAM_REPO = "chatgptuk/ldc-shop"
@@ -50,8 +48,8 @@ export async function checkForUpdates(): Promise<UpdateCheckResult> {
                     if (tags.length > 0) {
                         const latestTag = tags[0].name.replace(/^v/, '')
                         return {
-                            hasUpdate: compareVersions(latestTag, CURRENT_VERSION) > 0,
-                            currentVersion: CURRENT_VERSION,
+                            hasUpdate: compareVersions(latestTag, APP_VERSION) > 0,
+                            currentVersion: APP_VERSION,
                             latestVersion: latestTag,
                             releaseUrl: `https://github.com/${UPSTREAM_REPO}`
                         }
@@ -60,7 +58,7 @@ export async function checkForUpdates(): Promise<UpdateCheckResult> {
 
                 return {
                     hasUpdate: false,
-                    currentVersion: CURRENT_VERSION,
+                    currentVersion: APP_VERSION,
                     latestVersion: null,
                     releaseUrl: null
                 }
@@ -73,8 +71,8 @@ export async function checkForUpdates(): Promise<UpdateCheckResult> {
         const latestVersion = release.tag_name.replace(/^v/, '')
 
         return {
-            hasUpdate: compareVersions(latestVersion, CURRENT_VERSION) > 0,
-            currentVersion: CURRENT_VERSION,
+            hasUpdate: compareVersions(latestVersion, APP_VERSION) > 0,
+            currentVersion: APP_VERSION,
             latestVersion,
             releaseUrl: release.html_url
         }
@@ -82,7 +80,7 @@ export async function checkForUpdates(): Promise<UpdateCheckResult> {
         console.error('Update check failed:', error)
         return {
             hasUpdate: false,
-            currentVersion: CURRENT_VERSION,
+            currentVersion: APP_VERSION,
             latestVersion: null,
             releaseUrl: null,
             error: error.message
@@ -106,5 +104,5 @@ function compareVersions(a: string, b: string): number {
 }
 
 export async function getCurrentVersion(): Promise<string> {
-    return CURRENT_VERSION
+    return APP_VERSION
 }

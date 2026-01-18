@@ -3,6 +3,7 @@
 import { db } from "@/lib/db"
 import { sql } from "drizzle-orm"
 import { revalidatePath } from "next/cache"
+import { checkAdmin } from "@/actions/admin"
 
 async function executeStatement(statement: string) {
     if (!statement.trim()) return
@@ -15,6 +16,8 @@ async function executeStatement(statement: string) {
 }
 
 export async function importData(formData: FormData) {
+    await checkAdmin()
+
     const file = formData.get('file') as File
     if (!file) {
         return { success: false, error: 'No file provided' }

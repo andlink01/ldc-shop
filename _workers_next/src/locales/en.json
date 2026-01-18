@@ -83,6 +83,8 @@
         "productNotFound": "Product not found",
         "outOfStock": "Product is out of stock",
         "limitExceeded": "Purchase quantity limit exceeded. Please reduce the quantity and try again.",
+        "invalidQuantity": "Invalid quantity.",
+        "quantityTooLarge": "Quantity is too large. Please reduce and try again.",
         "stockLocked": "Stock is temporarily reserved. Please try again in a minute.",
         "stockLockedMessage": "Stock is currently locked. If reserved orders are not paid within 5 minutes, stock will be released. Please try again later!",
         "userBlocked": "This product has a purchase limit for you.",
@@ -530,6 +532,12 @@
         "submitted": "Thank you for your review!",
         "submitError": "Failed to submit review. Please try again.",
         "invalidRating": "Please select a rating.",
+        "authRequired": "Please sign in to submit a review.",
+        "orderNotFound": "Order not found.",
+        "invalidOrder": "Order information does not match.",
+        "notOwner": "Only the order owner can review.",
+        "orderNotDelivered": "Order not delivered yet.",
+        "alreadyReviewed": "This order has already been reviewed.",
         "leaveReview": "Leave a Review"
     },
     "checkin": {

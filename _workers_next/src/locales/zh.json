@@ -83,6 +83,8 @@
         "productNotFound": "商品未找到",
         "outOfStock": "商品已售罄",
         "limitExceeded": "超出限购数量，请减少购买数量后重试",
+        "invalidQuantity": "购买数量无效",
+        "quantityTooLarge": "购买数量过大，请减少后重试",
         "stockLocked": "库存已被锁定，请稍后再试",
         "stockLockedMessage": "该商品库存已被锁定，如果用户五分钟内未支付，库存将自动释放，请稍后再来！",
         "userBlocked": "本商品对您已限购",
@@ -530,6 +532,12 @@
         "submitted": "感谢您的评价！",
         "submitError": "评价提交失败，请重试。",
         "invalidRating": "请选择评分。",
+        "authRequired": "请先登录再提交评价。",
+        "orderNotFound": "订单不存在。",
+        "invalidOrder": "订单信息不匹配。",
+        "notOwner": "仅订单所有者可评价。",
+        "orderNotDelivered": "订单未完成，暂不可评价。",
+        "alreadyReviewed": "该订单已评价。",
         "leaveReview": "发表评价"
     },
     "checkin": {

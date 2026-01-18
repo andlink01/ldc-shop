@@ -141,7 +141,7 @@ export async function processOrderFulfillment(orderId: string, paidAmount: numbe
 
         const quantity = order.quantity || 1;
         let cardKeys: string[] = [];
-        const oneMinuteAgo = Date.now() - 60000;
+        const fiveMinutesAgo = Date.now() - 5 * 60 * 1000;
 
         // 1. Reserved cards
         try {
@@ -170,7 +170,7 @@ export async function processOrderFulfillment(orderId: string, paidAmount: numbe
             const needed = quantity - cardKeys.length;
             const availableCards = await db.select({ id: cards.id, cardKey: cards.cardKey })
                 .from(cards)
-                .where(sql`${cards.productId} = ${order.productId} AND COALESCE(${cards.isUsed}, 0) = 0 AND (${cards.reservedAt} IS NULL OR ${cards.reservedAt} < ${oneMinuteAgo})`)
+                .where(sql`${cards.productId} = ${order.productId} AND COALESCE(${cards.isUsed}, 0) = 0 AND (${cards.reservedAt} IS NULL OR ${cards.reservedAt} < ${fiveMinutesAgo})`)
                 .limit(needed);
 
             for (const card of availableCards) {

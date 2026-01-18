@@ -10,9 +10,18 @@ import { cookies } from "next/headers"
 import { notifyAdminPaymentSuccess } from "@/lib/notifications"
 import { sendOrderEmail } from "@/lib/email"
 
+const MAX_ORDER_QUANTITY = 10000
+
 export async function createOrder(productId: string, quantity: number = 1, email?: string, usePoints: boolean = false) {
     const session = await auth()
     const user = session?.user
+    const normalizedQuantity = Number(quantity)
+
+    if (!Number.isFinite(normalizedQuantity) || !Number.isInteger(normalizedQuantity) || normalizedQuantity <= 0) {
+        return { success: false, error: 'buy.invalidQuantity' }
+    }
+
+    quantity = normalizedQuantity
 
     // 1. Get Product
     const product = await db.query.products.findFirst({
@@ -26,6 +35,13 @@ export async function createOrder(productId: string, quantity: number = 1, email
         }
     })
     if (!product) return { success: false, error: 'buy.productNotFound' }
+
+    const purchaseLimit = product.purchaseLimit && product.purchaseLimit > 0 ? product.purchaseLimit : null
+    const maxQuantity = purchaseLimit ?? MAX_ORDER_QUANTITY
+
+    if (quantity > maxQuantity) {
+        return { success: false, error: purchaseLimit ? 'buy.limitExceeded' : 'buy.quantityTooLarge' }
+    }
 
     // 2. Check Blocked Status
     if (user?.id) {
@@ -285,93 +301,113 @@ export async function createOrder(productId: string, quantity: number = 1, email
     };
 
     const createOrderRecord = async (reservedCards: any[], joinedKeys: string, isZeroPrice: boolean, pointsToUse: number, finalAmount: number, user: any, username: any, email: any, product: any, orderId: string, qty: number) => {
-        if (pointsToUse > 0) {
-            const updatedUser = await db.update(loginUsers)
-                .set({ points: sql`${loginUsers.points} - ${pointsToUse}` })
-                .where(and(eq(loginUsers.userId, user!.id!), sql`${loginUsers.points} >= ${pointsToUse}`))
-                .returning({ points: loginUsers.points });
+        let pointsDeducted = false
+        let orderInserted = false
 
-            if (!updatedUser.length) {
-                throw new Error('insufficient_points');
+        try {
+            if (pointsToUse > 0) {
+                const updatedUser = await db.update(loginUsers)
+                    .set({ points: sql`${loginUsers.points} - ${pointsToUse}` })
+                    .where(and(eq(loginUsers.userId, user!.id!), sql`${loginUsers.points} >= ${pointsToUse}`))
+                    .returning({ points: loginUsers.points });
+
+                if (!updatedUser.length) {
+                    throw new Error('insufficient_points');
+                }
+
+                pointsDeducted = true
             }
-        }
 
-        if (isZeroPrice) {
-            const cardIds = reservedCards.map(c => c.id)
-            if (cardIds.length > 0) {
-                if (product.isShared) {
-                    // For shared products, DO NOT mark as used.
-                    // Just update order status (below)
-                } else {
-                    for (const cid of cardIds) {
-                        await db.update(cards).set({
-                            isUsed: true,
-                            usedAt: new Date(),
-                            reservedOrderId: null,
-                            reservedAt: null
-                        }).where(eq(cards.id, cid));
+            if (isZeroPrice) {
+                const cardIds = reservedCards.map(c => c.id)
+                if (cardIds.length > 0) {
+                    if (product.isShared) {
+                        // For shared products, DO NOT mark as used.
+                        // Just update order status (below)
+                    } else {
+                        for (const cid of cardIds) {
+                            await db.update(cards).set({
+                                isUsed: true,
+                                usedAt: new Date(),
+                                reservedOrderId: null,
+                                reservedAt: null
+                            }).where(eq(cards.id, cid));
+                        }
                     }
                 }
-            }
 
-            await db.insert(orders).values({
-                orderId,
-                productId: product.id,
-                productName: product.name,
-                amount: finalAmount.toString(),
-                email: email || user?.email || null,
-                userId: user?.id || null,
-                username: username || user?.username || null,
-                status: 'delivered',
-                cardKey: joinedKeys,
-                paidAt: new Date(),
-                deliveredAt: new Date(),
-                tradeNo: 'POINTS_REDEMPTION',
-                pointsUsed: pointsToUse,
-                quantity: qty
-            });
-
-            // Notify admin for points-only payment
-            console.log('[Checkout] Points payment completed, sending notification for order:', orderId);
-            try {
-                await notifyAdminPaymentSuccess({
+                await db.insert(orders).values({
                     orderId,
+                    productId: product.id,
                     productName: product.name,
-                    amount: pointsToUse.toString() + ' (积分)',
-                    username: username || user?.username,
-                    email: email || user?.email,
-                    tradeNo: 'POINTS_REDEMPTION'
+                    amount: finalAmount.toString(),
+                    email: email || user?.email || null,
+                    userId: user?.id || null,
+                    username: username || user?.username || null,
+                    status: 'delivered',
+                    cardKey: joinedKeys,
+                    paidAt: new Date(),
+                    deliveredAt: new Date(),
+                    tradeNo: 'POINTS_REDEMPTION',
+                    pointsUsed: pointsToUse,
+                    quantity: qty
                 });
-                console.log('[Checkout] Points payment notification sent successfully');
-            } catch (err) {
-                console.error('[Notification] Points payment notify failed:', err);
-            }
+                orderInserted = true
 
-            // Send email with card keys
-            const orderEmail = email || user?.email;
-            if (orderEmail) {
-                await sendOrderEmail({
-                    to: orderEmail,
+                // Notify admin for points-only payment
+                console.log('[Checkout] Points payment completed, sending notification for order:', orderId);
+                try {
+                    await notifyAdminPaymentSuccess({
+                        orderId,
+                        productName: product.name,
+                        amount: pointsToUse.toString() + ' (积分)',
+                        username: username || user?.username,
+                        email: email || user?.email,
+                        tradeNo: 'POINTS_REDEMPTION'
+                    });
+                    console.log('[Checkout] Points payment notification sent successfully');
+                } catch (err) {
+                    console.error('[Notification] Points payment notify failed:', err);
+                }
+
+                // Send email with card keys
+                const orderEmail = email || user?.email;
+                if (orderEmail) {
+                    await sendOrderEmail({
+                        to: orderEmail,
+                        orderId,
+                        productName: product.name,
+                        cardKeys: joinedKeys
+                    }).catch(err => console.error('[Email] Points payment email failed:', err));
+                }
+
+            } else {
+                await db.insert(orders).values({
                     orderId,
+                    productId: product.id,
                     productName: product.name,
-                    cardKeys: joinedKeys
-                }).catch(err => console.error('[Email] Points payment email failed:', err));
+                    amount: finalAmount.toString(),
+                    email: email || user?.email || null,
+                    userId: user?.id || null,
+                    username: username || user?.username || null,
+                    status: 'pending',
+                    pointsUsed: pointsToUse,
+                    currentPaymentId: orderId, // Store current payment ID
+                    quantity: qty
+                });
+                orderInserted = true
             }
-
-        } else {
-            await db.insert(orders).values({
-                orderId,
-                productId: product.id,
-                productName: product.name,
-                amount: finalAmount.toString(),
-                email: email || user?.email || null,
-                userId: user?.id || null,
-                username: username || user?.username || null,
-                status: 'pending',
-                pointsUsed: pointsToUse,
-                currentPaymentId: orderId, // Store current payment ID
-                quantity: qty
-            });
+        } catch (error) {
+            if (pointsDeducted && !orderInserted && user?.id) {
+                try {
+                    await db.update(loginUsers)
+                        .set({ points: sql`${loginUsers.points} + ${pointsToUse}` })
+                        .where(eq(loginUsers.userId, user.id))
+                } catch {
+                    // Best effort rollback
+                }
+            }
+            throw error;
         }
     }
 

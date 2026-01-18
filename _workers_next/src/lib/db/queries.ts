@@ -27,6 +27,7 @@ async function ensureDatabaseInitialized() {
         // IMPORTANT: Even if table exists, ensure columns exist!
         // This is a proactive check on startup.
         await ensureProductsColumns();
+        await migrateTimestampColumnsToMs();
 
         dbInitialized = true;
         return;
@@ -150,6 +151,8 @@ async function ensureDatabaseInitialized() {
         );
     `);
 
+    await migrateTimestampColumnsToMs();
+
     dbInitialized = true;
     console.log("Database initialized successfully");
 }
@@ -198,6 +201,7 @@ export async function withOrderColumnFallback<T>(fn: () => Promise<T>): Promise<
 
 export async function getProducts() {
     return await withProductColumnFallback(async () => {
+        const fiveMinutesAgo = Date.now() - 5 * 60 * 1000;
         return await db.select({
             id: products.id,
             name: products.name,
@@ -211,8 +215,8 @@ export async function getProducts() {
             isShared: products.isShared,
             sortOrder: products.sortOrder,
             purchaseLimit: products.purchaseLimit,
-            stock: sql<number>`CASE WHEN ${products.isShared} = 1 THEN (CASE WHEN count(case when ${cards.id} IS NOT NULL AND COALESCE(${cards.isUsed}, 0) = 0 then 1 end) > 0 THEN 999999 ELSE 0 END) ELSE count(case when ${cards.id} IS NOT NULL AND COALESCE(${cards.isUsed}, 0) = 0 AND (${cards.reservedAt} IS NULL OR ${cards.reservedAt} < ${Math.floor((Date.now() - 5 * 60 * 1000) / 1000)}) then 1 end) END`,
-            locked: sql<number>`count(case when ${cards.id} IS NOT NULL AND COALESCE(${cards.isUsed}, 0) = 0 AND (${cards.reservedAt} >= ${Math.floor((Date.now() - 5 * 60 * 1000) / 1000)}) then 1 end)`,
+            stock: sql<number>`CASE WHEN ${products.isShared} = 1 THEN (CASE WHEN count(case when ${cards.id} IS NOT NULL AND COALESCE(${cards.isUsed}, 0) = 0 then 1 end) > 0 THEN 999999 ELSE 0 END) ELSE count(case when ${cards.id} IS NOT NULL AND COALESCE(${cards.isUsed}, 0) = 0 AND (${cards.reservedAt} IS NULL OR ${cards.reservedAt} < ${fiveMinutesAgo}) then 1 end) END`,
+            locked: sql<number>`count(case when ${cards.id} IS NOT NULL AND COALESCE(${cards.isUsed}, 0) = 0 AND (${cards.reservedAt} >= ${fiveMinutesAgo}) then 1 end)`,
             sold: sql<number>`(SELECT COALESCE(SUM(${orders.quantity}), 0) FROM ${orders} WHERE ${orders.productId} = ${products.id} AND ${orders.status} IN ('paid', 'delivered'))`
         })
             .from(products)
@@ -228,6 +232,7 @@ export async function getActiveProducts() {
     await ensureDatabaseInitialized();
 
     return await withProductColumnFallback(async () => {
+        const fiveMinutesAgo = Date.now() - 5 * 60 * 1000;
         return await db.select({
             id: products.id,
             name: products.name,
@@ -239,8 +244,8 @@ export async function getActiveProducts() {
             isHot: products.isHot,
             isShared: products.isShared,
             purchaseLimit: products.purchaseLimit,
-            stock: sql<number>`CASE WHEN ${products.isShared} = 1 THEN (CASE WHEN count(case when ${cards.id} IS NOT NULL AND COALESCE(${cards.isUsed}, 0) = 0 then 1 end) > 0 THEN 999999 ELSE 0 END) ELSE count(case when ${cards.id} IS NOT NULL AND COALESCE(${cards.isUsed}, 0) = 0 AND (${cards.reservedAt} IS NULL OR ${cards.reservedAt} < ${Math.floor((Date.now() - 5 * 60 * 1000) / 1000)}) then 1 end) END`,
-            locked: sql<number>`count(case when ${cards.id} IS NOT NULL AND COALESCE(${cards.isUsed}, 0) = 0 AND (${cards.reservedAt} >= ${Math.floor((Date.now() - 5 * 60 * 1000) / 1000)}) then 1 end)`,
+            stock: sql<number>`CASE WHEN ${products.isShared} = 1 THEN (CASE WHEN count(case when ${cards.id} IS NOT NULL AND COALESCE(${cards.isUsed}, 0) = 0 then 1 end) > 0 THEN 999999 ELSE 0 END) ELSE count(case when ${cards.id} IS NOT NULL AND COALESCE(${cards.isUsed}, 0) = 0 AND (${cards.reservedAt} IS NULL OR ${cards.reservedAt} < ${fiveMinutesAgo}) then 1 end) END`,
+            locked: sql<number>`count(case when ${cards.id} IS NOT NULL AND COALESCE(${cards.isUsed}, 0) = 0 AND (${cards.reservedAt} >= ${fiveMinutesAgo}) then 1 end)`,
             sold: sql<number>`(SELECT COALESCE(SUM(${orders.quantity}), 0) FROM ${orders} WHERE ${orders.productId} = ${products.id} AND ${orders.status} IN ('paid', 'delivered'))`
         })
             .from(products)
@@ -253,7 +258,7 @@ export async function getActiveProducts() {
 
 export async function getProduct(id: string) {
     return await withProductColumnFallback(async () => {
-        const fiveMinutesAgo = Math.floor((Date.now() - 5 * 60 * 1000) / 1000);
+        const fiveMinutesAgo = Date.now() - 5 * 60 * 1000;
         const result = await db.select({
             id: products.id,
             name: products.name,
@@ -316,24 +321,38 @@ export async function getDashboardStats() {
         const weekStart = new Date(todayStart);
         weekStart.setDate(weekStart.getDate() - 7);
         const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+        const todayStartMs = todayStart.getTime();
+        const weekStartMs = weekStart.getTime();
+        const monthStartMs = monthStart.getTime();
+        const stats = await db.select({
+            totalCount: sql<number>`count(*)`,
+            totalRevenue: sql<number>`COALESCE(sum(CAST(${orders.amount} AS REAL)), 0)`,
+            todayCount: sql<number>`COALESCE(sum(CASE WHEN ${orders.paidAt} >= ${todayStartMs} THEN 1 ELSE 0 END), 0)`,
+            todayRevenue: sql<number>`COALESCE(sum(CASE WHEN ${orders.paidAt} >= ${todayStartMs} THEN CAST(${orders.amount} AS REAL) ELSE 0 END), 0)`,
+            weekCount: sql<number>`COALESCE(sum(CASE WHEN ${orders.paidAt} >= ${weekStartMs} THEN 1 ELSE 0 END), 0)`,
+            weekRevenue: sql<number>`COALESCE(sum(CASE WHEN ${orders.paidAt} >= ${weekStartMs} THEN CAST(${orders.amount} AS REAL) ELSE 0 END), 0)`,
+            monthCount: sql<number>`COALESCE(sum(CASE WHEN ${orders.paidAt} >= ${monthStartMs} THEN 1 ELSE 0 END), 0)`,
+            monthRevenue: sql<number>`COALESCE(sum(CASE WHEN ${orders.paidAt} >= ${monthStartMs} THEN CAST(${orders.amount} AS REAL) ELSE 0 END), 0)`,
+        })
+            .from(orders)
+            .where(eq(orders.status, 'delivered'));
 
-        // Get all delivered orders
-        const allOrders = await db.query.orders.findMany({
-            where: eq(orders.status, 'delivered')
-        });
-
-        const todayOrders = allOrders.filter((o: any) => o.paidAt && new Date(o.paidAt) >= todayStart);
-        const weekOrders = allOrders.filter((o: any) => o.paidAt && new Date(o.paidAt) >= weekStart);
-        const monthOrders = allOrders.filter((o: any) => o.paidAt && new Date(o.paidAt) >= monthStart);
-
-        const sumAmount = (orders: typeof allOrders) =>
-            orders.reduce((sum: number, o: any) => sum + parseFloat(o.amount), 0);
+        const row = stats[0] || {
+            totalCount: 0,
+            totalRevenue: 0,
+            todayCount: 0,
+            todayRevenue: 0,
+            weekCount: 0,
+            weekRevenue: 0,
+            monthCount: 0,
+            monthRevenue: 0,
+        };
 
         return {
-            today: { count: todayOrders.length, revenue: sumAmount(todayOrders) },
-            week: { count: weekOrders.length, revenue: sumAmount(weekOrders) },
-            month: { count: monthOrders.length, revenue: sumAmount(monthOrders) },
-            total: { count: allOrders.length, revenue: sumAmount(allOrders) }
+            today: { count: row.todayCount || 0, revenue: row.todayRevenue || 0 },
+            week: { count: row.weekCount || 0, revenue: row.weekRevenue || 0 },
+            month: { count: row.monthCount || 0, revenue: row.monthRevenue || 0 },
+            total: { count: row.totalCount || 0, revenue: row.totalRevenue || 0 }
         };
     })
 }
@@ -446,6 +465,7 @@ export async function searchActiveProducts(params: {
     }
 
     const [items, totalRes] = await withProductColumnFallback(async () => {
+        const fiveMinutesAgo = Date.now() - 5 * 60 * 1000;
         const rowsPromise = db.select({
             id: products.id,
             name: products.name,
@@ -456,8 +476,8 @@ export async function searchActiveProducts(params: {
             category: products.category,
             isHot: products.isHot,
             purchaseLimit: products.purchaseLimit,
-            stock: sql<number>`count(case when ${cards.id} IS NOT NULL AND COALESCE(${cards.isUsed}, 0) = 0 AND (${cards.reservedAt} IS NULL OR ${cards.reservedAt} < ${Math.floor((Date.now() - 5 * 60 * 1000) / 1000)}) then 1 end)`,
-            locked: sql<number>`count(case when ${cards.id} IS NOT NULL AND COALESCE(${cards.isUsed}, 0) = 0 AND (${cards.reservedAt} >= ${Math.floor((Date.now() - 5 * 60 * 1000) / 1000)}) then 1 end)`,
+            stock: sql<number>`count(case when ${cards.id} IS NOT NULL AND COALESCE(${cards.isUsed}, 0) = 0 AND (${cards.reservedAt} IS NULL OR ${cards.reservedAt} < ${fiveMinutesAgo}) then 1 end)`,
+            locked: sql<number>`count(case when ${cards.id} IS NOT NULL AND COALESCE(${cards.isUsed}, 0) = 0 AND (${cards.reservedAt} >= ${fiveMinutesAgo}) then 1 end)`,
             sold: sql<number>`(SELECT COALESCE(SUM(${orders.quantity}), 0) FROM ${orders} WHERE ${orders.productId} = ${products.id} AND ${orders.status} IN ('paid', 'delivered'))`
         })
             .from(products)
@@ -587,6 +607,34 @@ function isMissingTable(error: any) {
 function isMissingTableOrColumn(error: any) {
     const errorString = (JSON.stringify(error) + String(error) + (error?.message || '')).toLowerCase();
     return isMissingTable(error) || errorString.includes('42703') || errorString.includes('no such column') || errorString.includes('column not found') || errorString.includes('d1_column_notfound');
+}
+
+const TIMESTAMP_MS_THRESHOLD = 1_000_000_000_000;
+
+async function migrateTimestampColumnsToMs() {
+    const tableColumns = [
+        { table: 'products', columns: ['created_at'] },
+        { table: 'cards', columns: ['reserved_at', 'used_at', 'created_at'] },
+        { table: 'orders', columns: ['paid_at', 'delivered_at', 'created_at'] },
+        { table: 'login_users', columns: ['created_at', 'last_login_at'] },
+        { table: 'daily_checkins_v2', columns: ['created_at'] },
+        { table: 'settings', columns: ['updated_at'] },
+        { table: 'reviews', columns: ['created_at'] },
+        { table: 'categories', columns: ['created_at', 'updated_at'] },
+        { table: 'refund_requests', columns: ['created_at', 'updated_at', 'processed_at'] },
+    ];
+
+    for (const { table, columns } of tableColumns) {
+        for (const column of columns) {
+            try {
+                await db.run(sql.raw(
+                    `UPDATE ${table} SET ${column} = ${column} * 1000 WHERE ${column} IS NOT NULL AND ${column} < ${TIMESTAMP_MS_THRESHOLD}`
+                ));
+            } catch (error: any) {
+                if (!isMissingTableOrColumn(error)) throw error;
+            }
+        }
+    }
 }
 
 async function ensureLoginUsersTable() {
@@ -726,13 +774,12 @@ export async function cancelExpiredOrders(filters: { productId?: string; userId?
 
     try {
         // No transaction - D1 doesn't support SQL transactions
-        // Drizzle's {mode: 'timestamp'} stores as SECONDS, not milliseconds!
-        const fiveMinutesAgoSec = Math.floor((Date.now() - 5 * 60 * 1000) / 1000);
+        const fiveMinutesAgoMs = Date.now() - 5 * 60 * 1000;
         const expired: any = await db.run(sql`
             UPDATE orders
             SET status = 'cancelled'
             WHERE status = 'pending'
-              AND created_at < ${fiveMinutesAgoSec}
+              AND created_at < ${fiveMinutesAgoMs}
               AND (${productId} IS NULL OR product_id = ${productId})
               AND (${userId} IS NULL OR user_id = ${userId})
               AND (${orderId} IS NULL OR order_id = ${orderId})
