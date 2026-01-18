@@ -2,9 +2,9 @@ import { NextResponse } from "next/server"
 
 export async function GET(
   request: Request,
-  context: { params: { id: string } }
+  context: { params: Promise<{ id: string }> }
 ) {
-  const { id } = context.params
+  const { id } = await context.params
   const url = new URL(request.url)
   const orderId = (id || "").trim()
 
