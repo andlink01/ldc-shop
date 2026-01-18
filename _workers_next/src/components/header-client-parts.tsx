@@ -54,12 +54,6 @@ export function HeaderNav({ isAdmin, isLoggedIn }: { isAdmin: boolean; isLoggedI
                     >
                         {isZh ? "个人中心" : "Profile"}
                     </Link>
-                    <Link
-                        href="/orders"
-                        className="flex items-center text-sm font-medium text-muted-foreground hover:text-primary transition-colors"
-                    >
-                        {isZh ? "订单" : "Orders"}
-                    </Link>
                 </>
             )}
             {isAdmin && (
@@ -108,9 +102,6 @@ export function HeaderUserMenuItems({ isAdmin }: { isAdmin: boolean }) {
             </DropdownMenuItem>
             <DropdownMenuItem asChild>
                 <Link href="/profile">{t('common.myOrders').includes('订单') ? "个人中心" : "Profile"}</Link>
-            </DropdownMenuItem>
-            <DropdownMenuItem asChild>
-                <Link href="/orders">{t('common.myOrders').includes('订单') ? "订单" : "Orders"}</Link>
             </DropdownMenuItem>
             {isAdmin && (
                 <DropdownMenuItem asChild>

@@ -24,12 +24,6 @@ export function MobileNav({ isLoggedIn, isAdmin }: MobileNavProps) {
             icon: Home,
             active: pathname === "/"
         },
-        ...(isLoggedIn ? [{
-            href: "/orders",
-            label: isZh ? "订单" : "Orders",
-            icon: Package,
-            active: pathname === "/orders" || pathname.startsWith("/order/")
-        }] : []),
         ...(isAdmin ? [{
             href: "/admin/settings",
             label: t('common.admin'),
