@@ -4,7 +4,7 @@ import { auth } from "@/lib/auth";
 import { HomeContent } from "@/components/home-content";
 import { unstable_cache } from "next/cache";
 
-const CACHE_TTL_SECONDS = 30;
+const CACHE_TTL_SECONDS = 60 * 60 * 24;
 const TAG_PRODUCTS = "home:products";
 const TAG_RATINGS = "home:ratings";
 const TAG_ANNOUNCEMENT = "home:announcement";

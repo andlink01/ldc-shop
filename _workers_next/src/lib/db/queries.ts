@@ -1,6 +1,7 @@
 import { db } from "./index";
 import { products, cards, orders, settings, reviews, loginUsers, categories } from "./schema";
 import { eq, sql, desc, and, asc, gte, or, inArray } from "drizzle-orm";
+import { revalidateTag } from "next/cache";
 
 // Database initialization state
 let dbInitialized = false;
@@ -933,7 +934,7 @@ export async function recordLoginUser(userId: string, username?: string | null) 
     if (!userId) return;
 
     try {
-        await db.insert(loginUsers).values({
+        const result = await db.insert(loginUsers).values({
             userId,
             username: username || null,
             lastLoginAt: new Date()
@@ -941,6 +942,13 @@ export async function recordLoginUser(userId: string, username?: string | null) 
             target: loginUsers.userId,
             set: { username: username || null, lastLoginAt: new Date() }
         });
+        if ((result as any)?.meta?.changes === 1) {
+            try {
+                revalidateTag('home:visitors');
+            } catch {
+                // best effort
+            }
+        }
     } catch (error: any) {
         if (isMissingTable(error) || error?.code === '42703' || error?.message?.includes('column')) {
             await ensureLoginUsersTable();
@@ -952,7 +960,7 @@ export async function recordLoginUser(userId: string, username?: string | null) 
                 await db.run(sql.raw(`ALTER TABLE login_users ADD COLUMN is_blocked INTEGER DEFAULT 0`));
             } catch { /* duplicate column */ }
 
-            await db.insert(loginUsers).values({
+            const result = await db.insert(loginUsers).values({
                 userId,
                 username: username || null,
                 lastLoginAt: new Date()
@@ -960,6 +968,13 @@ export async function recordLoginUser(userId: string, username?: string | null) 
                 target: loginUsers.userId,
                 set: { username: username || null, lastLoginAt: new Date() }
             });
+            if ((result as any)?.meta?.changes === 1) {
+                try {
+                    revalidateTag('home:visitors');
+                } catch {
+                    // best effort
+                }
+            }
             return;
         }
         console.error('recordLoginUser error:', error);
@@ -1030,6 +1045,11 @@ export async function cancelExpiredOrders(filters: { productId?: string; userId?
                 .from(orders)
                 .where(inArray(orders.orderId, orderIds));
             await recalcProductAggregatesForMany(productRows.map(r => r.productId));
+        } catch {
+            // best effort
+        }
+        try {
+            revalidateTag('home:products');
         } catch {
             // best effort
         }

@@ -3,7 +3,7 @@
 import { db } from "@/lib/db"
 import { cards, orders, refundRequests, loginUsers } from "@/lib/db/schema"
 import { and, eq, sql } from "drizzle-orm"
-import { revalidatePath } from "next/cache"
+import { revalidatePath, revalidateTag } from "next/cache"
 import { checkAdmin } from "@/actions/admin"
 import { recalcProductAggregates, recalcProductAggregatesForMany } from "@/lib/db/queries"
 
@@ -26,6 +26,11 @@ export async function markOrderPaid(orderId: string) {
     } catch {
       // best effort
     }
+  }
+  try {
+    revalidateTag('home:products')
+  } catch {
+    // best effort
   }
 }
 
@@ -51,6 +56,11 @@ export async function markOrderDelivered(orderId: string) {
     } catch {
       // best effort
     }
+  }
+  try {
+    revalidateTag('home:products')
+  } catch {
+    // best effort
   }
 }
 
@@ -90,6 +100,11 @@ export async function cancelOrder(orderId: string) {
     } catch {
       // best effort
     }
+  }
+  try {
+    revalidateTag('home:products')
+  } catch {
+    // best effort
   }
 }
 
@@ -150,6 +165,11 @@ export async function deleteOrder(orderId: string) {
       // best effort
     }
   }
+  try {
+    revalidateTag('home:products')
+  } catch {
+    // best effort
+  }
 }
 
 export async function deleteOrders(orderIds: string[]) {
@@ -168,6 +188,11 @@ export async function deleteOrders(orderIds: string[]) {
   revalidatePath('/admin/orders')
   try {
     await recalcProductAggregatesForMany(touchedProducts)
+  } catch {
+    // best effort
+  }
+  try {
+    revalidateTag('home:products')
   } catch {
     // best effort
   }
@@ -194,6 +219,11 @@ export async function verifyOrderRefundStatus(orderId: string) {
           } catch {
             // best effort
           }
+        }
+        try {
+          revalidateTag('home:products')
+        } catch {
+          // best effort
         }
         return { success: true, status: result.status, msg: 'Refunded (Verified)' }
       } else if (result.status === 1) {

@@ -5,6 +5,7 @@ import { isPaymentOrder } from "@/lib/payment";
 import { notifyAdminPaymentSuccess } from "@/lib/notifications";
 import { sendOrderEmail } from "@/lib/email";
 import { recalcProductAggregates } from "@/lib/db/queries";
+import { revalidateTag } from "next/cache";
 
 export async function processOrderFulfillment(orderId: string, paidAmount: number, tradeNo: string) {
     const order = await db.query.orders.findFirst({
@@ -26,6 +27,11 @@ export async function processOrderFulfillment(orderId: string, paidAmount: numbe
     const refreshAggregates = async () => {
         try {
             await recalcProductAggregates(order.productId);
+        } catch {
+            // best effort
+        }
+        try {
+            revalidateTag('home:products');
         } catch {
             // best effort
         }

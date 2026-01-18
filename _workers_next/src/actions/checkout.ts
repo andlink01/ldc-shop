@@ -7,6 +7,7 @@ import { cancelExpiredOrders, recalcProductAggregates } from "@/lib/db/queries"
 import { generateOrderId, generateSign } from "@/lib/crypto"
 import { eq, sql, and, or, isNull, lt } from "drizzle-orm"
 import { cookies } from "next/headers"
+import { revalidateTag } from "next/cache"
 import { notifyAdminPaymentSuccess } from "@/lib/notifications"
 import { sendOrderEmail } from "@/lib/email"
 
@@ -417,6 +418,11 @@ export async function createOrder(productId: string, quantity: number = 1, email
         await reserveAndCreate();
         try {
             await recalcProductAggregates(productId)
+        } catch {
+            // best effort
+        }
+        try {
+            revalidateTag('home:products')
         } catch {
             // best effort
         }
