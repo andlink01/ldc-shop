@@ -52,7 +52,8 @@
         "loadMore": "Load more",
         "menu": "Menu",
         "yes": "Yes",
-        "no": "No"
+        "no": "No",
+        "navigator": "LDC Nav"
     },
     "home": {
         "title": "Welcome to LDC Shop",
@@ -561,5 +562,24 @@
         "viewRelease": "View release",
         "versionInfo": "Current: {{current}} → Latest: {{latest}}",
         "syncNow": "Sync on GitHub"
+    },
+    "registry": {
+        "title": "LDC Navigator",
+        "description": "Share your store in the public navigator.",
+        "promptTitle": "Join LDC Navigator?",
+        "promptDescription": "Make your store discoverable in the public navigator. You can opt out later.",
+        "joinNow": "Join now",
+        "notNow": "Not now",
+        "submitSuccess": "Submitted to navigator",
+        "submitFailed": "Submission failed",
+        "statusJoined": "Joined",
+        "statusNotJoined": "Not joined",
+        "resubmit": "Resubmit",
+        "navTitle": "LDC Navigator",
+        "navSubtitle": "Discover stores built with LDC Shop",
+        "navSearch": "Search stores...",
+        "search": "Search",
+        "navEmpty": "No stores yet.",
+        "visit": "Visit"
     }
 }

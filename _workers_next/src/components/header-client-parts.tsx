@@ -40,6 +40,12 @@ export function HeaderNav({ isAdmin, isLoggedIn }: { isAdmin: boolean; isLoggedI
 
     return (
         <div className="hidden md:flex items-center gap-6">
+            <Link
+                href="/nav"
+                className="flex items-center text-sm font-medium text-muted-foreground hover:text-primary transition-colors"
+            >
+                {t('common.navigator')}
+            </Link>
             {isLoggedIn && (
                 <>
                     <Link
@@ -97,6 +103,9 @@ export function HeaderUserMenuItems({ isAdmin }: { isAdmin: boolean }) {
 
     return (
         <>
+            <DropdownMenuItem asChild>
+                <Link href="/nav">{t('common.navigator')}</Link>
+            </DropdownMenuItem>
             <DropdownMenuItem asChild>
                 <Link href="/profile">{t('common.myOrders').includes('订单') ? "个人中心" : "Profile"}</Link>
             </DropdownMenuItem>

@@ -1,8 +1,9 @@
 import { getDashboardStats, getSetting, getVisitorCount } from "@/lib/db/queries"
+import { isRegistryEnabled } from "@/lib/registry"
 import { AdminSettingsContent } from "@/components/admin/settings-content"
 
 export default async function AdminSettingsPage() {
-    const [stats, shopName, shopDescription, shopLogo, shopFooter, themeColor, visitorCount, lowStockThreshold, checkinReward, checkinEnabled, noIndexEnabled] = await Promise.all([
+    const [stats, shopName, shopDescription, shopLogo, shopFooter, themeColor, visitorCount, lowStockThreshold, checkinReward, checkinEnabled, noIndexEnabled, registryOptIn] = await Promise.all([
         getDashboardStats(),
         (async () => {
             try {
@@ -78,6 +79,14 @@ export default async function AdminSettingsPage() {
                 return false
             }
         })(),
+        (async () => {
+            try {
+                const v = await getSetting('registry_opt_in')
+                return v === 'true'
+            } catch {
+                return false
+            }
+        })(),
     ])
 
     return (
@@ -93,6 +102,8 @@ export default async function AdminSettingsPage() {
             checkinReward={checkinReward}
             checkinEnabled={checkinEnabled}
             noIndexEnabled={noIndexEnabled}
+            registryOptIn={registryOptIn}
+            registryEnabled={isRegistryEnabled()}
         />
     )
 }

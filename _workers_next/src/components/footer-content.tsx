@@ -1,5 +1,6 @@
 'use client'
 
+import Link from "next/link"
 import { useI18n } from "@/lib/i18n/context"
 
 interface FooterContentProps {
@@ -18,6 +19,9 @@ export function FooterContent({ customFooter, version }: FooterContentProps) {
                         {customFooter?.trim() || t('footer.disclaimer')}
                     </p>
                 </div>
+                <Link href="/nav" className="text-center text-xs text-muted-foreground/60 hover:text-primary transition-colors duration-300">
+                    {t('common.navigator')}
+                </Link>
                 <a href="https://chatgpt.org.uk" target="_blank" rel="noreferrer" className="text-center text-xs md:text-left text-muted-foreground/60 hover:text-primary transition-colors duration-300">
                     {t('footer.poweredBy')}
                 </a>

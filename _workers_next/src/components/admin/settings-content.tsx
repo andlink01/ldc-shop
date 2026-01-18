@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label"
 import { TrendingUp, ShoppingCart, CreditCard, Package, Users } from "lucide-react"
 import { saveShopName, saveShopDescription, saveShopLogo, saveShopFooter, saveThemeColor, saveLowStockThreshold, saveCheckinReward, saveCheckinEnabled, saveNoIndex } from "@/actions/admin"
 import { checkForUpdates } from "@/actions/update-check"
+import { joinRegistry } from "@/actions/registry"
 import { toast } from "sonner"
 
 interface Stats {
@@ -31,6 +32,8 @@ interface AdminSettingsContentProps {
     checkinReward: number
     checkinEnabled: boolean
     noIndexEnabled: boolean
+    registryOptIn: boolean
+    registryEnabled: boolean
 }
 
 interface UpdateInfo {
@@ -51,7 +54,7 @@ const THEME_COLORS = [
     { value: 'red', hue: 25 },
 ]
 
-export function AdminSettingsContent({ stats, shopName, shopDescription, shopLogo, shopFooter, themeColor, visitorCount, lowStockThreshold, checkinReward, checkinEnabled, noIndexEnabled }: AdminSettingsContentProps) {
+export function AdminSettingsContent({ stats, shopName, shopDescription, shopLogo, shopFooter, themeColor, visitorCount, lowStockThreshold, checkinReward, checkinEnabled, noIndexEnabled, registryOptIn, registryEnabled }: AdminSettingsContentProps) {
     const { t } = useI18n()
 
     // State
@@ -75,6 +78,8 @@ export function AdminSettingsContent({ stats, shopName, shopDescription, shopLog
     const [savingNoIndex, setSavingNoIndex] = useState(false)
     const [checkingUpdate, setCheckingUpdate] = useState(false)
     const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null)
+    const [submittingRegistry, setSubmittingRegistry] = useState(false)
+    const [registryJoined, setRegistryJoined] = useState(registryOptIn)
 
     const handleSaveShopName = async () => {
         const trimmed = shopNameValue.trim()
@@ -208,6 +213,23 @@ export function AdminSettingsContent({ stats, shopName, shopDescription, shopLog
             toast.error(t('update.checkFailed'))
         } finally {
             setCheckingUpdate(false)
+        }
+    }
+
+    const handleRegistrySubmit = async () => {
+        if (submittingRegistry) return
+        setSubmittingRegistry(true)
+        try {
+            const result = await joinRegistry(window.location.origin)
+            if (!result.ok) {
+                throw new Error(result.error || "submit_failed")
+            }
+            toast.success(t('registry.submitSuccess'))
+            setRegistryJoined(true)
+        } catch {
+            toast.error(t('registry.submitFailed'))
+        } finally {
+            setSubmittingRegistry(false)
         }
     }
 
@@ -501,6 +523,25 @@ export function AdminSettingsContent({ stats, shopName, shopDescription, shopLog
                     )}
                 </CardContent>
             </Card>
+
+            {registryEnabled && (
+                <Card>
+                    <CardHeader>
+                        <CardTitle>{t('registry.title')}</CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-3">
+                        <p className="text-sm text-muted-foreground">{t('registry.description')}</p>
+                        <div className="flex flex-wrap items-center gap-3">
+                            <Button onClick={handleRegistrySubmit} disabled={submittingRegistry}>
+                                {registryJoined ? t('registry.resubmit') : t('registry.joinNow')}
+                            </Button>
+                            <span className={registryJoined ? "text-green-600 text-sm" : "text-muted-foreground text-sm"}>
+                                {registryJoined ? t('registry.statusJoined') : t('registry.statusNotJoined')}
+                            </span>
+                        </div>
+                    </CardContent>
+                </Card>
+            )}
 
         </div>
     )

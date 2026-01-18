@@ -52,7 +52,8 @@
         "loadMore": "加载更多",
         "menu": "菜单",
         "yes": "是",
-        "no": "否"
+        "no": "否",
+        "navigator": "LDC 导航"
     },
     "home": {
         "title": "欢迎来到 LDC 商店",
@@ -561,5 +562,24 @@
         "viewRelease": "查看发布页",
         "versionInfo": "当前: {{current}} → 最新: {{latest}}",
         "syncNow": "去 GitHub 同步更新"
+    },
+    "registry": {
+        "title": "LDC 导航",
+        "description": "让更多人发现你的商店。",
+        "promptTitle": "加入 LDC 导航？",
+        "promptDescription": "公开展示你的商店信息，帮助更多用户发现你。",
+        "joinNow": "立即加入",
+        "notNow": "暂不加入",
+        "submitSuccess": "已提交到导航",
+        "submitFailed": "提交失败",
+        "statusJoined": "已加入",
+        "statusNotJoined": "未加入",
+        "resubmit": "重新提交",
+        "navTitle": "LDC 导航",
+        "navSubtitle": "发现基于 LDC 商店搭建的网站",
+        "navSearch": "搜索站点...",
+        "search": "搜索",
+        "navEmpty": "暂无站点",
+        "visit": "访问"
     }
 }
