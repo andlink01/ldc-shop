@@ -63,11 +63,6 @@ export function I18nProvider({ children }: { children: ReactNode }) {
         return interpolate(text, params)
     }
 
-    // Prevent hydration mismatch
-    if (!mounted) {
-        return <>{children}</>
-    }
-
     return (
         <I18nContext.Provider value={{ locale, setLocale, t }}>
             {children}
