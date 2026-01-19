@@ -368,6 +368,8 @@
             "reject": "Reject",
             "adminNote": "Admin note",
             "adminNotePrompt": "Optional note for this request:",
+            "autoRefundSuccess": "Approved and refunded automatically",
+            "autoRefundPending": "Approved, but auto-refund did not complete. Please refund manually.",
             "statusValues": {
                 "pending": "Pending",
                 "approved": "Approved",

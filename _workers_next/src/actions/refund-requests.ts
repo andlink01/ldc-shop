@@ -8,6 +8,7 @@ import { revalidatePath } from "next/cache"
 import { checkAdmin } from "@/actions/admin"
 import { products } from "@/lib/db/schema"
 import { notifyAdminRefundRequest } from "@/lib/notifications"
+import { markOrderRefunded, proxyRefund } from "@/actions/refund"
 
 async function ensureRefundRequestsTable() {
   await db.run(sql`
@@ -85,6 +86,22 @@ export async function adminApproveRefund(requestId: number, adminNote?: string) 
   const session = await auth()
   const username = session?.user?.username || null
 
+  const req = await db.query.refundRequests.findFirst({
+    where: eq(refundRequests.id, requestId),
+    columns: { orderId: true, status: true }
+  })
+  if (!req) {
+    throw new Error("Refund request not found")
+  }
+
+  const order = await db.query.orders.findFirst({
+    where: eq(orders.orderId, req.orderId),
+    columns: { orderId: true, tradeNo: true, amount: true }
+  })
+  if (!order) {
+    throw new Error("Order not found")
+  }
+
   await db.update(refundRequests).set({
     status: 'approved',
     adminUsername: username,
@@ -93,6 +110,22 @@ export async function adminApproveRefund(requestId: number, adminNote?: string) 
   }).where(eq(refundRequests.id, requestId))
 
   revalidatePath('/admin/refunds')
+
+  // Auto refund for approved requests
+  if (!order.tradeNo || Number(order.amount) <= 0) {
+    await markOrderRefunded(order.orderId)
+    return { ok: true, processed: true }
+  }
+
+  try {
+    const result = await proxyRefund(order.orderId)
+    if (result?.processed) {
+      return { ok: true, processed: true }
+    }
+    return { ok: true, processed: false, error: result?.message || 'refund_failed' }
+  } catch (e: any) {
+    return { ok: true, processed: false, error: e?.message || 'refund_failed' }
+  }
 }
 
 export async function adminRejectRefund(requestId: number, adminNote?: string) {
@@ -111,4 +144,3 @@ export async function adminRejectRefund(requestId: number, adminNote?: string) {
 
   revalidatePath('/admin/refunds')
 }
-

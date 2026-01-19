@@ -368,6 +368,8 @@
             "reject": "拒绝",
             "adminNote": "管理员备注",
             "adminNotePrompt": "可选：给该申请留个备注：",
+            "autoRefundSuccess": "已同意并自动退款",
+            "autoRefundPending": "已同意，但自动退款未完成，请手动退款",
             "statusValues": {
                 "pending": "待处理",
                 "approved": "已同意",
