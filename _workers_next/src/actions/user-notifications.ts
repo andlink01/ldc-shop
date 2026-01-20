@@ -199,16 +199,21 @@ export async function markNotificationRead(id: number) {
     await markUserNotificationRead(userId, id)
     try {
         await ensureBroadcastTables()
-        const now = new Date()
-        await db.run(sql`
-            INSERT INTO broadcast_reads (message_id, user_id, created_at)
-            SELECT ${id}, ${userId}, ${now}
-            WHERE EXISTS (SELECT 1 FROM broadcast_messages WHERE id = ${id})
-              AND NOT EXISTS (
-                  SELECT 1 FROM broadcast_reads
-                  WHERE message_id = ${id} AND user_id = ${userId}
-              )
-        `)
+        const messageId = Number(id)
+        if (Number.isFinite(messageId)) {
+            const exists = await db
+                .select({ id: broadcastMessages.id })
+                .from(broadcastMessages)
+                .where(eq(broadcastMessages.id, messageId))
+                .limit(1)
+            if (exists.length > 0) {
+                const now = new Date()
+                await db.run(sql`
+                    INSERT OR IGNORE INTO broadcast_reads (message_id, user_id, created_at)
+                    VALUES (${messageId}, ${userId}, ${now})
+                `)
+            }
+        }
     } catch {
         // ignore
     }
