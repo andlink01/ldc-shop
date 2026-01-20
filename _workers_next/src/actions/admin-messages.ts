@@ -1,7 +1,7 @@
 "use server"
 
 import { db } from "@/lib/db"
-import { adminMessages, loginUsers, userNotifications, broadcastMessages } from "@/lib/db/schema"
+import { adminMessages, loginUsers, userNotifications, broadcastMessages, broadcastReads } from "@/lib/db/schema"
 import { eq, sql } from "drizzle-orm"
 import { checkAdmin } from "@/actions/admin"
 import { revalidatePath } from "next/cache"
@@ -179,6 +179,13 @@ export async function clearAdminMessages() {
     await checkAdmin()
     await ensureAdminMessagesTable()
     await db.delete(adminMessages)
+    try {
+        await ensureBroadcastTables()
+        await db.delete(broadcastReads)
+        await db.delete(broadcastMessages)
+    } catch {
+        // ignore
+    }
     revalidatePath("/admin/messages")
     return { success: true }
 }

@@ -1,12 +1,52 @@
 "use server"
 
 import { auth } from "@/lib/auth"
-import { clearUserNotifications, getUserNotifications, getUserUnreadNotificationCount, markAllUserNotificationsRead, markUserNotificationRead } from "@/lib/db/queries"
+import { clearUserNotifications, getSetting, getUserNotifications, getUserUnreadNotificationCount, markAllUserNotificationsRead, markUserNotificationRead, setSetting } from "@/lib/db/queries"
 import { broadcastMessages, broadcastReads } from "@/lib/db/schema"
 import { db } from "@/lib/db"
-import { and, desc, eq, sql } from "drizzle-orm"
+import { and, desc, eq, gte, sql } from "drizzle-orm"
 
 const BROADCAST_LIMIT = 10
+
+const broadcastClearKey = (userId: string) => `broadcast_cleared_at:${userId}`
+
+async function ensureBroadcastTables() {
+    await db.run(sql`
+        CREATE TABLE IF NOT EXISTS broadcast_messages(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT NOT NULL,
+            body TEXT NOT NULL,
+            sender TEXT,
+            created_at INTEGER DEFAULT (unixepoch() * 1000)
+        )
+    `)
+    await db.run(sql`
+        CREATE TABLE IF NOT EXISTS broadcast_reads(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            message_id INTEGER NOT NULL REFERENCES broadcast_messages(id) ON DELETE CASCADE,
+            user_id TEXT NOT NULL REFERENCES login_users(user_id) ON DELETE CASCADE,
+            created_at INTEGER DEFAULT (unixepoch() * 1000)
+        )
+    `)
+}
+
+async function getBroadcastClearedAt(userId: string) {
+    try {
+        const raw = await getSetting(broadcastClearKey(userId))
+        const val = Number(raw || 0)
+        return Number.isFinite(val) ? val : 0
+    } catch {
+        return 0
+    }
+}
+
+async function setBroadcastClearedAt(userId: string, timestampMs: number) {
+    try {
+        await setSetting(broadcastClearKey(userId), String(timestampMs))
+    } catch {
+        // ignore
+    }
+}
 
 export async function markAllNotificationsRead() {
     const session = await auth()
@@ -17,6 +57,7 @@ export async function markAllNotificationsRead() {
 
     await markAllUserNotificationsRead(userId)
     try {
+        await ensureBroadcastTables()
         const now = new Date()
         await db.run(sql`
             INSERT INTO broadcast_reads (message_id, user_id, created_at)
@@ -53,17 +94,32 @@ export async function getMyNotifications() {
 
     let broadcastItems: any[] = []
     try {
-        const broadcasts = await db
-            .select({
-                id: broadcastMessages.id,
-                title: broadcastMessages.title,
-                body: broadcastMessages.body,
-                sender: broadcastMessages.sender,
-                createdAt: broadcastMessages.createdAt,
-            })
-            .from(broadcastMessages)
-            .orderBy(desc(broadcastMessages.createdAt))
-            .limit(BROADCAST_LIMIT)
+        await ensureBroadcastTables()
+        const clearedAt = await getBroadcastClearedAt(userId)
+        const broadcasts = clearedAt > 0
+            ? await db
+                .select({
+                    id: broadcastMessages.id,
+                    title: broadcastMessages.title,
+                    body: broadcastMessages.body,
+                    sender: broadcastMessages.sender,
+                    createdAt: broadcastMessages.createdAt,
+                })
+                .from(broadcastMessages)
+                .where(gte(broadcastMessages.createdAt, new Date(clearedAt)))
+                .orderBy(desc(broadcastMessages.createdAt))
+                .limit(BROADCAST_LIMIT)
+            : await db
+                .select({
+                    id: broadcastMessages.id,
+                    title: broadcastMessages.title,
+                    body: broadcastMessages.body,
+                    sender: broadcastMessages.sender,
+                    createdAt: broadcastMessages.createdAt,
+                })
+                .from(broadcastMessages)
+                .orderBy(desc(broadcastMessages.createdAt))
+                .limit(BROADCAST_LIMIT)
 
         if (broadcasts.length > 0) {
             const ids = broadcasts.map((b) => b.id)
@@ -100,11 +156,20 @@ export async function getMyUnreadCount() {
     const directCount = await getUserUnreadNotificationCount(userId)
     let broadcastUnread = 0
     try {
-        const broadcastRows = await db
-            .select({ id: broadcastMessages.id })
-            .from(broadcastMessages)
-            .orderBy(desc(broadcastMessages.createdAt))
-            .limit(BROADCAST_LIMIT)
+        await ensureBroadcastTables()
+        const clearedAt = await getBroadcastClearedAt(userId)
+        const broadcastRows = clearedAt > 0
+            ? await db
+                .select({ id: broadcastMessages.id })
+                .from(broadcastMessages)
+                .where(gte(broadcastMessages.createdAt, new Date(clearedAt)))
+                .orderBy(desc(broadcastMessages.createdAt))
+                .limit(BROADCAST_LIMIT)
+            : await db
+                .select({ id: broadcastMessages.id })
+                .from(broadcastMessages)
+                .orderBy(desc(broadcastMessages.createdAt))
+                .limit(BROADCAST_LIMIT)
         const ids = broadcastRows.map((b) => b.id)
         if (ids.length === 0) {
             broadcastUnread = 0
@@ -130,6 +195,7 @@ export async function markNotificationRead(id: number) {
 
     await markUserNotificationRead(userId, id)
     try {
+        await ensureBroadcastTables()
         const now = new Date()
         await db.run(sql`
             INSERT INTO broadcast_reads (message_id, user_id, created_at)
@@ -154,7 +220,9 @@ export async function clearMyNotifications() {
     }
 
     await clearUserNotifications(userId)
+    await setBroadcastClearedAt(userId, Date.now())
     try {
+        await ensureBroadcastTables()
         const now = new Date()
         await db.run(sql`
             INSERT INTO broadcast_reads (message_id, user_id, created_at)
