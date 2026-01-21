@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from "react"
+import { useRef, useState } from "react"
 import { useI18n } from "@/lib/i18n/context"
 import { useRouter, useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
@@ -45,6 +45,7 @@ export function UsersContent({ data }: UsersContentProps) {
     const [newPoints, setNewPoints] = useState('')
     const [saving, setSaving] = useState(false)
     const [blockingId, setBlockingId] = useState<string | null>(null)
+    const blockLock = useRef<string | null>(null)
 
     const handleSearch = (e: React.FormEvent) => {
         e.preventDefault()
@@ -90,11 +91,12 @@ export function UsersContent({ data }: UsersContentProps) {
     }
 
     const handleToggleBlock = async (user: User) => {
-        if (blockingId === user.userId) return
+        if (blockLock.current === user.userId) return
         const action = user.isBlocked ? 'unblock' : 'block'
         if (!confirm(t(`admin.users.confirm${action.charAt(0).toUpperCase() + action.slice(1)}`))) return
 
         try {
+            blockLock.current = user.userId
             setBlockingId(user.userId)
             await toggleBlock(user.userId, !user.isBlocked)
             toast.success(t('common.success'))
@@ -103,6 +105,7 @@ export function UsersContent({ data }: UsersContentProps) {
             toast.error(e.message || t('common.error'))
         } finally {
             setBlockingId(null)
+            blockLock.current = null
         }
     }
 

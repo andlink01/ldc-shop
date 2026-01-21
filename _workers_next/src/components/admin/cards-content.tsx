@@ -6,7 +6,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { addCards, deleteCard, deleteCards } from "@/actions/admin"
 import { Checkbox } from "@/components/ui/checkbox"
-import { useState } from "react"
+import { useRef, useState } from "react"
 import { Badge } from "@/components/ui/badge"
 import { toast } from "sonner"
 import { CopyButton } from "@/components/copy-button"
@@ -31,6 +31,9 @@ export function CardsContent({ productId, productName, unusedCards }: CardsConte
     const [submitting, setSubmitting] = useState(false)
     const [batchDeleting, setBatchDeleting] = useState(false)
     const [deletingId, setDeletingId] = useState<number | null>(null)
+    const submitLock = useRef(false)
+    const batchDeleteLock = useRef(false)
+    const deleteLock = useRef<number | null>(null)
 
     const toggleSelectAll = () => {
         if (selectedIds.length === unusedCards.length) {
@@ -49,9 +52,10 @@ export function CardsContent({ productId, productName, unusedCards }: CardsConte
     }
 
     const handleBatchDelete = async () => {
-        if (!selectedIds.length || batchDeleting) return
+        if (!selectedIds.length || batchDeleteLock.current) return
 
         if (confirm(t('admin.cards.confirmBatchDelete', { count: selectedIds.length }))) {
+            batchDeleteLock.current = true
             setBatchDeleting(true)
             try {
                 await deleteCards(selectedIds)
@@ -62,12 +66,14 @@ export function CardsContent({ productId, productName, unusedCards }: CardsConte
                 toast.error(e.message)
             } finally {
                 setBatchDeleting(false)
+                batchDeleteLock.current = false
             }
         }
     }
 
     const handleSubmit = async (formData: FormData) => {
-        if (submitting) return
+        if (submitLock.current) return
+        submitLock.current = true
         setSubmitting(true)
         try {
             await addCards(formData)
@@ -77,6 +83,7 @@ export function CardsContent({ productId, productName, unusedCards }: CardsConte
             toast.error(e.message)
         } finally {
             setSubmitting(false)
+            submitLock.current = false
         }
     }
 
@@ -156,8 +163,9 @@ export function CardsContent({ productId, productName, unusedCards }: CardsConte
                                         size="icon"
                                         className="h-7 w-7 text-destructive hover:text-destructive hover:bg-destructive/10"
                                         onClick={async () => {
-                                            if (deletingId === c.id) return
+                                            if (deleteLock.current === c.id) return
                                             if (confirm(t('common.confirm') + '?')) {
+                                                deleteLock.current = c.id
                                                 setDeletingId(c.id)
                                                 try {
                                                     await deleteCard(c.id)
@@ -167,6 +175,7 @@ export function CardsContent({ productId, productName, unusedCards }: CardsConte
                                                     toast.error(e.message)
                                                 } finally {
                                                     setDeletingId(null)
+                                                    deleteLock.current = null
                                                 }
                                             }
                                         }}

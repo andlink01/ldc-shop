@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { useI18n } from "@/lib/i18n/context"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
@@ -71,6 +71,7 @@ export function AdminOrdersContent({
     const [statusValue, setStatusValue] = useState<string>(status || "all")
     const [selected, setSelected] = useState<Record<string, boolean>>({})
     const [deleting, setDeleting] = useState(false)
+    const deleteLock = useRef(false)
 
     const getStatusBadgeVariant = (status: string | null) => {
         switch (status) {
@@ -181,8 +182,9 @@ export function AdminOrdersContent({
                         size="sm"
                         disabled={!selectedIds.length || deleting}
                         onClick={async () => {
-                            if (deleting) return
+                            if (deleteLock.current) return
                             if (!confirm(t('admin.orders.confirmDeleteSelected'))) return
+                            deleteLock.current = true
                             setDeleting(true)
                             try {
                                 await deleteOrders(selectedIds)
@@ -193,6 +195,7 @@ export function AdminOrdersContent({
                                 toast.error(e.message)
                             } finally {
                                 setDeleting(false)
+                                deleteLock.current = false
                             }
                         }}
                     >

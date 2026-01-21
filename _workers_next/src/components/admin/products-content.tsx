@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from "react"
+import { useRef, useState } from "react"
 import { useI18n } from "@/lib/i18n/context"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
@@ -31,12 +31,14 @@ interface AdminProductsContentProps {
 export function AdminProductsContent({ products, lowStockThreshold }: AdminProductsContentProps) {
     const { t } = useI18n()
     const [busy, setBusy] = useState(false)
+    const busyRef = useRef(false)
 
     const threshold = lowStockThreshold || 5
 
     const handleDelete = async (id: string) => {
-        if (busy) return
+        if (busyRef.current) return
         if (!confirm(t('admin.products.confirmDelete'))) return
+        busyRef.current = true
         setBusy(true)
         try {
             await deleteProduct(id)
@@ -45,11 +47,13 @@ export function AdminProductsContent({ products, lowStockThreshold }: AdminProdu
             toast.error(e.message)
         } finally {
             setBusy(false)
+            busyRef.current = false
         }
     }
 
     const handleToggle = async (id: string, currentStatus: boolean) => {
-        if (busy) return
+        if (busyRef.current) return
+        busyRef.current = true
         setBusy(true)
         try {
             await toggleProductStatus(id, !currentStatus)
@@ -58,11 +62,12 @@ export function AdminProductsContent({ products, lowStockThreshold }: AdminProdu
             toast.error(e.message)
         } finally {
             setBusy(false)
+            busyRef.current = false
         }
     }
 
     const handleReorder = async (id: string, direction: 'up' | 'down') => {
-        if (busy) return
+        if (busyRef.current) return
         const idx = products.findIndex(p => p.id === id)
         if (idx === -1) return
 
@@ -73,6 +78,7 @@ export function AdminProductsContent({ products, lowStockThreshold }: AdminProdu
         const current = products[idx]
         const target = products[targetIdx]
 
+        busyRef.current = true
         setBusy(true)
         try {
             // Use index as sortOrder to ensure unique values
@@ -83,6 +89,7 @@ export function AdminProductsContent({ products, lowStockThreshold }: AdminProdu
             toast.error(e.message)
         } finally {
             setBusy(false)
+            busyRef.current = false
         }
     }
 

@@ -6,7 +6,7 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { useState } from "react"
+import { useRef, useState } from "react"
 import { toast } from "sonner"
 import { useRouter } from "next/navigation"
 import { useI18n } from "@/lib/i18n/context"
@@ -14,12 +14,14 @@ import { useI18n } from "@/lib/i18n/context"
 export default function ProductForm({ product, categories = [] }: { product?: any; categories?: Array<{ name: string }> }) {
     const router = useRouter()
     const [loading, setLoading] = useState(false)
+    const submitLock = useRef(false)
     // Only show warning section if purchaseWarning has actual content
     const [showWarning, setShowWarning] = useState(Boolean(product?.purchaseWarning && String(product.purchaseWarning).trim()))
     const { t } = useI18n()
 
     async function handleSubmit(formData: FormData) {
-        if (loading) return
+        if (submitLock.current) return
+        submitLock.current = true
         setLoading(true)
         try {
             await saveProduct(formData)
@@ -30,6 +32,7 @@ export default function ProductForm({ product, categories = [] }: { product?: an
             toast.error(e?.message || t('common.error'))
         } finally {
             setLoading(false)
+            submitLock.current = false
         }
     }
 

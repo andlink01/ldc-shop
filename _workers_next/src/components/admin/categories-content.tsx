@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from "react"
+import { useMemo, useRef, useState } from "react"
 import { useI18n } from "@/lib/i18n/context"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -19,6 +19,7 @@ export function AdminCategoriesContent({ categories }: { categories: CategoryRow
   const [sortOrder, setSortOrder] = useState("0")
   const [saving, setSaving] = useState(false)
   const [deletingId, setDeletingId] = useState<number | null>(null)
+  const deleteLock = useRef<number | null>(null)
 
   const sorted = useMemo(() => {
     return [...categories].sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0) || a.name.localeCompare(b.name))
@@ -133,8 +134,9 @@ export function AdminCategoriesContent({ categories }: { categories: CategoryRow
                     variant="destructive"
                     size="sm"
                     onClick={async () => {
-                      if (deletingId === c.id) return
+                      if (deleteLock.current === c.id) return
                       if (!confirm(t('common.confirm') + '?')) return
+                      deleteLock.current = c.id
                       setDeletingId(c.id)
                       try {
                         await deleteCategory(c.id)
@@ -143,6 +145,7 @@ export function AdminCategoriesContent({ categories }: { categories: CategoryRow
                         toast.error(e.message)
                       } finally {
                         setDeletingId(null)
+                        deleteLock.current = null
                       }
                     }}
                     disabled={deletingId === c.id}

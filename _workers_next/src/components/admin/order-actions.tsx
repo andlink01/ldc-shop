@@ -1,7 +1,7 @@
 'use client'
 
 import Link from "next/link"
-import { useState } from "react"
+import { useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { markOrderDelivered, markOrderPaid, cancelOrder } from "@/actions/admin-orders"
 import { toast } from "sonner"
@@ -11,6 +11,7 @@ import { CheckCircle, Truck, XCircle, ExternalLink } from "lucide-react"
 export function AdminOrderActions({ order }: { order: any }) {
   const { t } = useI18n()
   const [loading, setLoading] = useState(false)
+  const loadingRef = useRef(false)
 
   const status = order.status || 'pending'
   const canMarkPaid = status === 'pending'
@@ -18,8 +19,9 @@ export function AdminOrderActions({ order }: { order: any }) {
   const canCancel = status === 'pending'
 
   const handle = async (action: 'paid' | 'delivered' | 'cancel') => {
-    if (loading) return
+    if (loadingRef.current) return
     try {
+      loadingRef.current = true
       setLoading(true)
       if (action === 'paid') {
         if (!confirm(t('admin.orders.confirmMarkPaid'))) return
@@ -42,6 +44,7 @@ export function AdminOrderActions({ order }: { order: any }) {
       toast.error(e.message)
     } finally {
       setLoading(false)
+      loadingRef.current = false
     }
   }
 

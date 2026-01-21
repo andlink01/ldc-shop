@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from "react"
+import { useMemo, useRef, useState } from "react"
 import { useI18n } from "@/lib/i18n/context"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
@@ -24,6 +24,7 @@ export function AdminRefundsContent({ requests }: { requests: any[] }) {
   const { t } = useI18n()
   const [query, setQuery] = useState("")
   const [processingId, setProcessingId] = useState<number | null>(null)
+  const processingRef = useRef<number | null>(null)
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -42,9 +43,10 @@ export function AdminRefundsContent({ requests }: { requests: any[] }) {
   }, [query, requests])
 
   const handle = async (id: number, action: 'approve' | 'reject') => {
-    if (processingId === id) return
+    if (processingRef.current === id) return
     const note = prompt(t('admin.refunds.adminNotePrompt')) || ''
     try {
+      processingRef.current = id
       setProcessingId(id)
       if (action === 'approve') {
         const result = await adminApproveRefund(id, note)
@@ -67,6 +69,7 @@ export function AdminRefundsContent({ requests }: { requests: any[] }) {
       toast.error(e.message)
     } finally {
       setProcessingId(null)
+      processingRef.current = null
     }
   }
 

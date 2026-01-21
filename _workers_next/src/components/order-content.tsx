@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from "react"
+import { useRef, useState } from "react"
 import { useI18n } from "@/lib/i18n/context"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -40,6 +40,7 @@ export function OrderContent({ order, canViewKey, isOwner, refundRequest }: Orde
     const { t } = useI18n()
     const [reason, setReason] = useState("")
     const [submitting, setSubmitting] = useState(false)
+    const submitLock = useRef(false)
     const isPayment = isPaymentOrder(order.productId)
 
     const getStatusBadgeVariant = (status: string) => {
@@ -260,6 +261,8 @@ export function OrderContent({ order, canViewKey, isOwner, refundRequest }: Orde
                                         variant="outline"
                                         onClick={async () => {
                                             if (!confirm(t('order.confirmCancel'))) return
+                                            if (submitLock.current) return
+                                            submitLock.current = true
                                             setSubmitting(true)
                                             try {
                                                 const result = await cancelPendingOrder(order.orderId)
@@ -273,6 +276,7 @@ export function OrderContent({ order, canViewKey, isOwner, refundRequest }: Orde
                                                 toast.error(e.message)
                                             } finally {
                                                 setSubmitting(false)
+                                                submitLock.current = false
                                             }
                                         }}
                                         disabled={submitting}
@@ -282,6 +286,8 @@ export function OrderContent({ order, canViewKey, isOwner, refundRequest }: Orde
                                     <Button
                                         size="sm"
                                         onClick={async () => {
+                                            if (submitLock.current) return
+                                            submitLock.current = true
                                             setSubmitting(true)
                                             try {
                                                 const { getRetryPaymentParams } = await import("@/actions/checkout")
@@ -306,6 +312,7 @@ export function OrderContent({ order, canViewKey, isOwner, refundRequest }: Orde
                                                 toast.error(e.message)
                                             } finally {
                                                 setSubmitting(false)
+                                                submitLock.current = false
                                             }
                                         }}
                                         disabled={submitting}
@@ -345,6 +352,8 @@ export function OrderContent({ order, canViewKey, isOwner, refundRequest }: Orde
                                             if (!confirm(`${t('refund.requestConfirmTitle')}\n\n${t('refund.requestConfirmMessage')}`)) {
                                                 return
                                             }
+                                            if (submitLock.current) return
+                                            submitLock.current = true
                                             setSubmitting(true)
                                             try {
                                                 await requestRefund(order.orderId, reason)
@@ -353,6 +362,7 @@ export function OrderContent({ order, canViewKey, isOwner, refundRequest }: Orde
                                                 toast.error(e.message)
                                             } finally {
                                                 setSubmitting(false)
+                                                submitLock.current = false
                                             }
                                         }}
                                         disabled={submitting || !!refundRequest?.status}
