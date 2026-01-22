@@ -37,6 +37,7 @@ export function CardsContent({ productId, productName, unusedCards }: CardsConte
     const submitLock = useRef(false)
     const batchDeleteLock = useRef(false)
     const deleteLock = useRef<number | null>(null)
+    const formRef = useRef<HTMLFormElement | null>(null)
     const pendingFormRef = useRef<FormData | null>(null)
 
     const toggleSelectAll = () => {
@@ -83,6 +84,8 @@ export function CardsContent({ productId, productName, unusedCards }: CardsConte
             await addCards(formData)
             toast.success(t('common.success'))
             router.refresh()
+            formRef.current?.reset()
+            setPendingCount(0)
         } catch (e: any) {
             toast.error(e.message)
         } finally {
@@ -132,6 +135,7 @@ export function CardsContent({ productId, productName, unusedCards }: CardsConte
                     </CardHeader>
                     <CardContent>
                         <form
+                            ref={formRef}
                             onSubmit={(event) => {
                                 event.preventDefault()
                                 if (submitting) return
