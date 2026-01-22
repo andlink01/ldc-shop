@@ -547,7 +547,9 @@
             "batchDelete": "批量删除",
             "selectAll": "全选",
             "selectedCount": "已选: {{count}}",
-            "confirmBatchDelete": "确认删除选中的 {{count}} 个卡密？"
+            "confirmBatchDelete": "确认删除选中的 {{count}} 个卡密？",
+            "confirmAddTitle": "确认添加卡密",
+            "confirmAddDescription": "即将添加 {{count}} 条卡密，是否继续？"
         },
         "productForm": {
             "addTitle": "添加商品",

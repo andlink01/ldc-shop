@@ -547,7 +547,9 @@
             "batchDelete": "Batch Delete",
             "selectAll": "Select All",
             "selectedCount": "Selected: {{count}}",
-            "confirmBatchDelete": "Confirm delete {{count}} items?"
+            "confirmBatchDelete": "Confirm delete {{count}} items?",
+            "confirmAddTitle": "Confirm adding cards",
+            "confirmAddDescription": "You are about to add {{count}} card(s). Continue?"
         },
         "productForm": {
             "addTitle": "Add New Product",

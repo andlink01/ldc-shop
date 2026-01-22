@@ -12,6 +12,7 @@ import { toast } from "sonner"
 import { CopyButton } from "@/components/copy-button"
 import { Trash2 } from "lucide-react"
 import { useRouter } from "next/navigation"
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 
 interface CardData {
     id: number
@@ -31,9 +32,12 @@ export function CardsContent({ productId, productName, unusedCards }: CardsConte
     const [submitting, setSubmitting] = useState(false)
     const [batchDeleting, setBatchDeleting] = useState(false)
     const [deletingId, setDeletingId] = useState<number | null>(null)
+    const [confirmOpen, setConfirmOpen] = useState(false)
+    const [pendingCount, setPendingCount] = useState(0)
     const submitLock = useRef(false)
     const batchDeleteLock = useRef(false)
     const deleteLock = useRef<number | null>(null)
+    const pendingFormRef = useRef<FormData | null>(null)
 
     const toggleSelectAll = () => {
         if (selectedIds.length === unusedCards.length) {
@@ -75,11 +79,6 @@ export function CardsContent({ productId, productName, unusedCards }: CardsConte
         if (submitLock.current) return
         submitLock.current = true
         setSubmitting(true)
-
-        // Generate a unique nonce for this submission to prevent server-side duplicates
-        const nonce = `${Date.now()}-${Math.random().toString(36).substring(2, 15)}`
-        formData.append('nonce', nonce)
-
         try {
             await addCards(formData)
             toast.success(t('common.success'))
@@ -90,6 +89,28 @@ export function CardsContent({ productId, productName, unusedCards }: CardsConte
             setSubmitting(false)
             submitLock.current = false
         }
+    }
+
+    const handleConfirmSubmit = async () => {
+        const formData = pendingFormRef.current
+        if (!formData) {
+            setConfirmOpen(false)
+            return
+        }
+        setConfirmOpen(false)
+        pendingFormRef.current = null
+        await handleSubmit(formData)
+    }
+
+    const handleOpenConfirm = (formData: FormData) => {
+        const raw = String(formData.get('cards') || '')
+        const count = raw
+            .split(/\r?\n|,/)
+            .map((item) => item.trim())
+            .filter(Boolean).length
+        setPendingCount(count)
+        pendingFormRef.current = formData
+        setConfirmOpen(true)
     }
 
     return (
@@ -110,7 +131,15 @@ export function CardsContent({ productId, productName, unusedCards }: CardsConte
                         <CardTitle>{t('admin.cards.addCards')}</CardTitle>
                     </CardHeader>
                     <CardContent>
-                        <form action={handleSubmit} className="space-y-4">
+                        <form
+                            onSubmit={(event) => {
+                                event.preventDefault()
+                                if (submitting) return
+                                const formData = new FormData(event.currentTarget)
+                                handleOpenConfirm(formData)
+                            }}
+                            className="space-y-4"
+                        >
                             <input type="hidden" name="product_id" value={productId} />
                             <Textarea name="cards" placeholder={t('admin.cards.placeholder')} rows={10} className="font-mono text-sm" required disabled={submitting} />
                             <Button type="submit" className="w-full" disabled={submitting}>
@@ -194,6 +223,25 @@ export function CardsContent({ productId, productName, unusedCards }: CardsConte
                     </CardContent>
                 </Card>
             </div>
+
+            <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>{t('admin.cards.confirmAddTitle')}</DialogTitle>
+                        <DialogDescription>
+                            {t('admin.cards.confirmAddDescription', { count: pendingCount })}
+                        </DialogDescription>
+                    </DialogHeader>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setConfirmOpen(false)}>
+                            {t('common.cancel')}
+                        </Button>
+                        <Button onClick={handleConfirmSubmit} disabled={submitting}>
+                            {t('common.confirm')}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     )
 }
