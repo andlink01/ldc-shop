@@ -171,3 +171,16 @@ export async function toggleWishlistVote(itemId: number) {
 
     return { success: true, voted: !hasVote, count }
 }
+
+export async function deleteWishlistItem(id: number) {
+    const { checkAdmin } = await import("./admin")
+    await checkAdmin()
+
+    await db.run(sql`
+        DELETE FROM wishlist_items WHERE id = ${id}
+    `)
+
+    revalidatePath("/")
+    revalidatePath("/wishlist")
+    return { success: true }
+}

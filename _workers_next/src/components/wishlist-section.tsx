@@ -9,8 +9,8 @@ import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
 import { toast } from "sonner"
-import { submitWishlistItem, toggleWishlistVote } from "@/actions/wishlist"
-import { ThumbsUp, Sparkles } from "lucide-react"
+import { Trash2, ThumbsUp, Sparkles } from "lucide-react"
+import { submitWishlistItem, toggleWishlistVote, deleteWishlistItem } from "@/actions/wishlist"
 import { cn } from "@/lib/utils"
 
 export interface WishlistItem {
@@ -26,9 +26,11 @@ export interface WishlistItem {
 export function WishlistSection({
     initialItems,
     isLoggedIn,
+    isAdmin = false,
 }: {
     initialItems: WishlistItem[]
     isLoggedIn: boolean
+    isAdmin?: boolean
 }) {
     const { t } = useI18n()
     const [items, setItems] = useState<WishlistItem[]>(initialItems || [])
@@ -36,6 +38,7 @@ export function WishlistSection({
     const [desc, setDesc] = useState("")
     const [submitting, setSubmitting] = useState(false)
     const [votingId, setVotingId] = useState<number | null>(null)
+    const [deletingId, setDeletingId] = useState<number | null>(null)
     const submitLock = useRef(false)
     const voteLock = useRef<number | null>(null)
 
@@ -100,6 +103,24 @@ export function WishlistSection({
         }
     }
 
+    const handleDelete = async (itemId: number) => {
+        if (!confirm(t("common.confirmDelete"))) return
+        setDeletingId(itemId)
+        try {
+            const res = await deleteWishlistItem(itemId)
+            if (res?.success) {
+                setItems((prev) => prev.filter((item) => item.id !== itemId))
+                toast.success(t("common.deleteSuccess"))
+            } else {
+                toast.error(t("common.error"))
+            }
+        } catch {
+            toast.error(t("common.error"))
+        } finally {
+            setDeletingId(null)
+        }
+    }
+
     return (
         <section id="wishlist" className="space-y-4">
             <div className="flex items-center justify-between gap-3">
@@ -159,9 +180,22 @@ export function WishlistSection({
                                             </p>
                                         )}
                                     </div>
-                                    <Badge variant={item.voted ? "default" : "secondary"} className="shrink-0">
-                                        {item.votes}
-                                    </Badge>
+                                    <div className="flex items-center gap-2 shrink-0">
+                                        <Badge variant={item.voted ? "default" : "secondary"}>
+                                            {item.votes}
+                                        </Badge>
+                                        {isAdmin && (
+                                            <Button
+                                                size="icon"
+                                                variant="ghost"
+                                                className="h-6 w-6 text-muted-foreground hover:text-destructive"
+                                                onClick={() => handleDelete(item.id)}
+                                                disabled={deletingId === item.id}
+                                            >
+                                                <Trash2 className="h-4 w-4" />
+                                            </Button>
+                                        )}
+                                    </div>
                                 </div>
                                 <div className="flex items-center justify-between">
                                     <div className="text-xs text-muted-foreground">

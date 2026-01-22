@@ -22,6 +22,9 @@ export default async function WishlistPage() {
         ? await getWishlistItems(session?.user?.id || null, 30).catch(() => [])
         : []
 
+    const adminUsers = process.env.ADMIN_USERS?.toLowerCase().split(',') || []
+    const isAdmin = !!(session?.user?.username && adminUsers.includes(session.user.username.toLowerCase()))
+
     return (
         <main className="container py-8 md:py-12 space-y-6">
             <div className="flex items-center justify-between">
@@ -32,7 +35,11 @@ export default async function WishlistPage() {
             </div>
 
             {enabled ? (
-                <WishlistSection initialItems={items} isLoggedIn={!!session?.user?.id} />
+                <WishlistSection
+                    initialItems={items}
+                    isLoggedIn={!!session?.user?.id}
+                    isAdmin={isAdmin}
+                />
             ) : (
                 <div className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">
                     {t('wishlist.disabled')}
