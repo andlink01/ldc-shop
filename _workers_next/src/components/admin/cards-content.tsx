@@ -75,6 +75,11 @@ export function CardsContent({ productId, productName, unusedCards }: CardsConte
         if (submitLock.current) return
         submitLock.current = true
         setSubmitting(true)
+
+        // Generate a unique nonce for this submission to prevent server-side duplicates
+        const nonce = `${Date.now()}-${Math.random().toString(36).substring(2, 15)}`
+        formData.append('nonce', nonce)
+
         try {
             await addCards(formData)
             toast.success(t('common.success'))

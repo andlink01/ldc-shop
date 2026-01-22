@@ -166,8 +166,33 @@ export async function reorderProduct(id: string, newOrder: number) {
     revalidateTag('home:product-categories')
 }
 
+// In-memory nonce cache to prevent duplicate submissions (short TTL)
+const processedNonces = new Map<string, number>()
+const NONCE_TTL_MS = 30000 // 30 seconds
+
+function cleanExpiredNonces() {
+    const now = Date.now()
+    for (const [nonce, timestamp] of processedNonces) {
+        if (now - timestamp > NONCE_TTL_MS) {
+            processedNonces.delete(nonce)
+        }
+    }
+}
+
 export async function addCards(formData: FormData) {
     await checkAdmin()
+
+    // Check nonce to prevent duplicate submissions
+    const nonce = formData.get('nonce') as string | null
+    if (nonce) {
+        cleanExpiredNonces()
+        if (processedNonces.has(nonce)) {
+            // This nonce was already processed, skip silently
+            return
+        }
+        processedNonces.set(nonce, Date.now())
+    }
+
     const productId = formData.get('product_id') as string
     const rawCards = formData.get('cards') as string
 
