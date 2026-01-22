@@ -5,6 +5,7 @@ import { revalidateTag } from "next/cache";
 
 // Database initialization state
 let dbInitialized = false;
+let wishlistTablesReady = false;
 const CURRENT_SCHEMA_VERSION = 7;
 
 async function safeAddColumn(table: string, column: string, definition: string) {
@@ -1219,6 +1220,7 @@ async function ensureBroadcastTables() {
 }
 
 async function ensureWishlistTables() {
+    if (wishlistTablesReady) return;
     await db.run(sql`
         CREATE TABLE IF NOT EXISTS wishlist_items(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1238,6 +1240,7 @@ async function ensureWishlistTables() {
     `);
 
     await ensureWishlistColumns();
+    wishlistTablesReady = true;
 }
 
 async function ensureWishlistColumns() {
