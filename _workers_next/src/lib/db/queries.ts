@@ -335,6 +335,8 @@ async function ensureProductsColumns() {
     await safeAddColumn('products', 'stock_count', 'INTEGER DEFAULT 0');
     await safeAddColumn('products', 'locked_count', 'INTEGER DEFAULT 0');
     await safeAddColumn('products', 'sold_count', 'INTEGER DEFAULT 0');
+    await safeAddColumn('products', 'rating', 'REAL DEFAULT 0');
+    await safeAddColumn('products', 'review_count', 'INTEGER DEFAULT 0');
 }
 
 async function ensureOrdersColumns() {
@@ -420,13 +422,30 @@ export async function recalcProductAggregates(productId: string) {
         if (!isMissingTableOrColumn(error)) throw error;
     }
 
+    let rating = 0;
+    let reviewCount = 0;
+    try {
+        const reviewRows = await db.select({
+            avg: sql<number>`COALESCE(AVG(${reviews.rating}), 0)`,
+            count: sql<number>`COUNT(*)`
+        })
+            .from(reviews)
+            .where(eq(reviews.productId, pid));
+        rating = Number(reviewRows[0]?.avg || 0);
+        reviewCount = Number(reviewRows[0]?.count || 0);
+    } catch (error: any) {
+        if (!isMissingTableOrColumn(error)) throw error;
+    }
+
     const stockCount = product.isShared ? (unusedCount > 0 ? 999999 : 0) : availableCount;
 
     await db.update(products)
         .set({
             stockCount,
             lockedCount,
-            soldCount
+            soldCount,
+            rating,
+            reviewCount
         })
         .where(eq(products.id, pid));
 }
@@ -969,7 +988,9 @@ export async function searchActiveProducts(params: {
             purchaseLimit: products.purchaseLimit,
             stock: sql<number>`COALESCE(${products.stockCount}, 0)`,
             locked: sql<number>`COALESCE(${products.lockedCount}, 0)`,
-            sold: sql<number>`COALESCE(${products.soldCount}, 0)`
+            sold: sql<number>`COALESCE(${products.soldCount}, 0)`,
+            rating: sql<number>`COALESCE(${products.rating}, 0)`,
+            reviewCount: sql<number>`COALESCE(${products.reviewCount}, 0)`
         })
             .from(products)
             .where(whereExpr)

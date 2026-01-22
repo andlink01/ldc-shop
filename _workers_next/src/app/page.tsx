@@ -85,6 +85,7 @@ export default async function Home({
   const products = productsResult.items || [];
   const total = productsResult.total || 0;
 
+  /* REMOVED: Separate ratings fetch - using pre-computed values in product table
   const productIds = products.map((p: any) => p.id).filter(Boolean);
   const sortedIds = [...productIds].sort();
   let ratingsMap = new Map<string, { average: number; count: number }>();
@@ -97,16 +98,17 @@ export default async function Home({
   } catch {
     // Reviews table might not exist yet
   }
+  */
 
   const productsWithRatings = products.map((p: any) => {
-    const rating = ratingsMap.get(p.id) || { average: 0, count: 0 };
+    // const rating = ratingsMap.get(p.id) || { average: 0, count: 0 };
     return {
       ...p,
       stockCount: p.stock + (p.locked || 0),
       soldCount: p.sold || 0,
       descriptionPlain: stripMarkdown(p.description || ''),
-      rating: rating.average,
-      reviewCount: rating.count
+      rating: Number(p.rating || 0),
+      reviewCount: Number(p.reviewCount || 0)
     };
   });
 
