@@ -1,16 +1,16 @@
 'use client'
 
-import Link from 'next/link'
 import { motion } from 'framer-motion'
 import { cn } from '@/lib/utils'
 import { useRef, useState, useEffect } from 'react'
 
 interface NavigationPillProps {
-    items: Array<{ key: string; label: string; href: string }>
+    items: Array<{ key: string; label: string }>
     selectedKey: string | null
+    onSelect?: (key: string) => void
 }
 
-export function NavigationPill({ items, selectedKey }: NavigationPillProps) {
+export function NavigationPill({ items, selectedKey, onSelect }: NavigationPillProps) {
     const containerRef = useRef<HTMLDivElement>(null)
     const [indicatorStyle, setIndicatorStyle] = useState({ left: 0, width: 0 })
 
@@ -58,18 +58,19 @@ export function NavigationPill({ items, selectedKey }: NavigationPillProps) {
             {/* Navigation items */}
             <div ref={containerRef} className="relative z-10 flex items-center">
                 {items.map((item) => (
-                    <Link
+                    <button
                         key={item.key}
-                        href={item.href}
+                        type="button"
                         className={cn(
                             'relative px-4 py-1.5 text-sm font-medium transition-colors duration-200 rounded-full whitespace-nowrap',
                             selectedKey === item.key
                                 ? 'text-foreground'
                                 : 'text-muted-foreground hover:text-foreground/80'
                         )}
+                        onClick={() => onSelect?.(item.key)}
                     >
                         {item.label}
-                    </Link>
+                    </button>
                 ))}
             </div>
         </div>

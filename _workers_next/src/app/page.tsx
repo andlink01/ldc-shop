@@ -1,4 +1,4 @@
-import { getActiveProductCategories, getCategories, getProductRatings, getVisitorCount, getUserPendingOrders, searchActiveProducts, getSetting } from "@/lib/db/queries";
+import { getActiveProductCategories, getCategories, getActiveProducts, getVisitorCount, getUserPendingOrders, getSetting } from "@/lib/db/queries";
 import { getActiveAnnouncement } from "@/actions/settings";
 import { auth } from "@/lib/auth";
 import { HomeContent } from "@/components/home-content";
@@ -62,12 +62,12 @@ export default async function Home({
   const session = await auth()
 
   // Run all independent queries in parallel for better performance
-  const [productsResult, announcement, visitorCount, categoryConfig, productCategories, wishlistEnabled] = await Promise.all([
+  const [products, announcement, visitorCount, categoryConfig, productCategories, wishlistEnabled] = await Promise.all([
     unstable_cache(
-      async () => searchActiveProducts({ q, category, sort, page, pageSize: PAGE_SIZE }),
-      ["search-active-products", q, category || 'all', sort, String(page), String(PAGE_SIZE)],
+      async () => getActiveProducts(),
+      ["active-products"],
       { revalidate: CACHE_TTL_SECONDS, tags: [TAG_PRODUCTS] }
-    )().catch(() => ({ items: [], total: 0, page, pageSize: PAGE_SIZE })),
+    )().catch(() => []),
     getCachedAnnouncement().catch(() => null),
     getCachedVisitorCount().catch(() => 0),
     getCachedCategories().catch(() => []),
@@ -82,8 +82,7 @@ export default async function Home({
   ]);
 
 
-  const products = productsResult.items || [];
-  const total = productsResult.total || 0;
+  const total = products.length;
 
   /* REMOVED: Separate ratings fetch - using pre-computed values in product table
   const productIds = products.map((p: any) => p.id).filter(Boolean);

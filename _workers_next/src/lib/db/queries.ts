@@ -555,7 +555,9 @@ export async function getActiveProducts() {
             purchaseLimit: products.purchaseLimit,
             stock: sql<number>`COALESCE(${products.stockCount}, 0)`,
             locked: sql<number>`COALESCE(${products.lockedCount}, 0)`,
-            sold: sql<number>`COALESCE(${products.soldCount}, 0)`
+            sold: sql<number>`COALESCE(${products.soldCount}, 0)`,
+            rating: sql<number>`COALESCE(${products.rating}, 0)`,
+            reviewCount: sql<number>`COALESCE(${products.reviewCount}, 0)`
         })
             .from(products)
             .where(eq(products.isActive, true))

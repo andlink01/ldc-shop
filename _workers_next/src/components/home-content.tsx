@@ -1,4 +1,6 @@
-import { getServerI18n } from "@/lib/i18n/server"
+"use client"
+
+import { useDeferredValue, useEffect, useMemo, useState } from "react"
 import Link from "next/link"
 import { Card, CardContent, CardFooter } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -7,6 +9,7 @@ import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
 import { StarRatingStatic } from "@/components/star-rating-static"
 import { NavigationPill } from "@/components/navigation-pill"
+import { useI18n } from "@/lib/i18n/context"
 
 interface Product {
     id: string
@@ -36,24 +39,52 @@ interface HomeContentProps {
     pagination: { page: number; pageSize: number; total: number }
 }
 
-export async function HomeContent({ products, announcement, visitorCount, categories = [], categoryConfig, pendingOrders, wishlistEnabled = false, filters, pagination }: HomeContentProps) {
-    const { t } = await getServerI18n()
-    const selectedCategory = filters.category || null
-    const searchTerm = filters.q || ""
-    const sortKey = filters.sort || "default"
+export function HomeContent({ products, announcement, visitorCount, categories = [], categoryConfig, pendingOrders, wishlistEnabled = false, filters, pagination }: HomeContentProps) {
+    const { t } = useI18n()
+    const [selectedCategory, setSelectedCategory] = useState<string | null>(filters.category || null)
+    const [searchTerm, setSearchTerm] = useState(filters.q || "")
+    const [sortKey, setSortKey] = useState(filters.sort || "default")
+    const [page, setPage] = useState(pagination.page || 1)
+    const deferredSearch = useDeferredValue(searchTerm)
 
-    const buildUrl = (next: { q?: string; category?: string | null; sort?: string; page?: number }) => {
-        const params = new URLSearchParams()
-        if (next.q) params.set('q', next.q)
-        if (next.category) params.set('category', next.category)
-        if (next.sort && next.sort !== 'default') params.set('sort', next.sort)
-        if (next.page && next.page > 1) params.set('page', String(next.page))
-        const qs = params.toString()
-        return qs ? `/?${qs}` : '/'
-    }
+    useEffect(() => {
+        setPage(1)
+    }, [selectedCategory, sortKey, deferredSearch])
 
-    const totalPages = Math.max(1, Math.ceil(pagination.total / pagination.pageSize))
-    const hasMore = pagination.page < totalPages
+    const filteredProducts = useMemo(() => {
+        const keyword = deferredSearch.trim().toLowerCase()
+        return products.filter((product) => {
+            if (selectedCategory && product.category !== selectedCategory) return false
+            if (!keyword) return true
+            const name = (product.name || "").toLowerCase()
+            const desc = (product.descriptionPlain || product.description || "").toLowerCase()
+            return name.includes(keyword) || desc.includes(keyword)
+        })
+    }, [products, selectedCategory, deferredSearch])
+
+    const sortedProducts = useMemo(() => {
+        const list = [...filteredProducts]
+        switch (sortKey) {
+            case "priceAsc":
+                return list.sort((a, b) => Number(a.price) - Number(b.price))
+            case "priceDesc":
+                return list.sort((a, b) => Number(b.price) - Number(a.price))
+            case "stockDesc":
+                return list.sort((a, b) => (b.stockCount || 0) - (a.stockCount || 0))
+            case "soldDesc":
+                return list.sort((a, b) => (b.soldCount || 0) - (a.soldCount || 0))
+            case "hot":
+                return list.sort((a, b) => Number(!!b.isHot) - Number(!!a.isHot))
+            default:
+                return list
+        }
+    }, [filteredProducts, sortKey])
+
+    const totalPages = Math.max(1, Math.ceil(sortedProducts.length / pagination.pageSize))
+    const currentPage = Math.min(Math.max(1, page), totalPages)
+    const startIndex = (currentPage - 1) * pagination.pageSize
+    const pageItems = sortedProducts.slice(startIndex, startIndex + pagination.pageSize)
+    const hasMore = currentPage < totalPages
 
     return (
         <main className="container py-8 md:py-16 relative overflow-hidden">
@@ -131,7 +162,7 @@ export async function HomeContent({ products, announcement, visitorCount, catego
                 {/* Top Toolbar: Search & Filter Pills */}
                 <div className="flex flex-col md:flex-row gap-4 items-start md:items-center justify-between bg-card/50 p-1 rounded-xl">
                     {/* Search Bar */}
-                    <form className="relative w-full md:w-72 shrink-0" method="get" action="/">
+                    <div className="relative w-full md:w-72 shrink-0">
                         <svg
                             xmlns="http://www.w3.org/2000/svg"
                             className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground"
@@ -143,28 +174,26 @@ export async function HomeContent({ products, announcement, visitorCount, catego
                         </svg>
                         <Input
                             placeholder={t('common.searchPlaceholder')}
-                            defaultValue={searchTerm}
-                            name="q"
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
                             className="pl-9 w-full bg-background border-border/50 focus:bg-background transition-all"
                         />
-                        {selectedCategory && <input type="hidden" name="category" value={selectedCategory} />}
-                        {sortKey && sortKey !== 'default' && <input type="hidden" name="sort" value={sortKey} />}
-                    </form>
+                    </div>
 
                     {/* Apple-style Category Navigation Pill */}
                     <div className="flex-1 w-full overflow-x-auto no-scrollbar pb-2 md:pb-0">
                         <NavigationPill
                             items={[
-                                { key: '', label: t('common.all'), href: buildUrl({ q: searchTerm, category: null, sort: sortKey, page: 1 }) },
+                                { key: '', label: t('common.all') },
                                 ...categories.map(cat => ({
                                     key: cat,
                                     label: categoryConfig?.find(c => c.name === cat)?.icon
                                         ? `${categoryConfig.find(c => c.name === cat)?.icon} ${cat}`
                                         : cat,
-                                    href: buildUrl({ q: searchTerm, category: cat, sort: sortKey, page: 1 })
                                 }))
                             ]}
                             selectedKey={selectedCategory || ''}
+                            onSelect={(key) => setSelectedCategory(key || null)}
                         />
                     </div>
 
@@ -187,11 +216,9 @@ export async function HomeContent({ products, announcement, visitorCount, catego
                                     "h-8 px-3 text-xs rounded-lg whitespace-nowrap",
                                     sortKey === opt.key ? "bg-secondary font-medium text-secondary-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground"
                                 )}
-                                asChild
+                                onClick={() => setSortKey(opt.key)}
                             >
-                                <Link href={buildUrl({ q: searchTerm, category: selectedCategory, sort: opt.key, page: 1 })}>
-                                    {opt.label}
-                                </Link>
+                                {opt.label}
                             </Button>
                         ))}
                     </div>
@@ -200,7 +227,7 @@ export async function HomeContent({ products, announcement, visitorCount, catego
 
             {/* Main Product Grid (Full Width) */}
             <section>
-                {products.length === 0 ? (
+                {sortedProducts.length === 0 ? (
                     <div className="text-center py-20 bg-muted/30 rounded-2xl border border-dashed border-muted-foreground/20 relative overflow-hidden">
                         <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_rgba(0,0,0,0.04),_transparent_60%)] dark:bg-[radial-gradient(circle_at_center,_rgba(255,255,255,0.06),_transparent_60%)]" />
                         <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-muted/50 mb-4">
@@ -211,14 +238,14 @@ export async function HomeContent({ products, announcement, visitorCount, catego
                         <p className="text-muted-foreground font-medium">{t('home.noProducts')}</p>
                         <p className="text-sm text-muted-foreground/60 mt-2">{t('home.checkBackLater')}</p>
                         {selectedCategory && (
-                            <Button variant="link" asChild className="mt-4">
-                                <Link href={buildUrl({ q: searchTerm, category: null, sort: sortKey, page: 1 })}>{t('common.all')}</Link>
+                            <Button variant="link" className="mt-4" onClick={() => setSelectedCategory(null)}>
+                                {t('common.all')}
                             </Button>
                         )}
                     </div>
                 ) : (
                     <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 2xl:grid-cols-4">
-                        {products.map((product, index) => (
+                        {pageItems.map((product, index) => (
                             <Card
                                 key={product.id}
                                 className="group relative overflow-hidden flex flex-col tech-card border-border/40 bg-card/80 backdrop-blur-sm shadow-sm hover:shadow-lg hover:shadow-primary/10 hover:-translate-y-0.5 hover:border-primary/50 transition-all duration-300 animate-in fade-in slide-in-from-bottom-2 motion-reduce:animate-none"
@@ -321,16 +348,14 @@ export async function HomeContent({ products, announcement, visitorCount, catego
                 )}
             </section>
 
-            {products.length > 0 && (
+            {sortedProducts.length > 0 && (
                 <div className="flex items-center justify-between mt-10 text-sm text-muted-foreground">
                     <span>
-                        {t('search.page', { page: pagination.page, totalPages })}
+                        {t('search.page', { page: currentPage, totalPages })}
                     </span>
                     {hasMore && (
-                        <Button variant="outline" size="sm" asChild>
-                            <Link href={buildUrl({ q: searchTerm, category: selectedCategory, sort: sortKey, page: pagination.page + 1 })}>
-                                {t('common.loadMore')}
-                            </Link>
+                        <Button variant="outline" size="sm" onClick={() => setPage(currentPage + 1)}>
+                            {t('common.loadMore')}
                         </Button>
                     )}
                 </div>
