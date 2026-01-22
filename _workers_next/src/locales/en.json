@@ -270,6 +270,12 @@
                 "enabled": "Blocked",
                 "disabled": "Allowed"
             },
+            "wishlist": {
+                "title": "Wishlist",
+                "enabled": "Enabled",
+                "disabled": "Disabled",
+                "hint": "Show the wishlist entry on the homepage and allow users to submit/vote."
+            },
             "refund": {
                 "title": "Refund Settings",
                 "reclaimLabel": "Reclaim card keys on refund",
@@ -692,5 +698,26 @@
         "hideNavLockedHint": "After joining, the navigator entry must stay visible.",
         "hideNavEnabled": "Hidden",
         "hideNavDisabled": "Visible"
+    },
+    "wishlist": {
+        "title": "Wishlist",
+        "subtitle": "Share the products you want and vote for ideas from others.",
+        "submitTitle": "Submit a wish",
+        "titlePlaceholder": "Product or feature name",
+        "descPlaceholder": "Describe what you want (optional)",
+        "submit": "Submit",
+        "submitSuccess": "Submitted",
+        "vote": "Vote",
+        "voted": "Voted",
+        "empty": "No wishes yet. Be the first to submit one!",
+        "loginRequired": "Please sign in to submit or vote.",
+        "loginToSubmit": "Sign in",
+        "titleRequired": "Please enter a title",
+        "titleTooLong": "Title is too long",
+        "descTooLong": "Description is too long",
+        "invalidItem": "Invalid wish",
+        "disabled": "Wishlist is disabled",
+        "blocked": "Your account is restricted",
+        "anonymous": "Anonymous"
     }
 }

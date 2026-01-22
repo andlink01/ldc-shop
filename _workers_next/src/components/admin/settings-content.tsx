@@ -8,7 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { TrendingUp, ShoppingCart, CreditCard, Package, Users } from "lucide-react"
-import { saveShopName, saveShopDescription, saveShopLogo, saveShopFooter, saveThemeColor, saveLowStockThreshold, saveCheckinReward, saveCheckinEnabled, saveNoIndex, saveRefundReclaimCards, saveRegistryHideNav } from "@/actions/admin"
+import { saveShopName, saveShopDescription, saveShopLogo, saveShopFooter, saveThemeColor, saveLowStockThreshold, saveCheckinReward, saveCheckinEnabled, saveWishlistEnabled, saveNoIndex, saveRefundReclaimCards, saveRegistryHideNav } from "@/actions/admin"
 import { checkForUpdates } from "@/actions/update-check"
 import { joinRegistry } from "@/actions/registry"
 import { toast } from "sonner"
@@ -31,6 +31,7 @@ interface AdminSettingsContentProps {
     lowStockThreshold: number
     checkinReward: number
     checkinEnabled: boolean
+    wishlistEnabled: boolean
     noIndexEnabled: boolean
     refundReclaimCards: boolean
     registryHideNav: boolean
@@ -62,7 +63,7 @@ const THEME_COLORS = [
     { value: 'pink', hue: 330 },
 ]
 
-export function AdminSettingsContent({ stats, shopName, shopDescription, shopLogo, shopFooter, themeColor, visitorCount, lowStockThreshold, checkinReward, checkinEnabled, noIndexEnabled, refundReclaimCards, registryHideNav, registryOptIn, registryEnabled }: AdminSettingsContentProps) {
+export function AdminSettingsContent({ stats, shopName, shopDescription, shopLogo, shopFooter, themeColor, visitorCount, lowStockThreshold, checkinReward, checkinEnabled, wishlistEnabled, noIndexEnabled, refundReclaimCards, registryHideNav, registryOptIn, registryEnabled }: AdminSettingsContentProps) {
     const { t } = useI18n()
 
     // State
@@ -82,6 +83,8 @@ export function AdminSettingsContent({ stats, shopName, shopDescription, shopLog
     const [savingReward, setSavingReward] = useState(false)
     const [enabledCheckin, setEnabledCheckin] = useState(checkinEnabled)
     const [savingEnabled, setSavingEnabled] = useState(false)
+    const [enabledWishlist, setEnabledWishlist] = useState(wishlistEnabled)
+    const [savingWishlist, setSavingWishlist] = useState(false)
     const [enabledNoIndex, setEnabledNoIndex] = useState(noIndexEnabled)
     const [savingNoIndex, setSavingNoIndex] = useState(false)
     const [refundReclaimEnabled, setRefundReclaimEnabled] = useState(refundReclaimCards)
@@ -194,6 +197,19 @@ export function AdminSettingsContent({ stats, shopName, shopDescription, shopLog
             toast.error(e.message)
         } finally {
             setSavingNoIndex(false)
+        }
+    }
+
+    const handleToggleWishlist = async (checked: boolean) => {
+        setSavingWishlist(true)
+        try {
+            await saveWishlistEnabled(checked)
+            setEnabledWishlist(checked)
+            toast.success(t('common.success'))
+        } catch (e: any) {
+            toast.error(e.message)
+        } finally {
+            setSavingWishlist(false)
         }
     }
 
@@ -529,6 +545,67 @@ export function AdminSettingsContent({ stats, shopName, shopDescription, shopLog
                 </CardContent>
             </Card>
 
+            {registryEnabled && (
+                <Card>
+                    <CardHeader>
+                        <CardTitle>{t('registry.title')}</CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-3">
+                        <p className="text-sm text-muted-foreground">{t('registry.description')}</p>
+                        <div className="flex flex-wrap items-center gap-3">
+                            <Button onClick={handleRegistrySubmit} disabled={submittingRegistry}>
+                                {registryJoined ? t('registry.resubmit') : t('registry.joinNow')}
+                            </Button>
+                            <span className={registryJoined ? "text-green-600 text-sm" : "text-muted-foreground text-sm"}>
+                                {registryJoined ? t('registry.statusJoined') : t('registry.statusNotJoined')}
+                            </span>
+                        </div>
+                        <div className="space-y-2 pt-2">
+                            <div className="flex items-center justify-between gap-4">
+                                <Label htmlFor="registry-hide-nav" className="cursor-pointer">
+                                    {t('registry.hideNavLabel')}
+                                </Label>
+                                <Button
+                                    id="registry-hide-nav"
+                                    variant={registryJoined ? "outline" : hideRegistryNav ? "default" : "outline"}
+                                    size="sm"
+                                    onClick={() => handleToggleRegistryNav(!hideRegistryNav)}
+                                    disabled={savingRegistryNav || registryJoined}
+                                    className={!registryJoined && hideRegistryNav ? "bg-slate-900 hover:bg-slate-800 text-white" : ""}
+                                >
+                                    {registryJoined ? t('registry.hideNavDisabled') : hideRegistryNav ? t('registry.hideNavEnabled') : t('registry.hideNavDisabled')}
+                                </Button>
+                            </div>
+                            <p className="text-xs text-muted-foreground">
+                                {registryJoined ? t('registry.hideNavLockedHint') : t('registry.hideNavHint')}
+                            </p>
+                        </div>
+                    </CardContent>
+                </Card>
+            )}
+
+            {/* Wishlist Settings */}
+            <Card>
+                <CardHeader>
+                    <CardTitle>{t('admin.settings.wishlist.title')}</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-2">
+                    <div className="flex items-center gap-4">
+                        <Label htmlFor="wishlist-enable" className="cursor-pointer">{t('admin.settings.wishlist.title')}</Label>
+                        <Button
+                            id="wishlist-enable"
+                            variant={enabledWishlist ? "default" : "outline"}
+                            size="sm"
+                            onClick={() => handleToggleWishlist(!enabledWishlist)}
+                            disabled={savingWishlist}
+                        >
+                            {enabledWishlist ? t('admin.settings.wishlist.enabled') : t('admin.settings.wishlist.disabled')}
+                        </Button>
+                    </div>
+                    <p className="text-xs text-muted-foreground">{t('admin.settings.wishlist.hint')}</p>
+                </CardContent>
+            </Card>
+
             {/* SEO Settings */}
             <Card>
                 <CardHeader>
@@ -591,45 +668,6 @@ export function AdminSettingsContent({ stats, shopName, shopDescription, shopLog
                     )}
                 </CardContent>
             </Card>
-
-            {registryEnabled && (
-                <Card>
-                    <CardHeader>
-                        <CardTitle>{t('registry.title')}</CardTitle>
-                    </CardHeader>
-                    <CardContent className="space-y-3">
-                        <p className="text-sm text-muted-foreground">{t('registry.description')}</p>
-                        <div className="flex flex-wrap items-center gap-3">
-                            <Button onClick={handleRegistrySubmit} disabled={submittingRegistry}>
-                                {registryJoined ? t('registry.resubmit') : t('registry.joinNow')}
-                            </Button>
-                            <span className={registryJoined ? "text-green-600 text-sm" : "text-muted-foreground text-sm"}>
-                                {registryJoined ? t('registry.statusJoined') : t('registry.statusNotJoined')}
-                            </span>
-                        </div>
-                        <div className="space-y-2 pt-2">
-                            <div className="flex items-center justify-between gap-4">
-                                <Label htmlFor="registry-hide-nav" className="cursor-pointer">
-                                    {t('registry.hideNavLabel')}
-                                </Label>
-                                <Button
-                                    id="registry-hide-nav"
-                                    variant={registryJoined ? "outline" : hideRegistryNav ? "default" : "outline"}
-                                    size="sm"
-                                    onClick={() => handleToggleRegistryNav(!hideRegistryNav)}
-                                    disabled={savingRegistryNav || registryJoined}
-                                    className={!registryJoined && hideRegistryNav ? "bg-slate-900 hover:bg-slate-800 text-white" : ""}
-                                >
-                                    {registryJoined ? t('registry.hideNavDisabled') : hideRegistryNav ? t('registry.hideNavEnabled') : t('registry.hideNavDisabled')}
-                                </Button>
-                            </div>
-                            <p className="text-xs text-muted-foreground">
-                                {registryJoined ? t('registry.hideNavLockedHint') : t('registry.hideNavHint')}
-                            </p>
-                        </div>
-                    </CardContent>
-                </Card>
-            )}
 
         </div>
     )

@@ -173,3 +173,21 @@ export const broadcastReads = sqliteTable('broadcast_reads', {
     userId: text('user_id').notNull().references(() => loginUsers.userId, { onDelete: 'cascade' }),
     createdAt: integer('created_at', { mode: 'timestamp_ms' }).$defaultFn(() => new Date()),
 });
+
+// Wishlist items (user submitted ideas)
+export const wishlistItems = sqliteTable('wishlist_items', {
+    id: integer('id', { mode: 'number' }).primaryKey({ autoIncrement: true }),
+    title: text('title').notNull(),
+    description: text('description'),
+    userId: text('user_id'),
+    username: text('username'),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' }).$defaultFn(() => new Date()),
+});
+
+// Wishlist votes (per user)
+export const wishlistVotes = sqliteTable('wishlist_votes', {
+    id: integer('id', { mode: 'number' }).primaryKey({ autoIncrement: true }),
+    itemId: integer('item_id').notNull().references(() => wishlistItems.id, { onDelete: 'cascade' }),
+    userId: text('user_id').notNull().references(() => loginUsers.userId, { onDelete: 'cascade' }),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' }).$defaultFn(() => new Date()),
+});

@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
 import { StarRatingStatic } from "@/components/star-rating-static"
+import { WishlistSection, WishlistItem } from "@/components/wishlist-section"
 
 interface Product {
     id: string
@@ -30,11 +31,14 @@ interface HomeContentProps {
     categories?: string[]
     categoryConfig?: Array<{ name: string; icon: string | null; sortOrder: number }>
     pendingOrders?: Array<{ orderId: string; createdAt: Date; productName: string; amount: string }>
+    wishlistItems?: WishlistItem[]
+    isLoggedIn?: boolean
+    wishlistEnabled?: boolean
     filters: { q?: string; category?: string | null; sort?: string }
     pagination: { page: number; pageSize: number; total: number }
 }
 
-export async function HomeContent({ products, announcement, visitorCount, categories = [], categoryConfig, pendingOrders, filters, pagination }: HomeContentProps) {
+export async function HomeContent({ products, announcement, visitorCount, categories = [], categoryConfig, pendingOrders, wishlistItems = [], isLoggedIn = false, wishlistEnabled = false, filters, pagination }: HomeContentProps) {
     const { t } = await getServerI18n()
     const selectedCategory = filters.category || null
     const searchTerm = filters.q || ""
@@ -113,6 +117,16 @@ export async function HomeContent({ products, announcement, visitorCount, catego
                         <Badge variant="secondary" className="px-3 py-1 bg-background/70 shadow-sm border border-border/40">
                             {t('home.visitorCount', { count: visitorCount })}
                         </Badge>
+                    )}
+                    {wishlistEnabled && (
+                        <Link href="#wishlist">
+                            <Button size="icon-sm" variant="outline" className="h-9 w-9 p-0">
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                    <path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21l7.8-7.6 1-1a5.5 5.5 0 0 0 0-7.8Z" />
+                                </svg>
+                                <span className="sr-only">{t('wishlist.title')}</span>
+                            </Button>
+                        </Link>
                     )}
                 </div>
 
@@ -208,6 +222,13 @@ export async function HomeContent({ products, announcement, visitorCount, catego
                 </div>
             </div>
 
+            {/* Wishlist Section */}
+            {wishlistEnabled && (
+                <section className="mb-10">
+                    <WishlistSection initialItems={wishlistItems} isLoggedIn={isLoggedIn} />
+                </section>
+            )}
+
             {/* Main Product Grid (Full Width) */}
             <section>
                 {products.length === 0 ? (
@@ -231,11 +252,17 @@ export async function HomeContent({ products, announcement, visitorCount, catego
                         {products.map((product, index) => (
                             <Card
                                 key={product.id}
-                                className="group overflow-hidden flex flex-col tech-card border-border/40 bg-card/80 backdrop-blur-sm shadow-sm hover:shadow-lg hover:-translate-y-0.5 hover:border-primary/50 transition-all duration-300 animate-in fade-in slide-in-from-bottom-2 motion-reduce:animate-none"
+                                className="group relative overflow-hidden flex flex-col tech-card border-border/40 bg-card/80 backdrop-blur-sm shadow-sm hover:shadow-lg hover:shadow-primary/10 hover:-translate-y-0.5 hover:border-primary/50 transition-all duration-300 animate-in fade-in slide-in-from-bottom-2 motion-reduce:animate-none"
                                 style={{ animationDelay: `${index * 60}ms` }}
                             >
+                                <div className="pointer-events-none absolute inset-0 z-0 rounded-xl bg-gradient-to-br from-primary/12 via-transparent to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
+                                <Link
+                                    href={`/buy/${product.id}`}
+                                    aria-label={t('common.viewDetails')}
+                                    className="absolute inset-0 z-10"
+                                />
                                 {/* Image Section with aspect ratio tweak */}
-                                <Link href={`/buy/${product.id}`} className="block aspect-[16/10] bg-gradient-to-br from-muted/30 to-muted/10 relative overflow-hidden group-hover:opacity-90">
+                                <div className="block aspect-[16/10] bg-gradient-to-br from-muted/30 to-muted/10 relative overflow-hidden group-hover:opacity-90">
                                     <img
                                         src={product.image || `https://api.dicebear.com/7.x/shapes/svg?seed=${product.id}`}
                                         alt={product.name}
@@ -251,16 +278,14 @@ export async function HomeContent({ products, announcement, visitorCount, catego
                                             {product.category}
                                         </Badge>
                                     )}
-                                </Link>
+                                </div>
 
                                 {/* Content Section */}
-                                <CardContent className="flex-1 p-4">
+                                <CardContent className="relative z-20 flex-1 p-4">
                                     <div className="flex items-start justify-between gap-2 mb-1.5">
-                                        <Link href={`/buy/${product.id}`} className="block">
-                                            <h3 className="font-semibold text-base group-hover:text-primary transition-colors duration-300 leading-snug line-clamp-1" title={product.name}>
-                                                {product.name}
-                                            </h3>
-                                        </Link>
+                                        <h3 className="font-semibold text-base group-hover:text-primary transition-colors duration-300 leading-snug line-clamp-1" title={product.name}>
+                                            {product.name}
+                                        </h3>
                                     </div>
 
                                     {product.isHot && (
@@ -285,7 +310,7 @@ export async function HomeContent({ products, announcement, visitorCount, catego
                                 </CardContent>
 
                                 {/* Footer Section */}
-                                <CardFooter className="p-4 pt-0 flex flex-wrap items-center gap-3 mt-auto border-t border-border/30 bg-muted/5">
+                                <CardFooter className="relative z-20 p-4 pt-0 flex flex-wrap items-center gap-3 mt-auto border-t border-border/30 bg-muted/5">
                                     <div className="flex min-w-0 flex-1 flex-col">
                                         <div className="flex items-baseline gap-2">
                                             <span className="text-lg font-bold text-primary tabular-nums whitespace-nowrap">{Number(product.price)}</span>
@@ -308,7 +333,7 @@ export async function HomeContent({ products, announcement, visitorCount, catego
                                         </div>
                                     </div>
 
-                                    <Link href={`/buy/${product.id}`} className="ml-auto">
+                                    <Link href={`/buy/${product.id}`} className="ml-auto relative z-30">
                                         <Button
                                             size="sm"
                                             className={cn(

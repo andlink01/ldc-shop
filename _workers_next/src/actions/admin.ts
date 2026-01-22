@@ -414,6 +414,13 @@ export async function saveNoIndex(enabled: boolean) {
     revalidateTag('home:product-categories')
 }
 
+export async function saveWishlistEnabled(enabled: boolean) {
+    await checkAdmin()
+    await setSetting('wishlist_enabled', enabled ? 'true' : 'false')
+    revalidatePath('/admin/settings')
+    revalidatePath('/')
+}
+
 export async function saveRegistryHideNav(enabled: boolean) {
     await checkAdmin()
     const optIn = await getSetting('registry_opt_in')

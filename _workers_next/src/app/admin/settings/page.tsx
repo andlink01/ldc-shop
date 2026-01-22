@@ -3,7 +3,7 @@ import { isRegistryEnabled } from "@/lib/registry"
 import { AdminSettingsContent } from "@/components/admin/settings-content"
 
 export default async function AdminSettingsPage() {
-    const [stats, shopName, shopDescription, shopLogo, shopFooter, themeColor, visitorCount, lowStockThreshold, checkinReward, checkinEnabled, noIndexEnabled, registryOptIn, refundReclaimCards, registryHideNav] = await Promise.all([
+    const [stats, shopName, shopDescription, shopLogo, shopFooter, themeColor, visitorCount, lowStockThreshold, checkinReward, checkinEnabled, wishlistEnabled, noIndexEnabled, registryOptIn, refundReclaimCards, registryHideNav] = await Promise.all([
         getDashboardStats(),
         (async () => {
             try {
@@ -73,6 +73,14 @@ export default async function AdminSettingsPage() {
         })(),
         (async () => {
             try {
+                const v = await getSetting('wishlist_enabled')
+                return v === 'true'
+            } catch {
+                return false
+            }
+        })(),
+        (async () => {
+            try {
                 const v = await getSetting('noindex_enabled')
                 return v === 'true'
             } catch {
@@ -117,6 +125,7 @@ export default async function AdminSettingsPage() {
             lowStockThreshold={lowStockThreshold}
             checkinReward={checkinReward}
             checkinEnabled={checkinEnabled}
+            wishlistEnabled={wishlistEnabled}
             noIndexEnabled={noIndexEnabled}
             registryOptIn={registryOptIn}
             refundReclaimCards={refundReclaimCards}

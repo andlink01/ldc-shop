@@ -270,6 +270,12 @@
                 "enabled": "已禁止",
                 "disabled": "允许收录"
             },
+            "wishlist": {
+                "title": "心愿单",
+                "enabled": "已启用",
+                "disabled": "已禁用",
+                "hint": "在首页显示心愿单入口，并允许用户提交/投票。"
+            },
             "refund": {
                 "title": "退款设置",
                 "reclaimLabel": "退款后卡密回收",
@@ -692,5 +698,26 @@
         "hideNavLockedHint": "已加入导航后入口将始终显示，无法隐藏。",
         "hideNavEnabled": "已隐藏",
         "hideNavDisabled": "显示中"
+    },
+    "wishlist": {
+        "title": "心愿单",
+        "subtitle": "提交你想要的商品，大家一起投票支持。",
+        "submitTitle": "提交心愿",
+        "titlePlaceholder": "商品/功能名称",
+        "descPlaceholder": "补充描述（可选）",
+        "submit": "提交",
+        "submitSuccess": "已提交",
+        "vote": "投票",
+        "voted": "已投",
+        "empty": "暂无心愿，快来第一个提交吧！",
+        "loginRequired": "请登录后提交或投票",
+        "loginToSubmit": "去登录",
+        "titleRequired": "请输入标题",
+        "titleTooLong": "标题过长",
+        "descTooLong": "描述过长",
+        "invalidItem": "无效心愿",
+        "disabled": "心愿单已关闭",
+        "blocked": "你的账号已被限制",
+        "anonymous": "匿名"
     }
 }

@@ -1,11 +1,11 @@
 import { db } from "./index";
-import { products, cards, orders, settings, reviews, loginUsers, categories, userNotifications } from "./schema";
+import { products, cards, orders, settings, reviews, loginUsers, categories, userNotifications, wishlistItems, wishlistVotes } from "./schema";
 import { eq, sql, desc, and, asc, gte, or, inArray } from "drizzle-orm";
 import { revalidateTag } from "next/cache";
 
 // Database initialization state
 let dbInitialized = false;
-const CURRENT_SCHEMA_VERSION = 6;
+const CURRENT_SCHEMA_VERSION = 7;
 
 async function safeAddColumn(table: string, column: string, definition: string) {
     try {
@@ -39,6 +39,9 @@ async function ensureIndexes() {
         `CREATE INDEX IF NOT EXISTS broadcast_messages_created_idx ON broadcast_messages(created_at)`,
         `CREATE UNIQUE INDEX IF NOT EXISTS broadcast_reads_message_user_uq ON broadcast_reads(message_id, user_id)`,
         `CREATE INDEX IF NOT EXISTS broadcast_reads_user_idx ON broadcast_reads(user_id, created_at)`,
+        `CREATE INDEX IF NOT EXISTS wishlist_items_created_idx ON wishlist_items(created_at)`,
+        `CREATE INDEX IF NOT EXISTS wishlist_votes_item_idx ON wishlist_votes(item_id, created_at)`,
+        `CREATE UNIQUE INDEX IF NOT EXISTS wishlist_votes_item_user_uq ON wishlist_votes(item_id, user_id)`,
     ];
 
     for (const statement of indexStatements) {
@@ -83,6 +86,7 @@ async function ensureDatabaseInitialized() {
         await ensureAdminMessagesTable();
         await ensureUserMessagesTable();
         await ensureBroadcastTables();
+        await ensureWishlistTables();
         await migrateTimestampColumnsToMs();
         await ensureIndexes();
         await backfillProductAggregates();
@@ -265,6 +269,26 @@ async function ensureDatabaseInitialized() {
             user_id TEXT NOT NULL REFERENCES login_users(user_id) ON DELETE CASCADE,
             created_at INTEGER DEFAULT (unixepoch() * 1000)
         );
+
+        -- Wishlist items
+        CREATE TABLE IF NOT EXISTS wishlist_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT NOT NULL,
+            description TEXT,
+            user_id TEXT,
+            username TEXT,
+            created_at INTEGER DEFAULT (unixepoch() * 1000)
+        );
+
+        -- Wishlist votes
+        CREATE TABLE IF NOT EXISTS wishlist_votes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            item_id INTEGER NOT NULL REFERENCES wishlist_items(id) ON DELETE CASCADE,
+            user_id TEXT NOT NULL REFERENCES login_users(user_id) ON DELETE CASCADE,
+            created_at INTEGER DEFAULT (unixepoch() * 1000)
+        );
+
+        CREATE UNIQUE INDEX IF NOT EXISTS wishlist_votes_item_user_uq ON wishlist_votes(item_id, user_id);
     `);
 
     await migrateTimestampColumnsToMs();
@@ -494,6 +518,43 @@ export async function getActiveProducts() {
             .where(eq(products.isActive, true))
             .orderBy(asc(products.sortOrder), desc(products.createdAt));
     })
+}
+
+export async function getWishlistItems(userId: string | null, limit = 10) {
+    await ensureDatabaseInitialized();
+    await ensureWishlistTables();
+
+    const uid = userId || '';
+    const result: any = await db.run(sql`
+        SELECT
+            w.id,
+            w.title,
+            w.description,
+            w.username,
+            w.created_at,
+            COALESCE(v.cnt, 0) AS votes,
+            CASE WHEN mv.user_id IS NULL THEN 0 ELSE 1 END AS voted
+        FROM wishlist_items w
+        LEFT JOIN (
+            SELECT item_id, COUNT(*) AS cnt
+            FROM wishlist_votes
+            GROUP BY item_id
+        ) v ON v.item_id = w.id
+        LEFT JOIN wishlist_votes mv ON mv.item_id = w.id AND mv.user_id = ${uid}
+        ORDER BY votes DESC, w.created_at DESC
+        LIMIT ${limit}
+    `);
+
+    const rows = result?.results || result?.rows || [];
+    return rows.map((row: any) => ({
+        id: Number(row.id),
+        title: row.title,
+        description: row.description,
+        username: row.username,
+        createdAt: Number(row.created_at ?? row.createdAt ?? 0),
+        votes: Number(row.votes ?? row.cnt ?? 0),
+        voted: !!row.voted
+    }));
 }
 
 export async function getProduct(id: string) {
@@ -1034,6 +1095,8 @@ async function migrateTimestampColumnsToMs() {
         { table: 'user_messages', columns: ['created_at'] },
         { table: 'broadcast_messages', columns: ['created_at'] },
         { table: 'broadcast_reads', columns: ['created_at'] },
+        { table: 'wishlist_items', columns: ['created_at'] },
+        { table: 'wishlist_votes', columns: ['created_at'] },
     ];
 
     for (const { table, columns } of tableColumns) {
@@ -1131,6 +1194,26 @@ async function ensureBroadcastTables() {
             user_id TEXT NOT NULL REFERENCES login_users(user_id) ON DELETE CASCADE,
             created_at INTEGER DEFAULT (unixepoch() * 1000)
         );
+    `);
+}
+
+async function ensureWishlistTables() {
+    await db.run(sql`
+        CREATE TABLE IF NOT EXISTS wishlist_items(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT NOT NULL,
+            description TEXT,
+            user_id TEXT,
+            username TEXT,
+            created_at INTEGER DEFAULT (unixepoch() * 1000)
+        );
+        CREATE TABLE IF NOT EXISTS wishlist_votes(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            item_id INTEGER NOT NULL REFERENCES wishlist_items(id) ON DELETE CASCADE,
+            user_id TEXT NOT NULL REFERENCES login_users(user_id) ON DELETE CASCADE,
+            created_at INTEGER DEFAULT (unixepoch() * 1000)
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS wishlist_votes_item_user_uq ON wishlist_votes(item_id, user_id);
     `);
 }
 

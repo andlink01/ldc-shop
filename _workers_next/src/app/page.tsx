@@ -1,4 +1,4 @@
-import { getActiveProductCategories, getCategories, getProductRatings, getVisitorCount, getUserPendingOrders, searchActiveProducts } from "@/lib/db/queries";
+import { getActiveProductCategories, getCategories, getProductRatings, getVisitorCount, getUserPendingOrders, searchActiveProducts, getWishlistItems, getSetting } from "@/lib/db/queries";
 import { getActiveAnnouncement } from "@/actions/settings";
 import { auth } from "@/lib/auth";
 import { HomeContent } from "@/components/home-content";
@@ -59,9 +59,10 @@ export default async function Home({
   const sort = (typeof resolved.sort === 'string' ? resolved.sort : 'default').trim();
   const page = Math.max(1, Number.parseInt(typeof resolved.page === 'string' ? resolved.page : '1', 10) || 1);
 
+  const session = await auth()
+
   // Run all independent queries in parallel for better performance
-  const [session, productsResult, announcement, visitorCount, categoryConfig, productCategories] = await Promise.all([
-    auth(),
+  const [productsResult, announcement, visitorCount, categoryConfig, productCategories, wishlistEnabled] = await Promise.all([
     unstable_cache(
       async () => searchActiveProducts({ q, category, sort, page, pageSize: PAGE_SIZE }),
       ["search-active-products", q, category || 'all', sort, String(page), String(PAGE_SIZE)],
@@ -70,8 +71,19 @@ export default async function Home({
     getCachedAnnouncement().catch(() => null),
     getCachedVisitorCount().catch(() => 0),
     getCachedCategories().catch(() => []),
-    getCachedProductCategories().catch(() => [])
+    getCachedProductCategories().catch(() => []),
+    (async () => {
+      try {
+        return (await getSetting('wishlist_enabled')) === 'true'
+      } catch {
+        return false
+      }
+    })()
   ]);
+
+  const wishlistItems = wishlistEnabled
+    ? await getWishlistItems(session?.user?.id || null, 10).catch(() => [])
+    : [];
 
   const products = productsResult.items || [];
   const total = productsResult.total || 0;
@@ -124,6 +136,9 @@ export default async function Home({
     categories={categories}
     categoryConfig={categoryConfig}
     pendingOrders={pendingOrders}
+    wishlistItems={wishlistItems}
+    isLoggedIn={!!session?.user?.id}
+    wishlistEnabled={wishlistEnabled}
     filters={{ q, category: category || null, sort }}
     pagination={{ page, pageSize: PAGE_SIZE, total }}
   />;
