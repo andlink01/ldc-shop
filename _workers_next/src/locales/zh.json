@@ -703,7 +703,7 @@
         "title": "心愿单",
         "subtitle": "提交你想要的商品，大家一起投票支持。",
         "submitTitle": "提交心愿",
-        "titlePlaceholder": "商品/功能名称",
+        "titlePlaceholder": "商品名称",
         "descPlaceholder": "补充描述（可选）",
         "submit": "提交",
         "submitSuccess": "已提交",

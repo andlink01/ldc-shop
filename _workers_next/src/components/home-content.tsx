@@ -6,7 +6,6 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
 import { StarRatingStatic } from "@/components/star-rating-static"
-import { WishlistSection, WishlistItem } from "@/components/wishlist-section"
 
 interface Product {
     id: string
@@ -31,14 +30,12 @@ interface HomeContentProps {
     categories?: string[]
     categoryConfig?: Array<{ name: string; icon: string | null; sortOrder: number }>
     pendingOrders?: Array<{ orderId: string; createdAt: Date; productName: string; amount: string }>
-    wishlistItems?: WishlistItem[]
-    isLoggedIn?: boolean
     wishlistEnabled?: boolean
     filters: { q?: string; category?: string | null; sort?: string }
     pagination: { page: number; pageSize: number; total: number }
 }
 
-export async function HomeContent({ products, announcement, visitorCount, categories = [], categoryConfig, pendingOrders, wishlistItems = [], isLoggedIn = false, wishlistEnabled = false, filters, pagination }: HomeContentProps) {
+export async function HomeContent({ products, announcement, visitorCount, categories = [], categoryConfig, pendingOrders, wishlistEnabled = false, filters, pagination }: HomeContentProps) {
     const { t } = await getServerI18n()
     const selectedCategory = filters.category || null
     const searchTerm = filters.q || ""
@@ -119,7 +116,7 @@ export async function HomeContent({ products, announcement, visitorCount, catego
                         </Badge>
                     )}
                     {wishlistEnabled && (
-                        <Link href="#wishlist">
+                        <Link href="/wishlist">
                             <Button size="icon-sm" variant="outline" className="h-9 w-9 p-0">
                                 <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                                     <path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21l7.8-7.6 1-1a5.5 5.5 0 0 0 0-7.8Z" />
@@ -222,13 +219,6 @@ export async function HomeContent({ products, announcement, visitorCount, catego
                 </div>
             </div>
 
-            {/* Wishlist Section */}
-            {wishlistEnabled && (
-                <section className="mb-10">
-                    <WishlistSection initialItems={wishlistItems} isLoggedIn={isLoggedIn} />
-                </section>
-            )}
-
             {/* Main Product Grid (Full Width) */}
             <section>
                 {products.length === 0 ? (
@@ -281,7 +271,7 @@ export async function HomeContent({ products, announcement, visitorCount, catego
                                 </div>
 
                                 {/* Content Section */}
-                                <CardContent className="relative z-20 flex-1 p-4">
+                                <CardContent className="relative z-20 flex-1 p-4 pointer-events-none">
                                     <div className="flex items-start justify-between gap-2 mb-1.5">
                                         <h3 className="font-semibold text-base group-hover:text-primary transition-colors duration-300 leading-snug line-clamp-1" title={product.name}>
                                             {product.name}
@@ -310,7 +300,7 @@ export async function HomeContent({ products, announcement, visitorCount, catego
                                 </CardContent>
 
                                 {/* Footer Section */}
-                                <CardFooter className="relative z-20 p-4 pt-0 flex flex-wrap items-center gap-3 mt-auto border-t border-border/30 bg-muted/5">
+                                <CardFooter className="relative z-20 p-4 pt-0 flex flex-wrap items-center gap-3 mt-auto border-t border-border/30 bg-muted/5 pointer-events-none">
                                     <div className="flex min-w-0 flex-1 flex-col">
                                         <div className="flex items-baseline gap-2">
                                             <span className="text-lg font-bold text-primary tabular-nums whitespace-nowrap">{Number(product.price)}</span>
@@ -333,7 +323,7 @@ export async function HomeContent({ products, announcement, visitorCount, catego
                                         </div>
                                     </div>
 
-                                    <Link href={`/buy/${product.id}`} className="ml-auto relative z-30">
+                                    <Link href={`/buy/${product.id}`} className="ml-auto relative z-30 pointer-events-auto">
                                         <Button
                                             size="sm"
                                             className={cn(

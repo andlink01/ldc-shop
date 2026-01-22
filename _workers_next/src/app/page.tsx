@@ -1,4 +1,4 @@
-import { getActiveProductCategories, getCategories, getProductRatings, getVisitorCount, getUserPendingOrders, searchActiveProducts, getWishlistItems, getSetting } from "@/lib/db/queries";
+import { getActiveProductCategories, getCategories, getProductRatings, getVisitorCount, getUserPendingOrders, searchActiveProducts, getSetting } from "@/lib/db/queries";
 import { getActiveAnnouncement } from "@/actions/settings";
 import { auth } from "@/lib/auth";
 import { HomeContent } from "@/components/home-content";
@@ -81,9 +81,6 @@ export default async function Home({
     })()
   ]);
 
-  const wishlistItems = wishlistEnabled
-    ? await getWishlistItems(session?.user?.id || null, 10).catch(() => [])
-    : [];
 
   const products = productsResult.items || [];
   const total = productsResult.total || 0;
@@ -136,8 +133,6 @@ export default async function Home({
     categories={categories}
     categoryConfig={categoryConfig}
     pendingOrders={pendingOrders}
-    wishlistItems={wishlistItems}
-    isLoggedIn={!!session?.user?.id}
     wishlistEnabled={wishlistEnabled}
     filters={{ q, category: category || null, sort }}
     pagination={{ page, pageSize: PAGE_SIZE, total }}

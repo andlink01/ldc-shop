@@ -703,7 +703,7 @@
         "title": "Wishlist",
         "subtitle": "Share the products you want and vote for ideas from others.",
         "submitTitle": "Submit a wish",
-        "titlePlaceholder": "Product or feature name",
+        "titlePlaceholder": "Product name",
         "descPlaceholder": "Describe what you want (optional)",
         "submit": "Submit",
         "submitSuccess": "Submitted",

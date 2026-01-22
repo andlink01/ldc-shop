@@ -81,6 +81,7 @@ export async function submitWishlistItem(title: string, description?: string) {
     const id = Number(rows[0]?.id || 0)
 
     revalidatePath("/")
+    revalidatePath("/wishlist")
 
     return {
         success: true,
@@ -147,6 +148,7 @@ export async function toggleWishlistVote(itemId: number) {
     const count = Number(countRows[0]?.count || 0)
 
     revalidatePath("/")
+    revalidatePath("/wishlist")
 
     return { success: true, voted: !hasVote, count }
 }
