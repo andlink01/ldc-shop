@@ -6,6 +6,7 @@ import { WishlistSection } from "@/components/wishlist-section"
 import { Button } from "@/components/ui/button"
 
 export const dynamic = "force-dynamic"
+export const revalidate = 0
 
 export default async function WishlistPage() {
     const { t } = await getServerI18n()

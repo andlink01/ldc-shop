@@ -419,6 +419,7 @@ export async function saveWishlistEnabled(enabled: boolean) {
     await setSetting('wishlist_enabled', enabled ? 'true' : 'false')
     revalidatePath('/admin/settings')
     revalidatePath('/')
+    revalidatePath('/wishlist')
 }
 
 export async function saveRegistryHideNav(enabled: boolean) {
