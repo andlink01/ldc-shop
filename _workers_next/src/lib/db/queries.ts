@@ -1090,10 +1090,15 @@ export async function createReview(data: {
     rating: number;
     comment?: string;
 }) {
-    return await db.insert(reviews).values({
+    const res = await db.insert(reviews).values({
         ...data,
         createdAt: new Date()
     }).returning();
+
+    // Update product aggregates (rating/review_count)
+    await recalcProductAggregates(data.productId);
+
+    return res;
 }
 
 export async function canUserReview(userId: string, productId: string, username?: string): Promise<{ canReview: boolean; orderId?: string }> {
