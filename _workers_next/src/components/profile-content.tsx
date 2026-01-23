@@ -473,26 +473,26 @@ export function ProfileContent({ user, points, checkinEnabled, orderStats, notif
                     <CardTitle className="text-base">{t('profile.messages.title')}</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-3">
-                    <div className="floating-field">
+                    <div className="grid gap-2">
+                        <Label htmlFor="msg-title">{t('profile.messages.titleLabel')}</Label>
                         <Input
                             id="msg-title"
                             value={msgTitle}
                             onChange={(e) => setMsgTitle(e.target.value)}
-                            placeholder=" "
+                            placeholder={t('profile.messages.titlePlaceholder')}
                             disabled={msgSending}
                         />
-                        <Label htmlFor="msg-title" className="floating-label">{t('profile.messages.titleLabel')}</Label>
                     </div>
-                    <div className="floating-field">
+                    <div className="grid gap-2">
+                        <Label htmlFor="msg-body">{t('profile.messages.bodyLabel')}</Label>
                         <Textarea
                             id="msg-body"
                             className="min-h-[120px]"
-                            placeholder=" "
+                            placeholder={t('profile.messages.bodyPlaceholder')}
                             value={msgBody}
                             onChange={(e) => setMsgBody(e.target.value)}
                             disabled={msgSending}
                         />
-                        <Label htmlFor="msg-body" className="floating-label">{t('profile.messages.bodyLabel')}</Label>
                     </div>
                     <div className="flex justify-end">
                         <Button

@@ -135,6 +135,7 @@ export async function saveProduct(formData: FormData) {
     }
 
     revalidatePath('/admin/products')
+    revalidatePath(`/admin/product/edit/${id}`)
     revalidatePath('/admin/settings')
     revalidatePath('/')
     updateTag('home:products')
