@@ -14,7 +14,7 @@ import { SignInButton } from "@/components/signin-button"
 import { SignOutButton } from "@/components/signout-button"
 import { HeaderLogo, HeaderNav, HeaderSearch, HeaderUserMenuItems, HeaderUnreadBadge, LanguageSwitcher } from "@/components/header-client-parts"
 import { ModeToggle } from "@/components/mode-toggle"
-import { getSetting, recordLoginUser, setSetting, getUserUnreadNotificationCount } from "@/lib/db/queries"
+import { getSetting, recordLoginUser, setSetting, getUserUnreadNotificationCount, getLoginUserDesktopNotificationsEnabled } from "@/lib/db/queries"
 import { isRegistryEnabled } from "@/lib/registry"
 import { CheckInButton } from "@/components/checkin-button"
 
@@ -80,11 +80,17 @@ export async function SiteHeader() {
     const showNavigator = registryEnabled && (registryOptIn || !registryHideNav)
 
     let unreadCount = 0
+    let desktopNotificationsEnabled = false
     if (user?.id) {
         try {
             unreadCount = await getUserUnreadNotificationCount(user.id)
         } catch {
             unreadCount = 0
+        }
+        try {
+            desktopNotificationsEnabled = await getLoginUserDesktopNotificationsEnabled(user.id)
+        } catch {
+            desktopNotificationsEnabled = false
         }
     }
 
@@ -106,7 +112,7 @@ export async function SiteHeader() {
                             <DropdownMenu>
                                 <DropdownMenuTrigger asChild>
                                     <Button variant="ghost" className="relative h-8 w-8 overflow-visible rounded-full bg-background/70 hover:bg-background/90 transition-all duration-200 hover:-translate-y-0.5 hover:ring-2 hover:ring-primary/25 hover:ring-offset-2 hover:ring-offset-background">
-                                        <HeaderUnreadBadge initialCount={unreadCount} className="absolute -top-1 -right-1 z-10 pointer-events-none shadow-sm" />
+                                        <HeaderUnreadBadge initialCount={unreadCount} desktopEnabled={desktopNotificationsEnabled} className="absolute -top-1 -right-1 z-10 pointer-events-none shadow-sm" />
                                         <Avatar className="relative z-0 h-8 w-8">
                                             <AvatarImage src={user.avatar_url || ''} alt={user.name || ''} />
                                             <AvatarFallback><User className="h-4 w-4" /></AvatarFallback>

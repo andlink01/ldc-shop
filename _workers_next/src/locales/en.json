@@ -612,7 +612,9 @@
             "enabledToast": "Desktop notifications enabled",
             "disabledToast": "Desktop notifications disabled",
             "testTitle": "Notifications enabled",
-            "testBody": "You'll receive desktop alerts when new messages arrive."
+            "testBody": "You'll receive desktop alerts when new messages arrive.",
+            "newTitle": "New notification",
+            "newBody": "You have {{count}} unread notification(s)."
         },
         "messages": {
             "title": "Contact Admin",

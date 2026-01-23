@@ -13,7 +13,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
 import { toast } from "sonner"
 import { updateDesktopNotifications, updateProfileEmail } from "@/actions/profile"
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { CheckInButton } from "@/components/checkin-button"
 import { clearMyNotifications, getMyNotifications, markAllNotificationsRead, markNotificationRead } from "@/actions/user-notifications"
 import { sendUserMessage } from "@/actions/user-messages"
@@ -61,6 +61,7 @@ export function ProfileContent({ user, points, checkinEnabled, orderStats, notif
     const [msgSending, setMsgSending] = useState(false)
     const [desktopEnabled, setDesktopEnabled] = useState(desktopNotificationsEnabled)
     const [desktopSaving, setDesktopSaving] = useState(false)
+    const notifiedIdsRef = useRef<Set<number>>(new Set())
 
     const unreadCount = notifications.filter((n) => !n.isRead).length
 
@@ -111,6 +112,25 @@ export function ProfileContent({ user, points, checkinEnabled, orderStats, notif
         refresh()
     }, [])
 
+    useEffect(() => {
+        if (!desktopEnabled) return
+        if (typeof window === "undefined" || !("Notification" in window)) return
+        if (Notification.permission !== "granted") return
+
+        const unread = notifications.filter((n) => !n.isRead)
+        const fresh = unread.filter((n) => !notifiedIdsRef.current.has(n.id))
+        if (!fresh.length) return
+
+        fresh.slice(0, 3).forEach((n) => {
+            const data = parseNotificationData(n.data)
+            const params = data.params || {}
+            const title = t(n.titleKey, params)
+            const body = t(n.contentKey, params)
+            new Notification(title, { body })
+            notifiedIdsRef.current.add(n.id)
+        })
+    }, [desktopEnabled, notifications, t])
+
     const ensureNotificationPermission = async () => {
         if (typeof window === "undefined" || !("Notification" in window)) {
             toast.error(t('profile.desktopNotifications.unsupported'))
@@ -142,6 +162,9 @@ export function ProfileContent({ user, points, checkinEnabled, orderStats, notif
             if (res?.success) {
                 setDesktopEnabled(next)
                 toast.success(next ? t('profile.desktopNotifications.enabledToast') : t('profile.desktopNotifications.disabledToast'))
+                if (next) {
+                    notifiedIdsRef.current = new Set(notifications.map((n) => n.id))
+                }
                 if (next && typeof window !== "undefined" && "Notification" in window && Notification.permission === "granted") {
                     new Notification(t('profile.desktopNotifications.testTitle'), {
                         body: t('profile.desktopNotifications.testBody')

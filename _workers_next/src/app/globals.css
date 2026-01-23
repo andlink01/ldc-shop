@@ -414,6 +414,7 @@
 
 .floating-field {
   position: relative;
+  min-width: 0;
 }
 
 .floating-label {
@@ -428,6 +429,10 @@
   transform-origin: left top;
   transition: transform 0.2s ease, color 0.2s ease, top 0.2s ease;
   pointer-events: none;
+  max-width: calc(100% - 1.5rem);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .floating-field .peer:placeholder-shown ~ .floating-label {

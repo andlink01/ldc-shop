@@ -612,7 +612,9 @@
             "enabledToast": "桌面通知已开启",
             "disabledToast": "桌面通知已关闭",
             "testTitle": "已开启桌面通知",
-            "testBody": "有新消息时将通过桌面通知提醒你。"
+            "testBody": "有新消息时将通过桌面通知提醒你。",
+            "newTitle": "新通知",
+            "newBody": "你有 {{count}} 条未读通知。"
         },
         "messages": {
             "title": "联系管理员",
