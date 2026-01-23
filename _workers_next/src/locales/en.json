@@ -525,7 +525,7 @@
             "markRefunded": "Mark Refunded",
             "refundConfirm": "This will open the refund page in a new tab.\n\nSteps:\n1. Complete the refund in the new tab\n2. Verify success in Linux DO Credit dashboard\n3. Return here and click \"Mark Refunded\"\n\nContinue?",
             "refundProxyConfirm": "Confirm refund?",
-            "refundProxyNotProcessed": "Proxy request finished but not confirmed as success; use manual flow if needed.",
+            "refundProxyNotProcessed": "Proxy request finished but not confirmed; verify on the payment platform and then click \"Mark Refunded\".",
             "refundVerify": "Have you verified the refund was successful in the Linux DO Credit dashboard?",
             "refundSuccess": "Order marked as refunded",
             "refundInfo": "After verifying the refund was successful, click 'Mark Refunded'",
@@ -534,7 +534,7 @@
             "verifySuccessRefunded": "Refund verified successfully!",
             "verifyInfoPaid": "Verified: Order is Paid (Active).",
             "verifyStatus": "Status Verified",
-            "proxyFailedTryManual": "Server refund failed. Try client-side refund?",
+            "proxyFailedTryManual": "Server refund failed. Please verify on the payment platform and then click \"Mark Refunded\".",
             "tryManual": "Manual Refund"
         },
         "cards": {

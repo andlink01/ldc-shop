@@ -5,6 +5,7 @@ import { isPaymentOrder } from "@/lib/payment";
 import { notifyAdminPaymentSuccess } from "@/lib/notifications";
 import { sendOrderEmail } from "@/lib/email";
 import { recalcProductAggregates, createUserNotification } from "@/lib/db/queries";
+import { RESERVATION_TTL_MS } from "@/lib/constants";
 import { revalidateTag } from "next/cache";
 import { after } from "next/server";
 
@@ -201,7 +202,7 @@ export async function processOrderFulfillment(orderId: string, paidAmount: numbe
         const quantity = order.quantity || 1;
         let cardKeys: string[] = [];
         const usedCardIds: number[] = [];
-        const fiveMinutesAgo = Date.now() - 5 * 60 * 1000;
+        const fiveMinutesAgo = Date.now() - RESERVATION_TTL_MS;
 
         // 1. Reserved cards
         try {

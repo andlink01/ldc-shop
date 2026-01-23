@@ -11,6 +11,7 @@ import { updateTag } from "next/cache"
 import { after } from "next/server"
 import { notifyAdminPaymentSuccess } from "@/lib/notifications"
 import { sendOrderEmail } from "@/lib/email"
+import { INFINITE_STOCK, RESERVATION_TTL_MS } from "@/lib/constants"
 
 const MAX_ORDER_QUANTITY = 10000
 
@@ -94,8 +95,8 @@ export async function createOrder(productId: string, quantity: number = 1, email
                     eq(cards.productId, productId),
                     or(isNull(cards.isUsed), eq(cards.isUsed, false))
                 ));
-            // If we have at least 1 card, treat as infinite stock (999999)
-            return (result[0]?.count || 0) > 0 ? 999999 : 0;
+            // If we have at least 1 card, treat as infinite stock
+            return (result[0]?.count || 0) > 0 ? INFINITE_STOCK : 0;
         }
 
         // SQLite count returns number directly usually
@@ -104,17 +105,12 @@ export async function createOrder(productId: string, quantity: number = 1, email
             .where(and(
                 eq(cards.productId, productId),
                 or(isNull(cards.isUsed), eq(cards.isUsed, false)),
-                or(isNull(cards.reservedAt), lt(cards.reservedAt, new Date(Date.now() - 5 * 60 * 1000)))
+                or(isNull(cards.reservedAt), lt(cards.reservedAt, new Date(Date.now() - RESERVATION_TTL_MS)))
             ))
         return result[0]?.count || 0
     }
 
     let stock = await getAvailableStock()
-
-    if (stock < quantity) {
-        // Try cleaning up nulls if any (legacy check, simplified for SQLite)
-        // In SQLite we use 0/1 for booleans, so null check is good practice
-    }
 
     if (stock < quantity) return { success: false, error: 'buy.outOfStock' }
 
@@ -197,42 +193,33 @@ export async function createOrder(productId: string, quantity: number = 1, email
                 while (attempts < maxAttempts && !success) {
                     attempts++
 
-                    // A. Try strictly free card
-                    // D1: Use separate SELECT then UPDATE (no subquery UPDATE)
-                    const freeCards = await db.select({ id: cards.id, cardKey: cards.cardKey })
-                        .from(cards)
-                        .where(and(
-                            eq(cards.productId, productId),
-                            or(eq(cards.isUsed, false), isNull(cards.isUsed)),
-                            isNull(cards.reservedAt)
-                        ))
-                        .limit(1);
+                    // A. Try strictly free card (single atomic UPDATE ... RETURNING)
+                    const nowMs = Date.now();
+                    const claimResult: any = await db.run(sql`
+                        UPDATE cards
+                        SET reserved_order_id = ${orderId}, reserved_at = ${nowMs}
+                        WHERE id = (
+                            SELECT id FROM cards
+                            WHERE product_id = ${productId}
+                              AND (is_used = 0 OR is_used IS NULL)
+                              AND reserved_at IS NULL
+                            LIMIT 1
+                        )
+                        RETURNING id, card_key
+                    `);
 
-                    if (freeCards.length > 0) {
-                        const freeCard = freeCards[0];
-                        // Try to claim it atomically
-                        await db.update(cards)
-                            .set({ reservedOrderId: orderId, reservedAt: new Date() })
-                            .where(and(
-                                eq(cards.id, freeCard.id),
-                                isNull(cards.reservedAt) // Double-check still free
-                            ));
-
-                        // Verify we got it
-                        const claimed = await db.select({ id: cards.id, cardKey: cards.cardKey })
-                            .from(cards)
-                            .where(and(eq(cards.id, freeCard.id), eq(cards.reservedOrderId, orderId)))
-                            .limit(1);
-
-                        if (claimed.length > 0) {
-                            reservedCards.push({ id: claimed[0].id, key: claimed[0].cardKey });
-                            success = true;
-                            continue;
-                        }
+                    const claimedRows = claimResult?.results || claimResult?.rows || [];
+                    if (claimedRows.length > 0) {
+                        const row = claimedRows[0];
+                        const id = Number(row.id);
+                        const key = row.card_key ?? row.cardKey;
+                        reservedCards.push({ id, key });
+                        success = true;
+                        continue;
                     }
 
                     // B. Fallback: Expired reservation
-                    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
+                    const fiveMinutesAgo = new Date(Date.now() - RESERVATION_TTL_MS);
                     const expiredCandidates = await db.select({
                         id: cards.id,
                         cardKey: cards.cardKey,
