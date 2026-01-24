@@ -2,52 +2,9 @@ import { getActiveProductCategories, getCategories, getActiveProducts, getVisito
 import { getActiveAnnouncement } from "@/actions/settings";
 import { auth } from "@/lib/auth";
 import { HomeContent } from "@/components/home-content";
-import { cacheLife, cacheTag } from "next/cache";
 import { INFINITE_STOCK } from "@/lib/constants";
 
-const TAG_PRODUCTS = "home:products";
-const TAG_RATINGS = "home:ratings";
-const TAG_ANNOUNCEMENT = "home:announcement";
-const TAG_VISITORS = "home:visitors";
-const TAG_CATEGORIES = "home:categories";
-const TAG_PRODUCT_CATEGORIES = "home:product-categories";
-
 const PAGE_SIZE = 24;
-
-const getCachedAnnouncement = async () => {
-  'use cache'
-  cacheTag(TAG_ANNOUNCEMENT)
-  cacheLife('days')
-  return getActiveAnnouncement()
-}
-
-const getCachedVisitorCount = async () => {
-  'use cache'
-  cacheTag(TAG_VISITORS)
-  cacheLife('days')
-  return getVisitorCount()
-}
-
-const getCachedCategories = async () => {
-  'use cache'
-  cacheTag(TAG_CATEGORIES)
-  cacheLife('days')
-  return getCategories()
-}
-
-const getCachedProductCategories = async (isLoggedIn: boolean, trustLevel: number | null) => {
-  'use cache'
-  cacheTag(TAG_PRODUCT_CATEGORIES, TAG_PRODUCTS)
-  cacheLife('days')
-  return getActiveProductCategories({ isLoggedIn, trustLevel })
-}
-
-const getCachedProducts = async (isLoggedIn: boolean, trustLevel: number | null) => {
-  'use cache'
-  cacheTag(TAG_PRODUCTS)
-  cacheLife('days')
-  return getActiveProducts({ isLoggedIn, trustLevel })
-}
 
 function stripMarkdown(input: string): string {
   return input
@@ -76,11 +33,11 @@ export default async function Home({
 
   // Run all independent queries in parallel for better performance
   const [products, announcement, visitorCount, categoryConfig, productCategories, wishlistEnabled] = await Promise.all([
-    getCachedProducts(isLoggedIn, trustLevel).catch(() => []),
-    getCachedAnnouncement().catch(() => null),
-    getCachedVisitorCount().catch(() => 0),
-    getCachedCategories().catch(() => []),
-    getCachedProductCategories(isLoggedIn, trustLevel).catch(() => []),
+    getActiveProducts({ isLoggedIn, trustLevel }).catch(() => []),
+    getActiveAnnouncement().catch(() => null),
+    getVisitorCount().catch(() => 0),
+    getCategories().catch(() => []),
+    getActiveProductCategories({ isLoggedIn, trustLevel }).catch(() => []),
     (async () => {
       try {
         return (await getSetting('wishlist_enabled')) === 'true'

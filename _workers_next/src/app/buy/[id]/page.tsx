@@ -4,35 +4,17 @@ import { BuyContent } from "@/components/buy-content"
 import { BuyRestricted } from "@/components/buy-restricted"
 import { cancelExpiredOrders, cleanupExpiredCardsIfNeeded, getProduct, getProductReviews, getProductRating, canUserReview, getProductVisibility, getLiveCardStats } from "@/lib/db/queries"
 import { getEmailSettings } from "@/lib/email"
-import { cacheLife, cacheTag } from "next/cache"
 import { INFINITE_STOCK } from "@/lib/constants"
 
 interface BuyPageProps {
     params: Promise<{ id: string }>
 }
 
-const TAG_PRODUCTS = "home:products"
-const TAG_RATINGS = "home:ratings"
-
 export default async function BuyPage({ params }: BuyPageProps) {
     const { id } = await params
     const session = await auth()
     const isLoggedIn = !!session?.user
     const trustLevel = Number.isFinite(Number(session?.user?.trustLevel)) ? Number(session?.user?.trustLevel) : 0
-
-    const getCachedProduct = async (loggedIn: boolean, level: number | null) => {
-        'use cache'
-        cacheTag(TAG_PRODUCTS)
-        cacheLife('days')
-        return getProduct(id, { isLoggedIn: loggedIn, trustLevel: level })
-    }
-
-    const getCachedReviews = async () => {
-        'use cache'
-        cacheTag(TAG_RATINGS)
-        cacheLife('days')
-        return getProductReviews(id)
-    }
 
     try {
         await cleanupExpiredCardsIfNeeded(undefined, id)
@@ -44,8 +26,8 @@ export default async function BuyPage({ params }: BuyPageProps) {
 
     // Run all queries in parallel for better performance
     const [product, reviews, emailSettings] = await Promise.all([
-        getCachedProduct(isLoggedIn, trustLevel).catch(() => null),
-        getCachedReviews().catch(() => []),
+        getProduct(id, { isLoggedIn, trustLevel }).catch(() => null),
+        getProductReviews(id).catch(() => []),
         getEmailSettings().catch(() => ({ apiKey: null, fromEmail: null, enabled: false, fromName: null }))
     ])
 
