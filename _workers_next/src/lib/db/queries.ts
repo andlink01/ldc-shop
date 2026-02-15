@@ -1,7 +1,7 @@
 import { db } from "./index";
 import { products, cards, orders, settings, reviews, loginUsers, categories, userNotifications, wishlistItems, wishlistVotes } from "./schema";
 import { INFINITE_STOCK, RESERVATION_TTL_MS } from "@/lib/constants";
-import { eq, sql, desc, and, asc, gte, or, inArray, lte, lt } from "drizzle-orm";
+import { eq, sql, desc, and, asc, gte, or, inArray, lte, lt, isNull } from "drizzle-orm";
 import { updateTag, revalidatePath } from "next/cache";
 import { cache } from "react";
 
@@ -1381,48 +1381,48 @@ export async function createReview(data: {
 
 export async function canUserReview(userId: string, productId: string, username?: string): Promise<{ canReview: boolean; orderId?: string }> {
     try {
-        // Check by userId first
-        let deliveredOrders = await db.select({ orderId: orders.orderId })
+        const findUnreviewedOrder = async (whereClause: any) => {
+            const rows = await db.select({ orderId: orders.orderId })
+                .from(orders)
+                .leftJoin(reviews, eq(reviews.orderId, orders.orderId))
+                .where(and(
+                    whereClause,
+                    eq(orders.productId, productId),
+                    eq(orders.status, 'delivered'),
+                    isNull(reviews.id)
+                ))
+                .orderBy(desc(normalizeTimestampMs(orders.createdAt)))
+                .limit(1);
+            return rows[0]?.orderId;
+        };
+
+        // Prefer userId; only fallback to username when userId has no delivered orders.
+        const byUserIdOrderId = await findUnreviewedOrder(eq(orders.userId, userId));
+        if (byUserIdOrderId) {
+            return { canReview: true, orderId: byUserIdOrderId };
+        }
+
+        const hasDeliveredByUserId = await db.select({ orderId: orders.orderId })
             .from(orders)
             .where(and(
                 eq(orders.userId, userId),
                 eq(orders.productId, productId),
                 eq(orders.status, 'delivered')
-            ));
-
-        // If no orders found by userId, try by username
-        if (deliveredOrders.length === 0 && username) {
-            deliveredOrders = await db.select({ orderId: orders.orderId })
-                .from(orders)
-                .where(and(
-                    eq(orders.username, username),
-                    eq(orders.productId, productId),
-                    eq(orders.status, 'delivered')
-                ));
-        }
-
-        if (deliveredOrders.length === 0) {
+            ))
+            .limit(1);
+        if (hasDeliveredByUserId.length > 0) {
             return { canReview: false };
         }
 
-        // Find the first order that hasn't been reviewed yet
-        for (const order of deliveredOrders) {
-            try {
-                const existingReview = await db.select({ id: reviews.id })
-                    .from(reviews)
-                    .where(eq(reviews.orderId, order.orderId));
-
-                if (existingReview.length === 0) {
-                    // This order hasn't been reviewed yet
-                    return { canReview: true, orderId: order.orderId };
-                }
-            } catch {
-                // Reviews table might not exist, so user can review
-                return { canReview: true, orderId: order.orderId };
-            }
+        if (!username) {
+            return { canReview: false };
         }
 
-        // All orders have been reviewed
+        const byUsernameOrderId = await findUnreviewedOrder(eq(orders.username, username));
+        if (byUsernameOrderId) {
+            return { canReview: true, orderId: byUsernameOrderId };
+        }
+
         return { canReview: false };
     } catch (error) {
         console.error('canUserReview error:', error);
