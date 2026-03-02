@@ -659,10 +659,21 @@ export async function saveThemeColor(color: string) {
 export async function saveNotificationSettings(formData: FormData) {
     await checkAdmin()
 
+    const parseBooleanField = (key: string) => {
+        const values = formData.getAll(key).map(v => String(v).toLowerCase())
+        if (values.some(v => v === 'true' || v === 'on' || v === '1')) {
+            return true
+        }
+        if (values.some(v => v === 'false' || v === 'off' || v === '0')) {
+            return false
+        }
+        return false
+    }
+
     const token = (formData.get('telegramBotToken') as string || '').trim()
     const chatId = (formData.get('telegramChatId') as string || '').trim()
     const language = (formData.get('telegramLanguage') as string || 'zh').trim()
-    const telegramEnabled = formData.get('telegramEnabled') === 'true'
+    const telegramEnabled = parseBooleanField('telegramEnabled')
 
     await setSetting('telegram_bot_token', token)
     await setSetting('telegram_chat_id', chatId)
@@ -670,7 +681,7 @@ export async function saveNotificationSettings(formData: FormData) {
     await setSetting('telegram_enabled', telegramEnabled ? 'true' : 'false')
 
     // Bark settings
-    const barkEnabled = formData.get('barkEnabled') === 'true'
+    const barkEnabled = parseBooleanField('barkEnabled')
     const barkServerUrl = (formData.get('barkServerUrl') as string || '').trim()
     const barkDeviceKey = (formData.get('barkDeviceKey') as string || '').trim()
 
@@ -682,7 +693,7 @@ export async function saveNotificationSettings(formData: FormData) {
     const resendApiKey = (formData.get('resendApiKey') as string || '').trim()
     const resendFromEmail = (formData.get('resendFromEmail') as string || '').trim()
     const resendFromName = (formData.get('resendFromName') as string || '').trim()
-    const resendEnabled = formData.get('resendEnabled') === 'true'
+    const resendEnabled = parseBooleanField('resendEnabled')
     const emailLanguageRaw = (formData.get('emailLanguage') as string || '').trim()
     const emailLanguage = emailLanguageRaw === 'en' ? 'en' : 'zh'
 

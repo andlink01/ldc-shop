@@ -48,6 +48,15 @@ function toAbsoluteUrl(input: string, baseUrl: string) {
     }
 }
 
+function escapeHtml(value: string) {
+    return String(value || "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;")
+}
+
 export async function getNotificationSettings() {
     const values = await getSettingsUncached([
         'telegram_bot_token',
@@ -198,9 +207,12 @@ export async function sendBarkMessage(
 const messages = {
     zh: {
         paymentTitle: '💰 收到新付款！',
+        userMessageTitle: '📩 收到用户消息',
         order: '订单号',
         product: '商品',
         amount: '金额',
+        title: '标题',
+        content: '内容',
         user: '用户',
         tradeNo: '交易号',
         guest: '访客',
@@ -208,13 +220,17 @@ const messages = {
         refundTitle: '↩️ 收到退款申请',
         reason: '原因',
         noReason: '未提供原因',
-        manageRefunds: '管理退款'
+        manageRefunds: '管理退款',
+        manageMessages: '查看消息'
     },
     en: {
         paymentTitle: '💰 New Payment Received!',
+        userMessageTitle: '📩 New User Message',
         order: 'Order',
         product: 'Product',
         amount: 'Amount',
+        title: 'Title',
+        content: 'Content',
         user: 'User',
         tradeNo: 'Trade No',
         guest: 'Guest',
@@ -222,7 +238,8 @@ const messages = {
         refundTitle: '↩️ Refund Requested',
         reason: 'Reason',
         noReason: 'No reason provided',
-        manageRefunds: 'Manage Refunds'
+        manageRefunds: 'Manage Refunds',
+        manageMessages: 'View Messages'
     }
 }
 
@@ -276,32 +293,76 @@ export async function notifyAdminRefundRequest(order: {
 }) {
     const { language } = await getNotificationSettings()
     const t = messages[language as keyof typeof messages] || messages.zh
+    const appBaseUrl = getAppBaseUrl()
+    const refundsUrl = appBaseUrl ? `${appBaseUrl}/admin/refunds` : ""
 
     const telegramText = `
 <b>${t.refundTitle}</b>
 
-<b>${t.order}:</b> <code>${order.orderId}</code>
-<b>${t.product}:</b> ${order.productName}
-<b>${t.amount}:</b> ${order.amount}
-<b>${t.user}:</b> ${order.username || t.guest}
-<b>${t.reason}:</b> ${order.reason || t.noReason}
-
-<a href="${process.env.NEXT_PUBLIC_APP_URL}/admin/refunds">${t.manageRefunds}</a>
+<b>${t.order}:</b> <code>${escapeHtml(order.orderId)}</code>
+<b>${t.product}:</b> ${escapeHtml(order.productName)}
+<b>${t.amount}:</b> ${escapeHtml(order.amount)}
+<b>${t.user}:</b> ${escapeHtml(order.username || t.guest)}
+<b>${t.reason}:</b> ${escapeHtml(order.reason || t.noReason)}
+${refundsUrl ? `\n<a href="${refundsUrl}">${t.manageRefunds}</a>` : ""}
 `.trim()
 
-    const refundsUrl = `${process.env.NEXT_PUBLIC_APP_URL}/admin/refunds`
     const barkBody = [
         `${t.order}: ${order.orderId}`,
         `${t.product}: ${order.productName}`,
         `${t.amount}: ${order.amount}`,
         `${t.user}: ${order.username || t.guest}`,
         `${t.reason}: ${order.reason || t.noReason}`,
-        `${t.manageRefunds}: ${refundsUrl}`
-    ].join('\n')
+        refundsUrl ? `${t.manageRefunds}: ${refundsUrl}` : ""
+    ].filter(Boolean).join('\n')
 
     const [telegramResult, barkResult] = await Promise.allSettled([
         sendTelegramMessage(telegramText),
-        sendBarkMessage(t.refundTitle, barkBody, { group: 'LDC Shop', url: refundsUrl })
+        sendBarkMessage(t.refundTitle, barkBody, { group: 'LDC Shop', ...(refundsUrl ? { url: refundsUrl } : {}) })
+    ])
+
+    const success =
+        (telegramResult.status === 'fulfilled' && telegramResult.value.success) ||
+        (barkResult.status === 'fulfilled' && barkResult.value.success)
+
+    return { success }
+}
+
+export async function notifyAdminUserMessage(params: {
+    userId: string
+    username?: string | null
+    title: string
+    body: string
+}) {
+    const { language } = await getNotificationSettings()
+    const t = messages[language as keyof typeof messages] || messages.zh
+    const appBaseUrl = getAppBaseUrl()
+    const messagesUrl = appBaseUrl ? `${appBaseUrl}/admin/messages` : ""
+
+    const safeUsername = params.username || t.guest
+    const safeTitle = (params.title || '').trim()
+    const safeBody = (params.body || '').trim()
+
+    const telegramText = `
+<b>${t.userMessageTitle}</b>
+
+<b>${t.user}:</b> ${escapeHtml(safeUsername)} (<code>${escapeHtml(params.userId)}</code>)
+<b>${t.title}:</b> ${escapeHtml(safeTitle)}
+<b>${t.content}:</b>
+<pre>${escapeHtml(safeBody)}</pre>
+${messagesUrl ? `\n<a href="${messagesUrl}">${t.manageMessages}</a>` : ""}
+`.trim()
+
+    const barkBody = [
+        `${t.user}: ${safeUsername} (${params.userId})`,
+        `${t.title}: ${safeTitle}`,
+        `${t.content}: ${safeBody}`,
+        messagesUrl ? `${t.manageMessages}: ${messagesUrl}` : ""
+    ].filter(Boolean).join('\n')
+
+    const [telegramResult, barkResult] = await Promise.allSettled([
+        sendTelegramMessage(telegramText),
+        sendBarkMessage(t.userMessageTitle, barkBody, { group: 'LDC Shop', ...(messagesUrl ? { url: messagesUrl } : {}) })
     ])
 
     const success =

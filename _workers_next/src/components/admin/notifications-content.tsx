@@ -9,7 +9,6 @@ import { Label } from "@/components/ui/label"
 import { toast } from "sonner"
 import { saveNotificationSettings, testBarkNotification, testEmailNotification, testNotification } from "@/actions/admin"
 import { Bell, CreditCard, RotateCcw, ExternalLink, Mail, Smartphone } from "lucide-react"
-import { useRouter } from "next/navigation"
 
 interface NotificationsContentProps {
     settings: {
@@ -30,7 +29,6 @@ interface NotificationsContentProps {
 
 export function NotificationsContent({ settings }: NotificationsContentProps) {
     const { t } = useI18n()
-    const router = useRouter()
     const [token, setToken] = useState(settings.telegramBotToken || '')
     const [chatId, setChatId] = useState(settings.telegramChatId || '')
     const [language, setLanguage] = useState(settings.telegramLanguage || 'zh')
@@ -73,7 +71,7 @@ export function NotificationsContent({ settings }: NotificationsContentProps) {
         try {
             await saveNotificationSettings(formData)
             toast.success(t('common.success'))
-            router.refresh()
+            window.location.reload()
         } catch (e: any) {
             toast.error(e.message || t('common.error'))
         } finally {
