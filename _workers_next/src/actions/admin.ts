@@ -703,8 +703,6 @@ export async function saveNotificationSettings(formData: FormData) {
     await setSetting('resend_enabled', resendEnabled ? 'true' : 'false')
     await setSetting('email_language', emailLanguage)
 
-    revalidatePath('/admin/notifications')
-
     return {
         telegramBotToken: token,
         telegramChatId: chatId,

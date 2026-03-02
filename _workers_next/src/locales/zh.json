@@ -346,7 +346,7 @@
                 "barkServerUrlHint": "不自建可直接使用 https://api.day.app",
                 "barkDeviceKey": "Bark Device Key",
                 "barkDeviceKeyHint": "可直接填写 Device Key；如果你复制的是完整链接，也可从链接里提取。",
-                "barkDeviceKeyExample": "示例：https://api.day.app/fgL3o4WrDSFmpihzzwxyKk/这里改成你自己的推送内容，Device Key 是 fgL3o4WrDSFmpihzzwxyKk。",
+                "barkDeviceKeyExample": "示例：在Bark APP看到https://api.day.app/fgL3o4WrDSFmpihzzwxyKk/这里改成你自己的推送内容，Device Key 就是 fgL3o4WrDSFmpihzzwxyKk。",
                 "barkTest": "发送 Bark 测试",
                 "barkTestSuccess": "Bark 测试消息发送成功！",
                 "barkTestFailed": "Bark 测试消息发送失败：{{error}}",

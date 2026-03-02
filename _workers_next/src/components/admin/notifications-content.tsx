@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input"
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
 import { toast } from "sonner"
+import type { FormEvent } from "react"
 import { saveNotificationSettings, testBarkNotification, testEmailNotification, testNotification } from "@/actions/admin"
 import { Bell, CreditCard, RotateCcw, ExternalLink, Mail, Smartphone } from "lucide-react"
 
@@ -73,6 +74,11 @@ export function NotificationsContent({ settings }: NotificationsContentProps) {
         } finally {
             setIsLoading(false)
         }
+    }
+
+    async function handleSubmitSave(e: FormEvent<HTMLFormElement>) {
+        e.preventDefault()
+        await handleSave(new FormData(e.currentTarget))
     }
 
     async function handleTest() {
@@ -167,7 +173,7 @@ export function NotificationsContent({ settings }: NotificationsContentProps) {
                     <CardDescription>{t('admin.settings.notifications.configDesc')}</CardDescription>
                 </CardHeader>
                 <CardContent>
-                    <form action={handleSave} className="space-y-4">
+                    <form onSubmit={handleSubmitSave} className="space-y-4">
                         <div className="flex items-center gap-3">
                             <input
                                 type="checkbox"
@@ -258,7 +264,7 @@ export function NotificationsContent({ settings }: NotificationsContentProps) {
                     <CardDescription>{t('admin.settings.notifications.barkDesc')}</CardDescription>
                 </CardHeader>
                 <CardContent>
-                    <form action={handleSave} className="space-y-4">
+                    <form onSubmit={handleSubmitSave} className="space-y-4">
                         <div className="flex items-center gap-3">
                             <input
                                 type="checkbox"
@@ -331,7 +337,7 @@ export function NotificationsContent({ settings }: NotificationsContentProps) {
                     <CardDescription>{t('admin.settings.email.desc')}</CardDescription>
                 </CardHeader>
                 <CardContent>
-                    <form action={handleSave} className="space-y-4">
+                    <form onSubmit={handleSubmitSave} className="space-y-4">
                         <div className="flex items-center gap-3">
                             <input
                                 type="checkbox"
