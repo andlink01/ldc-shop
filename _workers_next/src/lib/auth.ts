@@ -76,6 +76,195 @@ async function resolveExistingGitHubUserIdByUsername(username?: string | null) {
     }
 }
 
+function normalizeGitHubUserId(rawId?: string | null) {
+    if (!rawId) return null
+    let normalized = String(rawId).trim()
+    while (normalized.toLowerCase().startsWith("github:")) {
+        normalized = normalized.slice("github:".length)
+    }
+    if (!normalized) return null
+    return `github:${normalized}`
+}
+
+function asTimestampMs(value: Date | number | string | null | undefined): number | null {
+    if (value === null || value === undefined) return null
+    if (value instanceof Date) return value.getTime()
+    if (typeof value === "number") return Number.isFinite(value) ? value : null
+    const parsed = Number(value)
+    return Number.isFinite(parsed) ? parsed : null
+}
+
+async function runAuthMigrationStep(statement: any) {
+    try {
+        await db.run(statement)
+    } catch {
+        // best effort in auth callback
+    }
+}
+
+async function migrateLegacyGitHubUserId(sourceUserId: string, targetUserId: string, username?: string | null) {
+    if (!sourceUserId || !targetUserId || sourceUserId === targetUserId) return
+
+    const normalizedUsername = username?.trim().toLowerCase() || null
+
+    try {
+        const sourceRows = await db
+            .select({
+                userId: loginUsers.userId,
+                username: loginUsers.username,
+                email: loginUsers.email,
+                points: loginUsers.points,
+                isBlocked: sql<boolean>`COALESCE(${loginUsers.isBlocked}, FALSE)`,
+                desktopNotificationsEnabled: sql<boolean>`COALESCE(${loginUsers.desktopNotificationsEnabled}, FALSE)`,
+                createdAt: loginUsers.createdAt,
+                lastLoginAt: loginUsers.lastLoginAt,
+            })
+            .from(loginUsers)
+            .where(sql`${loginUsers.userId} = ${sourceUserId}`)
+            .limit(1)
+        if (!sourceRows.length) return
+
+        const targetRows = await db
+            .select({
+                userId: loginUsers.userId,
+                username: loginUsers.username,
+                email: loginUsers.email,
+                points: loginUsers.points,
+                isBlocked: sql<boolean>`COALESCE(${loginUsers.isBlocked}, FALSE)`,
+                desktopNotificationsEnabled: sql<boolean>`COALESCE(${loginUsers.desktopNotificationsEnabled}, FALSE)`,
+                createdAt: loginUsers.createdAt,
+                lastLoginAt: loginUsers.lastLoginAt,
+            })
+            .from(loginUsers)
+            .where(sql`${loginUsers.userId} = ${targetUserId}`)
+            .limit(1)
+
+        if (!targetRows.length) {
+            const source = sourceRows[0]
+            const createdAt = asTimestampMs(source.createdAt) || Date.now()
+            const lastLoginAt = asTimestampMs(source.lastLoginAt) || Date.now()
+            await runAuthMigrationStep(sql`
+                INSERT OR IGNORE INTO login_users (
+                    user_id,
+                    username,
+                    email,
+                    points,
+                    is_blocked,
+                    desktop_notifications_enabled,
+                    created_at,
+                    last_login_at
+                ) VALUES (
+                    ${targetUserId},
+                    ${normalizedUsername || source.username || null},
+                    ${source.email || null},
+                    ${Number(source.points || 0)},
+                    ${source.isBlocked ? 1 : 0},
+                    ${source.desktopNotificationsEnabled ? 1 : 0},
+                    ${createdAt},
+                    ${lastLoginAt}
+                )
+            `)
+        } else {
+            const source = sourceRows[0]
+            const target = targetRows[0]
+            const mergedPoints = Number(source.points || 0) + Number(target.points || 0)
+            const mergedBlocked = !!source.isBlocked || !!target.isBlocked
+            const mergedDesktopEnabled = !!source.desktopNotificationsEnabled || !!target.desktopNotificationsEnabled
+            const mergedEmail = target.email || source.email || null
+
+            const createdCandidates = [asTimestampMs(source.createdAt), asTimestampMs(target.createdAt)].filter((v): v is number => v !== null)
+            const lastLoginCandidates = [asTimestampMs(source.lastLoginAt), asTimestampMs(target.lastLoginAt)].filter((v): v is number => v !== null)
+            const mergedCreatedAt = createdCandidates.length ? new Date(Math.min(...createdCandidates)) : new Date()
+            const mergedLastLoginAt = lastLoginCandidates.length ? new Date(Math.max(...lastLoginCandidates)) : new Date()
+
+            await db.update(loginUsers)
+                .set({
+                    username: normalizedUsername || target.username || source.username || null,
+                    email: mergedEmail,
+                    points: mergedPoints,
+                    isBlocked: mergedBlocked,
+                    desktopNotificationsEnabled: mergedDesktopEnabled,
+                    createdAt: mergedCreatedAt,
+                    lastLoginAt: mergedLastLoginAt,
+                })
+                .where(sql`${loginUsers.userId} = ${targetUserId}`)
+        }
+
+        await runAuthMigrationStep(sql`
+            DELETE FROM broadcast_reads
+            WHERE user_id = ${sourceUserId}
+              AND EXISTS (
+                SELECT 1
+                FROM broadcast_reads br
+                WHERE br.message_id = broadcast_reads.message_id
+                  AND br.user_id = ${targetUserId}
+              )
+        `)
+        await runAuthMigrationStep(sql`
+            DELETE FROM wishlist_votes
+            WHERE user_id = ${sourceUserId}
+              AND EXISTS (
+                SELECT 1
+                FROM wishlist_votes wv
+                WHERE wv.item_id = wishlist_votes.item_id
+                  AND wv.user_id = ${targetUserId}
+              )
+        `)
+
+        await runAuthMigrationStep(sql`UPDATE orders SET user_id = ${targetUserId} WHERE user_id = ${sourceUserId}`)
+        await runAuthMigrationStep(sql`UPDATE reviews SET user_id = ${targetUserId} WHERE user_id = ${sourceUserId}`)
+        await runAuthMigrationStep(sql`UPDATE refund_requests SET user_id = ${targetUserId} WHERE user_id = ${sourceUserId}`)
+        await runAuthMigrationStep(sql`UPDATE daily_checkins_v2 SET user_id = ${targetUserId} WHERE user_id = ${sourceUserId}`)
+        await runAuthMigrationStep(sql`UPDATE user_notifications SET user_id = ${targetUserId} WHERE user_id = ${sourceUserId}`)
+        await runAuthMigrationStep(sql`UPDATE user_messages SET user_id = ${targetUserId} WHERE user_id = ${sourceUserId}`)
+        await runAuthMigrationStep(sql`UPDATE broadcast_reads SET user_id = ${targetUserId} WHERE user_id = ${sourceUserId}`)
+        await runAuthMigrationStep(sql`UPDATE wishlist_votes SET user_id = ${targetUserId} WHERE user_id = ${sourceUserId}`)
+        await runAuthMigrationStep(sql`UPDATE wishlist_items SET user_id = ${targetUserId} WHERE user_id = ${sourceUserId}`)
+        await runAuthMigrationStep(sql`UPDATE admin_messages SET target_value = ${targetUserId} WHERE target_type = 'userId' AND target_value = ${sourceUserId}`)
+
+        if (normalizedUsername) {
+            await runAuthMigrationStep(sql`
+                UPDATE orders SET username = ${normalizedUsername}
+                WHERE user_id = ${targetUserId}
+                  AND (username IS NULL OR LOWER(username) NOT LIKE 'gh_%')
+            `)
+            await runAuthMigrationStep(sql`
+                UPDATE reviews SET username = ${normalizedUsername}
+                WHERE user_id = ${targetUserId}
+                  AND (username IS NULL OR LOWER(username) NOT LIKE 'gh_%')
+            `)
+            await runAuthMigrationStep(sql`
+                UPDATE refund_requests SET username = ${normalizedUsername}
+                WHERE user_id = ${targetUserId}
+                  AND (username IS NULL OR LOWER(username) NOT LIKE 'gh_%')
+            `)
+            await runAuthMigrationStep(sql`
+                UPDATE user_messages SET username = ${normalizedUsername}
+                WHERE user_id = ${targetUserId}
+                  AND (username IS NULL OR LOWER(username) NOT LIKE 'gh_%')
+            `)
+            await runAuthMigrationStep(sql`
+                UPDATE wishlist_items SET username = ${normalizedUsername}
+                WHERE user_id = ${targetUserId}
+                  AND (username IS NULL OR LOWER(username) NOT LIKE 'gh_%')
+            `)
+            await runAuthMigrationStep(sql`
+                UPDATE login_users SET username = ${normalizedUsername}
+                WHERE user_id = ${targetUserId}
+                  AND (username IS NULL OR LOWER(username) <> ${normalizedUsername})
+            `)
+        }
+
+        await runAuthMigrationStep(sql`DELETE FROM login_users WHERE user_id = ${sourceUserId}`)
+    } catch (error) {
+        console.warn("[auth] github legacy user id migration failed", {
+            sourceUserId,
+            targetUserId,
+            error,
+        })
+    }
+}
+
 if (githubClientId && githubClientSecret) {
     providers.push(
         GitHub({
@@ -87,7 +276,7 @@ if (githubClientId && githubClientSecret) {
                     : String(profile.id)
                 const login = rawLogin.toLowerCase()
                 return {
-                    id: `github:${String(profile.id)}`,
+                    id: String(profile.id),
                     name: profile.name || rawLogin,
                     email: profile.email,
                     image: profile.avatar_url,
@@ -116,14 +305,23 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
                     }
 
                     // Prefer providerAccountId for GitHub; it's the most stable account identifier.
-                    if (account.providerAccountId) {
-                        resolvedId = `github:${account.providerAccountId}`
-                    }
+                    const canonicalGitHubId = normalizeGitHubUserId(account.providerAccountId) || normalizeGitHubUserId(String(user.id))
+                    if (canonicalGitHubId) resolvedId = canonicalGitHubId
 
                     // If this GitHub username already exists in login_users, keep using that user_id.
                     const existingUserId = await resolveExistingGitHubUserIdByUsername(resolvedUsername)
                     if (existingUserId) {
-                        resolvedId = existingUserId
+                        const normalizedExistingId = normalizeGitHubUserId(existingUserId)
+                        if (canonicalGitHubId) {
+                            if (existingUserId !== canonicalGitHubId) {
+                                await migrateLegacyGitHubUserId(existingUserId, canonicalGitHubId, resolvedUsername)
+                            }
+                            resolvedId = canonicalGitHubId
+                        } else if (normalizedExistingId) {
+                            resolvedId = normalizedExistingId
+                        } else {
+                            resolvedId = existingUserId
+                        }
                     }
                 }
 

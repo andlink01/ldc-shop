@@ -9,7 +9,7 @@ import { cache } from "react";
 let dbInitialized = false;
 let loginUsersSchemaReady = false;
 let wishlistTablesReady = false;
-const CURRENT_SCHEMA_VERSION = 15;
+const CURRENT_SCHEMA_VERSION = 16;
 type ColumnEnsureKey = 'products' | 'orders' | 'cards' | 'loginUsers';
 const columnEnsureState: Record<ColumnEnsureKey, { ready: boolean; pending: Promise<void> | null }> = {
     products: { ready: false, pending: null },
@@ -147,6 +147,7 @@ async function ensureDatabaseInitialized() {
         await ensureBroadcastTables();
         await ensureWishlistTables();
         await migrateTimestampColumnsToMs();
+        await migrateMalformedGitHubUserIds();
         await migrateGitHubUsersDedupAndCanonicalize();
         await ensureIndexes();
         await backfillProductAggregates();
@@ -358,6 +359,7 @@ async function ensureDatabaseInitialized() {
     `);
 
     await migrateTimestampColumnsToMs();
+    await migrateMalformedGitHubUserIds();
     await migrateGitHubUsersDedupAndCanonicalize();
     await ensureIndexes();
     await backfillProductAggregates();
@@ -1687,6 +1689,38 @@ function pickCanonicalGitHubUser(rows: GitHubLoginUserRow[]) {
     return byRecentLoginDesc[0]
 }
 
+function normalizeGitHubUserIdValue(userId?: string | null): string | null {
+    if (!userId) return null
+    let normalized = userId.trim()
+    while (normalized.toLowerCase().startsWith('github:')) {
+        normalized = normalized.slice('github:'.length)
+    }
+    if (!normalized) return null
+    return `github:${normalized}`
+}
+
+function normalizeGitHubUsernameValue(username?: string | null): string | null {
+    if (!username) return null
+    const normalized = username.trim().toLowerCase()
+    if (!normalized) return null
+    return normalized
+}
+
+function mergeLoginUserRows(primary: GitHubLoginUserRow, secondary: GitHubLoginUserRow) {
+    const createdCandidates = [toEpochMs(primary.createdAt), toEpochMs(secondary.createdAt)].filter((value): value is number => value !== null)
+    const lastLoginCandidates = [toEpochMs(primary.lastLoginAt), toEpochMs(secondary.lastLoginAt)].filter((value): value is number => value !== null)
+
+    return {
+        username: normalizeGitHubUsernameValue(primary.username) || normalizeGitHubUsernameValue(secondary.username),
+        email: primary.email || secondary.email || null,
+        points: Number(primary.points || 0) + Number(secondary.points || 0),
+        isBlocked: !!primary.isBlocked || !!secondary.isBlocked,
+        desktopNotificationsEnabled: !!primary.desktopNotificationsEnabled || !!secondary.desktopNotificationsEnabled,
+        createdAt: createdCandidates.length ? new Date(Math.min(...createdCandidates)) : new Date(),
+        lastLoginAt: lastLoginCandidates.length ? new Date(Math.max(...lastLoginCandidates)) : new Date(),
+    }
+}
+
 async function runMigrationQuery(statement: any) {
     try {
         await db.run(statement)
@@ -1731,6 +1765,119 @@ async function moveUserReferences(sourceUserId: string, targetUserId: string) {
     await runMigrationQuery(sql`UPDATE wishlist_items SET user_id = ${targetUserId} WHERE user_id = ${sourceUserId}`)
     await runMigrationQuery(sql`UPDATE admin_messages SET target_value = ${targetUserId} WHERE target_type = 'userId' AND target_value = ${sourceUserId}`)
     await runMigrationQuery(sql`DELETE FROM login_users WHERE user_id = ${sourceUserId}`)
+}
+
+async function migrateMalformedGitHubUserIds() {
+    await ensureLoginUsersSchema()
+
+    const malformedRows = await db.select({
+        userId: loginUsers.userId,
+        username: loginUsers.username,
+        email: loginUsers.email,
+        points: loginUsers.points,
+        isBlocked: sql<boolean>`COALESCE(${loginUsers.isBlocked}, FALSE)`,
+        desktopNotificationsEnabled: sql<boolean>`COALESCE(${loginUsers.desktopNotificationsEnabled}, FALSE)`,
+        createdAt: loginUsers.createdAt,
+        lastLoginAt: loginUsers.lastLoginAt,
+    })
+        .from(loginUsers)
+        .where(sql`LOWER(${loginUsers.userId}) LIKE 'github:github:%'`)
+
+    if (!malformedRows.length) return
+
+    for (const row of malformedRows) {
+        const sourceUser: GitHubLoginUserRow = {
+            userId: row.userId,
+            username: row.username || null,
+            email: row.email || null,
+            points: Number(row.points || 0),
+            isBlocked: !!row.isBlocked,
+            desktopNotificationsEnabled: !!row.desktopNotificationsEnabled,
+            createdAt: row.createdAt || null,
+            lastLoginAt: row.lastLoginAt || null,
+        }
+
+        const targetUserId = normalizeGitHubUserIdValue(sourceUser.userId)
+        if (!targetUserId || targetUserId === sourceUser.userId) continue
+
+        const existingTargetRows = await db.select({
+            userId: loginUsers.userId,
+            username: loginUsers.username,
+            email: loginUsers.email,
+            points: loginUsers.points,
+            isBlocked: sql<boolean>`COALESCE(${loginUsers.isBlocked}, FALSE)`,
+            desktopNotificationsEnabled: sql<boolean>`COALESCE(${loginUsers.desktopNotificationsEnabled}, FALSE)`,
+            createdAt: loginUsers.createdAt,
+            lastLoginAt: loginUsers.lastLoginAt,
+        })
+            .from(loginUsers)
+            .where(eq(loginUsers.userId, targetUserId))
+            .limit(1)
+
+        const existingTarget = existingTargetRows[0]
+            ? {
+                userId: existingTargetRows[0].userId,
+                username: existingTargetRows[0].username || null,
+                email: existingTargetRows[0].email || null,
+                points: Number(existingTargetRows[0].points || 0),
+                isBlocked: !!existingTargetRows[0].isBlocked,
+                desktopNotificationsEnabled: !!existingTargetRows[0].desktopNotificationsEnabled,
+                createdAt: existingTargetRows[0].createdAt || null,
+                lastLoginAt: existingTargetRows[0].lastLoginAt || null,
+            } satisfies GitHubLoginUserRow
+            : null
+
+        if (!existingTarget) {
+            const createdAtMs = toEpochMs(sourceUser.createdAt) || Date.now()
+            const lastLoginAtMs = toEpochMs(sourceUser.lastLoginAt) || Date.now()
+            await runMigrationQuery(sql`
+                INSERT OR IGNORE INTO login_users (
+                    user_id,
+                    username,
+                    email,
+                    points,
+                    is_blocked,
+                    desktop_notifications_enabled,
+                    created_at,
+                    last_login_at
+                ) VALUES (
+                    ${targetUserId},
+                    NULL,
+                    ${sourceUser.email},
+                    ${sourceUser.points},
+                    ${sourceUser.isBlocked ? 1 : 0},
+                    ${sourceUser.desktopNotificationsEnabled ? 1 : 0},
+                    ${createdAtMs},
+                    ${lastLoginAtMs}
+                )
+            `)
+        } else {
+            const merged = mergeLoginUserRows(existingTarget, sourceUser)
+            await db.update(loginUsers)
+                .set({
+                    username: merged.username,
+                    email: merged.email,
+                    points: merged.points,
+                    isBlocked: merged.isBlocked,
+                    desktopNotificationsEnabled: merged.desktopNotificationsEnabled,
+                    createdAt: merged.createdAt,
+                    lastLoginAt: merged.lastLoginAt,
+                })
+                .where(eq(loginUsers.userId, targetUserId))
+        }
+
+        await moveUserReferences(sourceUser.userId, targetUserId)
+
+        const normalizedUsername = normalizeGitHubUsernameValue(sourceUser.username)
+        if (normalizedUsername) {
+            await runMigrationQuery(sql`
+                UPDATE login_users
+                SET username = ${normalizedUsername}
+                WHERE user_id = ${targetUserId}
+                  AND (username IS NULL OR username = '' OR LOWER(username) <> ${normalizedUsername})
+            `)
+        }
+    }
 }
 
 async function migrateGitHubUsersDedupAndCanonicalize() {

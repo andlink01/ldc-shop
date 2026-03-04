@@ -27,7 +27,9 @@
 
 目前我们确认：`Linux DO Connect` 的 OAuth 登录在部分部署环境中，可能在 `token` 交换阶段被上游 Cloudflare 防护拦截，导致授权后无法完成登录。
 
-我们正在持续跟进该问题，并将在后续版本中加入其他登录方式。请耐心等待更新公告，感谢理解与支持。
+为保障登录可用性，项目现已加入 **GitHub 登录** 作为替代方式（配置方法见 `_workers_next/README.md` 中的 GitHub OAuth App 说明）。
+
+`Linux DO Connect` 登录问题仍在持续跟进，后续有进展会继续更新公告。
 
 ## ✨ 特性
 - **现代技术栈**: Next.js 16 (App Router), Tailwind CSS, TypeScript.
