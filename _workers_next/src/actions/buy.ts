@@ -7,6 +7,7 @@ import { getEmailSettings } from "@/lib/email"
 interface BuyMetaReview {
     id: number
     username: string
+    userId: string | null
     rating: number
     comment: string | null
     createdAt: string | null
@@ -46,6 +47,7 @@ export async function getBuyPageMeta(productId: string): Promise<BuyPageMeta> {
         getProductReviews(id).catch(() => [] as Array<{
             id: number
             username: string
+            userId: string | null
             rating: number
             comment: string | null
             createdAt: Date | string | null
@@ -56,6 +58,7 @@ export async function getBuyPageMeta(productId: string): Promise<BuyPageMeta> {
     const reviews: BuyMetaReview[] = rawReviews.map((review) => ({
         id: Number(review.id),
         username: review.username || "",
+        userId: review.userId || null,
         rating: Number(review.rating || 0),
         comment: review.comment || null,
         createdAt: toIsoString(review.createdAt),

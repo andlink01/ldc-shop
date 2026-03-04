@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label"
 import { toast } from "sonner"
 import { saveUserPoints, toggleBlock } from "@/actions/admin-users"
 import { Loader2, Search, ArrowLeft, ArrowRight, Edit, Ban, CheckCircle } from "lucide-react"
+import { getDisplayUsername, getExternalProfileUrl } from "@/lib/user-profile-link"
 
 interface User {
     userId: string
@@ -158,7 +159,20 @@ export function UsersContent({ data }: UsersContentProps) {
                             data.items.map((user) => (
                                 <TableRow key={user.userId}>
                                     <TableCell className="font-mono text-xs">{user.userId}</TableCell>
-                                    <TableCell>{user.username || '-'}</TableCell>
+                                    <TableCell>
+                                        {user.username ? (
+                                            <a
+                                                href={getExternalProfileUrl(user.username, user.userId) || "#"}
+                                                target="_blank"
+                                                rel="noreferrer"
+                                                className="font-medium text-sm hover:underline text-primary"
+                                            >
+                                                {getDisplayUsername(user.username, user.userId)}
+                                            </a>
+                                        ) : (
+                                            '-'
+                                        )}
+                                    </TableCell>
                                     <TableCell className="font-bold">{user.points}</TableCell>
                                     <TableCell>{user.orderCount}</TableCell>
                                     <TableCell className="text-muted-foreground text-xs">
@@ -228,7 +242,20 @@ export function UsersContent({ data }: UsersContentProps) {
                         <div className="grid gap-4 py-4">
                             <div className="grid gap-2">
                                 <Label>{t('admin.users.username')}</Label>
-                                <div className="text-sm font-medium">{editingUser.username || editingUser.userId}</div>
+                                <div className="text-sm font-medium">
+                                    {editingUser.username ? (
+                                        <a
+                                            href={getExternalProfileUrl(editingUser.username, editingUser.userId) || "#"}
+                                            target="_blank"
+                                            rel="noreferrer"
+                                            className="hover:underline text-primary"
+                                        >
+                                            {getDisplayUsername(editingUser.username, editingUser.userId)}
+                                        </a>
+                                    ) : (
+                                        editingUser.userId
+                                    )}
+                                </div>
                             </div>
                             <div className="grid gap-2">
                                 <Label>{t('admin.users.currentPoints')}</Label>

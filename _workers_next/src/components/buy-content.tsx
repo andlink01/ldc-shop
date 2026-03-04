@@ -42,6 +42,7 @@ interface Product {
 interface Review {
     id: number
     username: string
+    userId?: string | null
     rating: number
     comment: string | null
     createdAt: Date | string | null
