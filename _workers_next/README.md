@@ -161,6 +161,20 @@
 > 例如站点是 `https://shop.chatgpt.org.uk`，则填写 `https://shop.chatgpt.org.uk/api/auth/callback/github`。  
 > 注意必须与 `NEXT_PUBLIC_APP_URL` 的协议和域名完全一致，且不要额外加尾部斜杠。
 
+**GitHub OAuth App 创建步骤：**
+
+1. 打开 [GitHub Developer Settings](https://github.com/settings/developers)。
+2. 进入 **OAuth Apps**，点击 **New OAuth App**。
+3. 按以下方式填写：
+   - **Application name**: 自定义（例如 `LDC Shop`）
+   - **Homepage URL**: 你的站点完整 URL（与 `NEXT_PUBLIC_APP_URL` 一致）
+   - **Authorization callback URL**: `<你的站点完整 URL>/api/auth/callback/github`
+4. 点击 **Register application**。
+5. 在应用详情页复制 **Client ID**，并点击 **Generate a new client secret** 获取 **Client Secret**。
+6. 将二者分别填入 Workers 环境变量：
+   - `GITHUB_ID` = Client ID
+   - `GITHUB_SECRET` = Client Secret（建议使用 Secret）
+
 #### 5. 首次访问
 
 访问你的 Workers 域名，首页会自动创建所有数据库表。
