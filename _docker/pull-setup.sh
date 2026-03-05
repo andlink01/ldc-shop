@@ -13,6 +13,16 @@ ENV_FILE=".env"
 COMPOSE_FILE="docker-compose.yml"
 IMAGE="ghcr.io/chatgptuk/ldc-shop:latest"
 
+# Detect docker compose command (V2 plugin or V1 standalone)
+if docker compose version &> /dev/null; then
+    COMPOSE_CMD="docker compose"
+elif command -v docker-compose &> /dev/null; then
+    COMPOSE_CMD="docker-compose"
+else
+    echo -e "${RED}未检测到 docker compose，请先安装 Docker 和 Docker Compose${NC}"
+    exit 1
+fi
+
 echo ""
 echo -e "${CYAN}${BOLD}╔══════════════════════════════════════╗${NC}"
 echo -e "${CYAN}${BOLD}║   LDC Shop Docker 一键部署（拉取）   ║${NC}"
@@ -232,8 +242,8 @@ if [ "$DO_START" = "true" ]; then
     echo ""
     echo -e "${CYAN}正在拉取镜像并启动容器...${NC}"
     echo ""
-    docker compose pull
-    docker compose up -d
+    $COMPOSE_CMD pull
+    $COMPOSE_CMD up -d
     echo ""
     echo -e "${GREEN}${BOLD}✓ LDC Shop 已启动！${NC}"
     echo ""
@@ -241,7 +251,7 @@ else
     echo ""
     echo -e "${YELLOW}稍后可手动启动:${NC}"
     echo ""
-    echo "  docker compose pull && docker compose up -d"
+    echo "  $COMPOSE_CMD pull && $COMPOSE_CMD up -d"
     echo ""
 fi
 
@@ -346,8 +356,8 @@ else
 fi
 
 echo -e "${CYAN}常用命令:${NC}"
-echo "  查看日志:   docker compose logs -f"
-echo "  停止服务:   docker compose down"
-echo "  重启服务:   docker compose down && docker compose up -d"
-echo "  更新镜像:   docker compose pull && docker compose up -d"
+echo "  查看日志:   $COMPOSE_CMD logs -f"
+echo "  停止服务:   $COMPOSE_CMD down"
+echo "  重启服务:   $COMPOSE_CMD down && $COMPOSE_CMD up -d"
+echo "  更新镜像:   $COMPOSE_CMD pull && $COMPOSE_CMD up -d"
 echo ""
