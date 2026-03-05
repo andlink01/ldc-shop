@@ -13,13 +13,33 @@ ENV_FILE=".env"
 COMPOSE_FILE="docker-compose.yml"
 
 # Detect docker compose command (V2 plugin or V1 standalone)
-if docker compose version &> /dev/null; then
-    COMPOSE_CMD="docker compose"
-elif command -v docker-compose &> /dev/null; then
-    COMPOSE_CMD="docker-compose"
-else
-    echo -e "${RED}未检测到 docker compose，请先安装 Docker 和 Docker Compose${NC}"
-    exit 1
+detect_compose() {
+    if docker compose version &> /dev/null 2>&1; then
+        COMPOSE_CMD="docker compose"
+    elif command -v docker-compose &> /dev/null 2>&1; then
+        COMPOSE_CMD="docker-compose"
+    else
+        return 1
+    fi
+    return 0
+}
+
+if ! detect_compose; then
+    echo -e "${YELLOW}未检测到 Docker Compose，正在自动安装...${NC}"
+    if [ -f /etc/debian_version ]; then
+        apt-get update -qq > /dev/null 2>&1
+        apt-get install -y docker-compose-plugin > /dev/null 2>&1 || apt-get install -y docker-compose > /dev/null 2>&1
+    elif [ -f /etc/redhat-release ]; then
+        yum install -y docker-compose-plugin > /dev/null 2>&1 || yum install -y docker-compose > /dev/null 2>&1
+    fi
+
+    if ! detect_compose; then
+        echo -e "${RED}Docker Compose 安装失败，请手动安装后重试${NC}"
+        echo -e "  Debian/Ubuntu: apt-get install docker-compose-plugin"
+        echo -e "  CentOS/RHEL:   yum install docker-compose-plugin"
+        exit 1
+    fi
+    echo -e "${GREEN}✓${NC} Docker Compose 安装成功"
 fi
 
 echo ""
