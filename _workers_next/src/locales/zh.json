@@ -698,10 +698,20 @@
         "title": "公告管理",
         "startAt": "开始时间（可选）",
         "endAt": "结束时间（可选）",
+        "contentLabel": "顶部公告内容",
         "placeholder": "输入公告内容...（留空则隐藏公告）",
+        "popupLabel": "弹窗公告",
+        "popupEnabled": "启用首页弹窗公告",
+        "popupTitle": "弹窗标题（可选）",
+        "popupTitlePlaceholder": "例如：最新通知",
+        "popupContent": "弹窗内容",
+        "popupPlaceholder": "输入弹窗公告内容...（留空则不显示弹窗）",
+        "popupHint": "同一浏览器默认只会看到一次；更新弹窗内容后会再次弹出。",
+        "popupDefaultTitle": "系统公告",
+        "popupConfirm": "我知道了",
         "save": "保存公告",
         "saved": "公告已保存！",
-        "hint": "公告会显示在首页；设置开始/结束时间后，仅在该时间段内展示。"
+        "hint": "顶部公告和弹窗公告都显示在首页；设置开始/结束时间后，仅在该时间段内展示。"
     },
     "review": {
         "title": "用户评价",

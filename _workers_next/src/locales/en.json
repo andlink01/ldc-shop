@@ -698,10 +698,20 @@
         "title": "Announcement",
         "startAt": "Start time (optional)",
         "endAt": "End time (optional)",
+        "contentLabel": "Top banner content",
         "placeholder": "Enter announcement content... (leave empty to hide)",
+        "popupLabel": "Popup announcement",
+        "popupEnabled": "Enable homepage popup announcement",
+        "popupTitle": "Popup title (optional)",
+        "popupTitlePlaceholder": "e.g. Latest update",
+        "popupContent": "Popup content",
+        "popupPlaceholder": "Enter popup announcement content... (leave empty to hide the popup)",
+        "popupHint": "Shown once per browser by default. Updating the popup content will show it again.",
+        "popupDefaultTitle": "Announcement",
+        "popupConfirm": "Got it",
         "save": "Save Announcement",
         "saved": "Announcement saved!",
-        "hint": "Displayed on the homepage. If start/end is set, it will only show during that time window."
+        "hint": "Both the top banner and popup are shown on the homepage. If start/end is set, they only appear during that time window."
     },
     "review": {
         "title": "Reviews",
