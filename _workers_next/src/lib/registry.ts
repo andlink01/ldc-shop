@@ -3,6 +3,8 @@ import { buildShopFaviconUrl, resolveEffectiveShopLogo } from "@/lib/shop-logo"
 import { APP_VERSION } from "@/lib/version"
 
 export const REGISTRY_APP_ID = "ldc-shop"
+const REGISTRY_PAGE_SIZE = 500
+const REGISTRY_MAX_PAGES = 25
 
 const DEFAULT_REGISTRY_URL = "https://ldcnavi.chatgptuk.workers.dev"
 
@@ -66,20 +68,62 @@ export interface RegistryShop {
     updated_at?: number
 }
 
+function getRegistryShopKey(item: RegistryShop): string {
+    return String(item.url || "").trim().toLowerCase()
+}
+
 export async function fetchRegistryShops() {
     const baseUrl = getRegistryBaseUrl()
     if (!baseUrl) {
         return { items: [] as RegistryShop[], error: "registry_not_configured" }
     }
 
-    const res = await fetch(`${baseUrl}/shops?limit=300`, {
-        next: { revalidate: 300 },
-    })
+    const items: RegistryShop[] = []
+    const seen = new Set<string>()
+    let offset = 0
 
-    if (!res.ok) {
-        return { items: [] as RegistryShop[], error: `registry_error_${res.status}` }
+    for (let page = 0; page < REGISTRY_MAX_PAGES; page += 1) {
+        const params = new URLSearchParams({
+            limit: String(REGISTRY_PAGE_SIZE),
+            offset: String(offset),
+        })
+        const res = await fetch(`${baseUrl}/shops?${params.toString()}`, {
+            next: { revalidate: 300 },
+        })
+
+        if (!res.ok) {
+            return { items, error: `registry_error_${res.status}` }
+        }
+
+        const data = await res.json()
+        const pageItems = Array.isArray(data?.items) ? (data.items as RegistryShop[]) : []
+        let newItemCount = 0
+
+        for (const item of pageItems) {
+            const key = getRegistryShopKey(item)
+            if (!key || seen.has(key)) continue
+            seen.add(key)
+            items.push(item)
+            newItemCount += 1
+        }
+
+        const nextOffset = typeof data?.nextOffset === "number" ? data.nextOffset : null
+        if (nextOffset !== null && nextOffset > offset) {
+            offset = nextOffset
+            continue
+        }
+
+        if (data?.hasMore && pageItems.length > 0) {
+            offset += pageItems.length
+            continue
+        }
+
+        if (pageItems.length < REGISTRY_PAGE_SIZE || newItemCount === 0) {
+            break
+        }
+
+        offset += pageItems.length
     }
 
-    const data = await res.json()
-    return { items: (data?.items || []) as RegistryShop[], error: null }
+    return { items, error: null }
 }
