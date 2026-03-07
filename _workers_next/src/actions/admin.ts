@@ -45,7 +45,7 @@ export async function saveProduct(formData: FormData) {
     const price = formData.get('price') as string
     const compareAtPrice = (formData.get('compareAtPrice') as string | null) || null
     const category = formData.get('category') as string
-    const image = formData.get('image') as string
+    const image = (formData.get('image') as string || '').trim()
     const purchaseLimit = formData.get('purchaseLimit') ? parseInt(formData.get('purchaseLimit') as string) : null
     const isHot = formData.get('isHot') === 'on'
     const isShared = formData.get('isShared') === 'on'
@@ -55,6 +55,16 @@ export async function saveProduct(formData: FormData) {
     const visibilityLevel = Number.isFinite(parsedVisibility) ? parsedVisibility : -1
     if (![ -1, 0, 1, 2, 3 ].includes(visibilityLevel)) {
         throw new Error("Invalid visibility level")
+    }
+    if (image.startsWith('data:')) {
+        if (!image.startsWith('data:image/')) {
+            throw new Error("Only image data URLs are allowed")
+        }
+        if (image.length > 900_000) {
+            throw new Error("Product image is too large")
+        }
+    } else if (image.length > 2000) {
+        throw new Error("Product image URL is too long")
     }
 
     const doSave = async () => {
@@ -538,7 +548,14 @@ export async function saveShopLogo(logoUrl: string) {
     await checkAdmin()
 
     const url = logoUrl.trim()
-    if (url && url.length > 500) {
+    if (url.startsWith('data:')) {
+        if (!url.startsWith('data:image/')) {
+            throw new Error("Only image data URLs are allowed")
+        }
+        if (url.length > 1_000_000) {
+            throw new Error("Logo image is too large")
+        }
+    } else if (url && url.length > 500) {
         throw new Error("Logo URL is too long")
     }
 

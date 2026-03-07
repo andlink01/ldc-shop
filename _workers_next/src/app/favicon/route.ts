@@ -65,10 +65,13 @@ export async function GET(request: Request) {
     return renderGeneratedLogo(generatedSeed, generatedKey);
   }
 
-  const baseUrl = target.startsWith("http://") || target.startsWith("https://")
+  const isDataUrl = target.startsWith("data:")
+  const baseUrl = isDataUrl
+    ? target
+    : target.startsWith("http://") || target.startsWith("https://")
     ? target
     : new URL(target, request.url).toString();
-  const url = (() => {
+  const url = isDataUrl ? baseUrl : (() => {
     if (!logoUpdatedAt) return baseUrl;
     try {
       const u = new URL(baseUrl);
@@ -78,10 +81,11 @@ export async function GET(request: Request) {
       return baseUrl;
     }
   })();
+  const cacheKey = isDataUrl && logoUpdatedAt ? `${baseUrl}#${logoUpdatedAt}` : url;
 
   try {
     const now = Date.now();
-    if (cached && cached.url === url && cached.expiresAt > now) {
+    if (cached && cached.url === cacheKey && cached.expiresAt > now) {
       return withCacheHeaders(cached.body, cached.contentType);
     }
 
@@ -90,7 +94,7 @@ export async function GET(request: Request) {
     const contentType = res.headers.get("content-type") || "image/png";
     const body = await res.arrayBuffer();
     cached = {
-      url,
+      url: cacheKey,
       body,
       contentType,
       expiresAt: now + 6 * 60 * 60 * 1000,

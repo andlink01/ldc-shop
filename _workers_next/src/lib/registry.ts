@@ -46,13 +46,16 @@ export async function getRegistryMetadata(origin: string) {
         getSetting("registry_challenge_token"),
     ])
     const resolvedLogo = resolveEffectiveShopLogo(logo, logoSource).effectiveLogo
+    const registryLogo = resolvedLogo.startsWith("data:")
+        ? buildShopFaviconUrl(origin, logoUpdatedAt)
+        : resolvedLogo || buildShopFaviconUrl(origin, logoUpdatedAt)
 
     return {
         app: REGISTRY_APP_ID,
         version: APP_VERSION,
         name: (name || "LDC Shop").trim(),
         description: (description || "").trim(),
-        logo: resolvedLogo || buildShopFaviconUrl(origin, logoUpdatedAt),
+        logo: registryLogo,
         url: origin,
         instanceId,
         verifyToken: (verifyToken || "").trim(),

@@ -1,7 +1,8 @@
 'use client'
 
-import { useState } from "react"
+import { type ChangeEvent, useState } from "react"
 import { useI18n } from "@/lib/i18n/context"
+import { prepareUploadedImage } from "@/lib/client-image"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -59,6 +60,8 @@ const THEME_COLORS = [
     { value: 'pink', hue: 330 },
 ]
 
+const SHOP_LOGO_UPLOAD_MAX_BYTES = 500 * 1024
+
 export function AdminSettingsContent({ stats, shopName, shopDescription, shopLogo, shopFooter, themeColor, visitorCount, lowStockThreshold, checkinReward, checkinEnabled, wishlistEnabled, noIndexEnabled, refundReclaimCards, registryHideNav, registryOptIn, registryEnabled, currentVersion }: AdminSettingsContentProps) {
     const { t } = useI18n()
 
@@ -92,6 +95,9 @@ export function AdminSettingsContent({ stats, shopName, shopDescription, shopLog
     const [registryJoined, setRegistryJoined] = useState(registryOptIn)
     const [hideRegistryNav, setHideRegistryNav] = useState(registryHideNav)
     const [savingRegistryNav, setSavingRegistryNav] = useState(false)
+    const [processingShopLogoFile, setProcessingShopLogoFile] = useState(false)
+    const usingUploadedShopLogo = shopLogoValue.startsWith('data:')
+    const shopLogoInputValue = usingUploadedShopLogo ? '' : shopLogoValue
 
     const handleSaveShopName = async () => {
         const trimmed = shopNameValue.trim()
@@ -131,6 +137,39 @@ export function AdminSettingsContent({ stats, shopName, shopDescription, shopLog
             toast.error(e.message)
         } finally {
             setSavingShopLogo(false)
+        }
+    }
+
+    const handleSelectShopLogoFile = async (event: ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0]
+        event.target.value = ''
+        if (!file) return
+
+        setProcessingShopLogoFile(true)
+        try {
+            const prepared = await prepareUploadedImage(file, {
+                maxBytes: SHOP_LOGO_UPLOAD_MAX_BYTES,
+                maxDimension: 512,
+            })
+            setShopLogoValue(prepared.dataUrl)
+            toast.success(
+                prepared.wasCompressed
+                    ? t('admin.settings.shopLogoFileCompressed')
+                    : t('admin.settings.shopLogoFileReady')
+            )
+        } catch (error) {
+            const message = error instanceof Error ? error.message : ''
+            if (message === 'image_compression_unsupported') {
+                toast.error(t('admin.settings.shopLogoFileCompressionUnsupported'))
+                return
+            }
+            if (message === 'image_compression_failed') {
+                toast.error(t('admin.settings.shopLogoFileCompressionFailed'))
+                return
+            }
+            toast.error(t('admin.settings.shopLogoFileInvalid'))
+        } finally {
+            setProcessingShopLogoFile(false)
         }
     }
 
@@ -407,7 +446,7 @@ export function AdminSettingsContent({ stats, shopName, shopDescription, shopLog
                             <div className="floating-field flex-1 min-w-0">
                                 <Input
                                     id="shop-logo"
-                                    value={shopLogoValue}
+                                    value={shopLogoInputValue}
                                     onChange={(e) => setShopLogoValue(e.target.value)}
                                     placeholder=" "
                                 />
@@ -418,6 +457,20 @@ export function AdminSettingsContent({ stats, shopName, shopDescription, shopLog
                             </Button>
                         </div>
                         <p className="text-xs text-muted-foreground">{t('admin.settings.shopLogoHint')}</p>
+                        {usingUploadedShopLogo && (
+                            <p className="text-xs text-muted-foreground">{t('admin.settings.shopLogoUploadedHint')}</p>
+                        )}
+                        <div className="flex flex-col gap-2 rounded-lg border border-dashed border-border/60 bg-muted/20 p-3">
+                            <Label htmlFor="shop-logo-file" className="text-sm font-medium">{t('admin.settings.shopLogoUpload')}</Label>
+                            <Input
+                                id="shop-logo-file"
+                                type="file"
+                                accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml,image/x-icon,image/bmp,.png,.jpg,.jpeg,.webp,.gif,.svg,.ico,.bmp"
+                                onChange={handleSelectShopLogoFile}
+                                disabled={processingShopLogoFile}
+                            />
+                            <p className="text-xs text-muted-foreground">{t('admin.settings.shopLogoUploadHint')}</p>
+                        </div>
                         {shopLogoValue && (
                             <div className="flex items-center gap-4 p-2 border rounded-md bg-muted/50">
                                 <img src={shopLogoValue} alt="Logo preview" className="h-8 w-8 object-contain" />
