@@ -19,7 +19,7 @@ import {
     DialogTrigger
 } from "@/components/ui/dialog"
 import ReactMarkdown from 'react-markdown'
-import { Loader2, Minus, Plus, Share2 } from "lucide-react"
+import { Loader2, Minus, Package, Plus, Share2 } from "lucide-react"
 import { toast } from "sonner"
 import Image from "next/image"
 import { INFINITE_STOCK } from "@/lib/constants"
@@ -183,15 +183,25 @@ export function BuyContent({
                                     <div className="relative flex h-full min-h-[20rem] items-center justify-center overflow-hidden rounded-[1.65rem] border border-border/30 bg-gradient-to-br from-primary/8 via-background to-secondary/30 p-5 md:min-h-[26rem] md:p-8">
                                         <div className="pointer-events-none absolute left-6 top-6 h-16 w-16 rounded-full bg-primary/15 blur-2xl" />
                                         <div className="pointer-events-none absolute bottom-6 right-6 h-20 w-20 rounded-full bg-cyan-400/10 blur-2xl" />
-                                        <div className="relative aspect-[4/3] w-full max-w-[32rem]">
-                                            <Image
-                                                src={product.image || `https://api.dicebear.com/7.x/shapes/svg?seed=${product.id}`}
-                                                alt={product.name}
-                                                fill
-                                                sizes="(max-width: 1024px) 100vw, 56vw"
-                                                className="object-contain"
-                                            />
-                                        </div>
+                                        {product.image ? (
+                                            <div className="relative aspect-[4/3] w-full max-w-[32rem]">
+                                                <Image
+                                                    src={product.image}
+                                                    alt={product.name}
+                                                    fill
+                                                    sizes="(max-width: 1024px) 100vw, 56vw"
+                                                    className="object-contain"
+                                                />
+                                            </div>
+                                        ) : (
+                                            <div className="flex h-full items-center justify-center">
+                                                <div className="relative flex h-28 w-28 items-center justify-center rounded-[2rem] bg-gradient-to-br from-primary/15 to-primary/5 shadow-inner ring-1 ring-primary/10">
+                                                    <Package className="h-14 w-14 text-primary/30" strokeWidth={1.5} />
+                                                    <div className="pointer-events-none absolute -right-4 -top-4 h-12 w-12 rounded-full bg-primary/8 blur-xl" />
+                                                    <div className="pointer-events-none absolute -bottom-3 -left-3 h-10 w-10 rounded-full bg-cyan-400/8 blur-xl" />
+                                                </div>
+                                            </div>
+                                        )}
                                     </div>
                                 </div>
 

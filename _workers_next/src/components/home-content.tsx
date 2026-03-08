@@ -3,7 +3,7 @@
 import { useDeferredValue, useEffect, useMemo, useState } from "react"
 import Link from "next/link"
 import Image from "next/image"
-import { ArrowRight, Heart, Search, Sparkles, Users } from "lucide-react"
+import { ArrowRight, Heart, Package, Search, Sparkles, Users } from "lucide-react"
 import { AnnouncementPopup } from "@/components/announcement-popup"
 import { CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -302,14 +302,23 @@ export function HomeContent({ products, announcement, visitorCount, categories =
                                 <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_right,_rgba(59,130,246,0.12),_transparent_32%)] opacity-80 dark:bg-[radial-gradient(circle_at_top_right,_rgba(96,165,250,0.14),_transparent_36%)]" />
 
                                 <div className="relative m-4 aspect-[4/3] overflow-hidden rounded-[1.45rem] border border-border/30 bg-gradient-to-br from-primary/8 via-background to-secondary/45">
-                                    <Image
-                                        src={product.image || `https://api.dicebear.com/7.x/shapes/svg?seed=${product.id}`}
-                                        alt={product.name}
-                                        fill
-                                        sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
-                                        priority={index < 2}
-                                        className="object-contain p-4 transition-transform duration-700 ease-out group-hover:scale-[1.04]"
-                                    />
+                                    {product.image ? (
+                                        <Image
+                                            src={product.image}
+                                            alt={product.name}
+                                            fill
+                                            sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
+                                            priority={index < 2}
+                                            className="object-contain p-4 transition-transform duration-700 ease-out group-hover:scale-[1.04]"
+                                        />
+                                    ) : (
+                                        <div className="flex h-full items-center justify-center transition-transform duration-700 ease-out group-hover:scale-[1.04]">
+                                            <div className="relative flex h-20 w-20 items-center justify-center rounded-3xl bg-gradient-to-br from-primary/15 to-primary/5 shadow-inner ring-1 ring-primary/10">
+                                                <Package className="h-9 w-9 text-primary/30" strokeWidth={1.5} />
+                                                <div className="pointer-events-none absolute -right-3 -top-3 h-8 w-8 rounded-full bg-primary/8 blur-lg" />
+                                            </div>
+                                        </div>
+                                    )}
                                     <div className="absolute inset-0 bg-[radial-gradient(circle_at_bottom,_rgba(255,255,255,0.1),_transparent_50%)] dark:bg-[radial-gradient(circle_at_bottom,_rgba(255,255,255,0.06),_transparent_55%)]" />
                                     <div className="absolute left-3 right-3 top-3 flex items-start justify-between gap-2">
                                         {product.category && product.category !== "general" ? (
