@@ -19,7 +19,8 @@ import {
     DialogTrigger
 } from "@/components/ui/dialog"
 import ReactMarkdown from 'react-markdown'
-import { Loader2, Minus, Package, Plus, Share2 } from "lucide-react"
+import { Loader2, Minus, Plus, Share2 } from "lucide-react"
+import { ProductImagePlaceholder } from "@/components/product-image-placeholder"
 import { toast } from "sonner"
 import Image from "next/image"
 import { INFINITE_STOCK } from "@/lib/constants"
@@ -192,11 +193,7 @@ export function BuyContent({
                                                 </div>
                                             ) : (
                                                 <div className="flex h-full items-center justify-center">
-                                                    <div className="relative flex h-28 w-28 items-center justify-center rounded-[2rem] bg-gradient-to-br from-primary/15 to-primary/5 shadow-inner ring-1 ring-primary/10">
-                                                        <Package className="h-14 w-14 text-primary/30" strokeWidth={1.5} />
-                                                        <div className="pointer-events-none absolute -right-4 -top-4 h-12 w-12 rounded-full bg-primary/8 blur-xl" />
-                                                        <div className="pointer-events-none absolute -bottom-3 -left-3 h-10 w-10 rounded-full bg-cyan-400/8 blur-xl" />
-                                                    </div>
+                                                    <ProductImagePlaceholder productId={product.id} productName={product.name} size="md" />
                                                 </div>
                                             )}
                                             <div className="pointer-events-none absolute inset-0 rounded-[1.65rem] ring-1 ring-black/[0.03] ring-inset dark:ring-white/[0.04]" />
@@ -250,6 +247,16 @@ export function BuyContent({
                                                         <span className="rounded-full bg-red-500/10 px-2 py-0.5 text-[10px] font-semibold text-red-600 dark:bg-red-500/15 dark:text-red-400">
                                                             -{Math.round((1 - priceValue / compareAtPriceValue) * 100)}%
                                                         </span>
+                                                    </>
+                                                )}
+                                            </div>
+
+                                            <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+                                                <span>{stockLabel}</span>
+                                                {typeof product.purchaseLimit === 'number' && product.purchaseLimit > 0 && (
+                                                    <>
+                                                        <span className="text-border">·</span>
+                                                        <span>{t('buy.purchaseLimit', { limit: product.purchaseLimit })}</span>
                                                     </>
                                                 )}
                                             </div>
@@ -537,7 +544,6 @@ export function BuyContent({
                                 <div className="flex items-center gap-3 rounded-full border border-border/40 bg-background/72 px-4 py-2 text-sm text-muted-foreground">
                                     <StarRating rating={Math.round(averageRatingState)} size="sm" />
                                     <span className="font-medium text-foreground">{averageRatingState.toFixed(1)}</span>
-                                    <span>{reviewCountState}</span>
                                 </div>
                             )}
                         </div>

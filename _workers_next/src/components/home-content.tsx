@@ -3,7 +3,8 @@
 import { useDeferredValue, useEffect, useMemo, useState } from "react"
 import Link from "next/link"
 import Image from "next/image"
-import { ArrowRight, Heart, Package, Search, Sparkles, Users } from "lucide-react"
+import { ArrowRight, Heart, Search, Sparkles, Users } from "lucide-react"
+import { ProductImagePlaceholder } from "@/components/product-image-placeholder"
 import { AnnouncementPopup } from "@/components/announcement-popup"
 import { CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -110,11 +111,7 @@ export function HomeContent({ products, announcement, visitorCount, categories =
             <AnnouncementPopup popup={announcement?.popup ?? null} />
 
             <div className="pointer-events-none absolute inset-0 -z-10">
-                <div className="absolute left-1/2 top-[-18rem] h-[28rem] w-[72rem] -translate-x-1/2 rounded-full bg-[radial-gradient(circle,_rgba(59,130,246,0.14),_transparent_62%)] blur-3xl dark:bg-[radial-gradient(circle,_rgba(96,165,250,0.18),_transparent_65%)]" />
-                <div className="absolute left-[8%] top-24 h-48 w-72 rounded-full bg-primary/10 blur-3xl" />
-                <div className="absolute right-[4%] top-16 h-64 w-64 rounded-full bg-cyan-200/20 blur-3xl dark:bg-cyan-400/10" />
-                <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(255,255,255,0.42),_transparent_54%)] dark:bg-[radial-gradient(circle_at_top,_rgba(255,255,255,0.05),_transparent_58%)]" />
-                <div className="absolute inset-0 opacity-[0.03] [background-image:linear-gradient(to_right,rgba(15,23,42,0.18)_1px,transparent_1px),linear-gradient(to_bottom,rgba(15,23,42,0.12)_1px,transparent_1px)] [background-size:72px_72px] dark:[background-image:linear-gradient(to_right,rgba(255,255,255,0.08)_1px,transparent_1px),linear-gradient(to_bottom,rgba(255,255,255,0.06)_1px,transparent_1px)]" />
+                <div className="absolute inset-0 bg-[radial-gradient(ellipse_80%_50%_at_50%_-20%,rgba(59,130,246,0.12),transparent)] dark:bg-[radial-gradient(ellipse_80%_50%_at_50%_-20%,rgba(96,165,250,0.14),transparent)]" />
             </div>
 
             {(hasAnnouncement || hasPendingOrders) && (
@@ -313,10 +310,7 @@ export function HomeContent({ products, announcement, visitorCount, categories =
                                         />
                                     ) : (
                                         <div className="flex h-full items-center justify-center transition-transform duration-700 ease-out group-hover:scale-[1.04]">
-                                            <div className="relative flex h-20 w-20 items-center justify-center rounded-3xl bg-gradient-to-br from-primary/15 to-primary/5 shadow-inner ring-1 ring-primary/10">
-                                                <Package className="h-9 w-9 text-primary/30" strokeWidth={1.5} />
-                                                <div className="pointer-events-none absolute -right-3 -top-3 h-8 w-8 rounded-full bg-primary/8 blur-lg" />
-                                            </div>
+                                            <ProductImagePlaceholder productId={product.id} productName={product.name} size="sm" />
                                         </div>
                                     )}
                                     <div className="pointer-events-none absolute inset-0 rounded-[1.45rem] ring-1 ring-black/[0.03] ring-inset dark:ring-white/[0.04]" />
@@ -370,11 +364,11 @@ export function HomeContent({ products, announcement, visitorCount, categories =
                                         {product.descriptionPlain || product.description || t("buy.noDescription")}
                                     </div>
 
-                                    <div className="mt-auto rounded-[1.3rem] border border-border/35 bg-background/70 px-4 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.18)]">
+                                    <div className="mt-auto rounded-xl border border-primary/15 bg-primary/5 px-4 py-3.5">
                                         <div className="flex items-end justify-between gap-4">
                                             <div className="min-w-0">
                                                 <div className="flex flex-wrap items-baseline gap-2">
-                                                    <span className="whitespace-nowrap text-2xl font-semibold tracking-tight text-primary tabular-nums">
+                                                    <span className="whitespace-nowrap text-2xl font-bold tracking-tight text-primary tabular-nums">
                                                         {Number(product.price)}
                                                     </span>
                                                     <span className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">
@@ -391,13 +385,13 @@ export function HomeContent({ products, announcement, visitorCount, categories =
                                                         </>
                                                     )}
                                                 </div>
-                                                <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                                                <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
                                                     <span>{t("common.stock")}: {product.stockCount >= INFINITE_STOCK ? "∞" : product.stockCount}</span>
                                                     <span>{t("common.sold")}: {product.soldCount}</span>
                                                 </div>
                                             </div>
 
-                                            <div className="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-border/45 bg-background/90 text-primary shadow-sm transition-transform duration-300 group-hover:-translate-y-0.5 group-hover:translate-x-0.5">
+                                            <div className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-primary ring-1 ring-primary/20 transition-transform duration-300 group-hover:-translate-y-0.5 group-hover:translate-x-0.5">
                                                 <ArrowRight className="h-4.5 w-4.5" />
                                             </div>
                                         </div>
@@ -410,16 +404,38 @@ export function HomeContent({ products, announcement, visitorCount, categories =
             </section>
 
             {sortedProducts.length > 0 && (
-                <div className="mt-10 flex flex-col gap-4 rounded-[1.6rem] border border-border/40 bg-card/70 px-5 py-4 text-sm text-muted-foreground shadow-[0_16px_40px_-32px_rgba(15,23,42,0.25)] backdrop-blur-md sm:flex-row sm:items-center sm:justify-between">
-                    <span className="font-medium">
-                        {t("search.page", { page: currentPage, totalPages })}
-                    </span>
-                    {hasMore ? (
-                        <Button variant="outline" size="sm" className="h-10 rounded-2xl px-4" onClick={() => setPage(currentPage + 1)}>
-                            {t("common.loadMore")}
+                <nav className="mt-10 flex flex-wrap items-center justify-center gap-3 sm:justify-between">
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                        <span className="font-medium">
+                            {t("search.page", { page: currentPage, totalPages })}
+                        </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-9 rounded-xl px-3"
+                            onClick={() => setPage((p) => Math.max(1, p - 1))}
+                            disabled={currentPage <= 1}
+                        >
+                            {t("search.prev")}
                         </Button>
-                    ) : null}
-                </div>
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-9 rounded-xl px-3"
+                            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                            disabled={!hasMore}
+                        >
+                            {t("search.next")}
+                        </Button>
+                        {hasMore && (
+                            <Button variant="secondary" size="sm" className="h-9 rounded-xl px-4" onClick={() => setPage(currentPage + 1)}>
+                                {t("common.loadMore")}
+                            </Button>
+                        )}
+                    </div>
+                </nav>
             )}
         </main>
     )
