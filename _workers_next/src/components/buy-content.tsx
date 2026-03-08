@@ -176,52 +176,51 @@ export function BuyContent({
                     <div className="space-y-6">
                         <div className="relative overflow-hidden rounded-[2rem] border border-border/40 bg-gradient-to-br from-card via-card/96 to-primary/5 shadow-[0_30px_90px_-48px_rgba(15,23,42,0.32)]">
                             <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,_rgba(255,255,255,0.78),_transparent_32%)] dark:bg-[radial-gradient(circle_at_top_right,_rgba(255,255,255,0.08),_transparent_36%)]" />
-                            <div className="absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-primary/30 to-transparent" />
-                            <div className="relative grid gap-0 lg:grid-cols-[minmax(0,0.98fr)_minmax(0,1.02fr)]">
-                                <div className="relative border-b border-border/20 p-5 md:p-6 lg:border-b-0 lg:border-r">
-                                    <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_rgba(59,130,246,0.1),_transparent_60%)] dark:bg-[radial-gradient(circle_at_center,_rgba(96,165,250,0.14),_transparent_66%)]" />
-                                    <div className="relative flex h-full min-h-[20rem] items-center justify-center overflow-hidden rounded-[1.65rem] border border-border/30 bg-gradient-to-br from-primary/8 via-background to-secondary/30 p-5 md:min-h-[26rem] md:p-8">
-                                        <div className="pointer-events-none absolute left-6 top-6 h-16 w-16 rounded-full bg-primary/15 blur-2xl" />
-                                        <div className="pointer-events-none absolute bottom-6 right-6 h-20 w-20 rounded-full bg-cyan-400/10 blur-2xl" />
-                                        {product.image ? (
-                                            <div className="relative aspect-[4/3] w-full max-w-[32rem]">
-                                                <Image
-                                                    src={product.image}
-                                                    alt={product.name}
-                                                    fill
-                                                    sizes="(max-width: 1024px) 100vw, 56vw"
-                                                    className="object-contain"
-                                                />
-                                            </div>
-                                        ) : (
-                                            <div className="flex h-full items-center justify-center">
-                                                <div className="relative flex h-28 w-28 items-center justify-center rounded-[2rem] bg-gradient-to-br from-primary/15 to-primary/5 shadow-inner ring-1 ring-primary/10">
-                                                    <Package className="h-14 w-14 text-primary/30" strokeWidth={1.5} />
-                                                    <div className="pointer-events-none absolute -right-4 -top-4 h-12 w-12 rounded-full bg-primary/8 blur-xl" />
-                                                    <div className="pointer-events-none absolute -bottom-3 -left-3 h-10 w-10 rounded-full bg-cyan-400/8 blur-xl" />
+                            <div className="relative">
+                                <div className="grid gap-0 lg:grid-cols-[minmax(0,0.98fr)_minmax(0,1.02fr)]">
+                                    <div className="relative border-b border-border/20 p-5 md:p-6 lg:border-b-0 lg:border-r">
+                                        <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_rgba(59,130,246,0.1),_transparent_60%)] dark:bg-[radial-gradient(circle_at_center,_rgba(96,165,250,0.14),_transparent_66%)]" />
+                                        <div className="relative flex h-full min-h-[18rem] items-center justify-center overflow-hidden rounded-[1.65rem] border border-border/30 bg-gradient-to-br from-primary/8 via-background to-secondary/30 p-5 md:min-h-[22rem] md:p-8">
+                                            <div className="pointer-events-none absolute left-6 top-6 h-16 w-16 rounded-full bg-primary/15 blur-2xl" />
+                                            <div className="pointer-events-none absolute bottom-6 right-6 h-20 w-20 rounded-full bg-cyan-400/10 blur-2xl" />
+                                            {product.image ? (
+                                                <div className="relative aspect-[4/3] w-full max-w-[32rem]">
+                                                    <Image
+                                                        src={product.image}
+                                                        alt={product.name}
+                                                        fill
+                                                        sizes="(max-width: 1024px) 100vw, 56vw"
+                                                        className="object-contain"
+                                                    />
                                                 </div>
-                                            </div>
-                                        )}
-                                    </div>
-                                </div>
-
-                                <div className="relative p-6 md:p-8">
-                                    <div className="mb-5 flex flex-wrap items-center gap-2">
-                                        {product.category && product.category !== 'general' && (
-                                            <Badge variant="secondary" className="rounded-full border border-border/45 bg-background/70 px-3 py-1 capitalize">
-                                                {product.category}
-                                            </Badge>
-                                        )}
-                                        {product.isHot && (
-                                            <Badge className="rounded-full border-0 bg-orange-500 px-3 py-1 text-white shadow-lg shadow-orange-500/20">
-                                                {t('buy.hot')}
-                                            </Badge>
-                                        )}
+                                            ) : (
+                                                <div className="flex h-full items-center justify-center">
+                                                    <div className="relative flex h-28 w-28 items-center justify-center rounded-[2rem] bg-gradient-to-br from-primary/15 to-primary/5 shadow-inner ring-1 ring-primary/10">
+                                                        <Package className="h-14 w-14 text-primary/30" strokeWidth={1.5} />
+                                                        <div className="pointer-events-none absolute -right-4 -top-4 h-12 w-12 rounded-full bg-primary/8 blur-xl" />
+                                                        <div className="pointer-events-none absolute -bottom-3 -left-3 h-10 w-10 rounded-full bg-cyan-400/8 blur-xl" />
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
                                     </div>
 
-                                    <div className="space-y-6">
+                                    <div className="relative flex flex-col justify-center p-6 md:p-8">
+                                        <div className="mb-4 flex flex-wrap items-center gap-2">
+                                            {product.category && product.category !== 'general' && (
+                                                <Badge variant="secondary" className="rounded-full border border-border/45 bg-background/70 px-3 py-1 capitalize">
+                                                    {product.category}
+                                                </Badge>
+                                            )}
+                                            {product.isHot && (
+                                                <Badge className="rounded-full border-0 bg-orange-500 px-3 py-1 text-white shadow-lg shadow-orange-500/20">
+                                                    {t('buy.hot')}
+                                                </Badge>
+                                            )}
+                                        </div>
+
                                         <div className="space-y-4">
-                                            <h1 className="max-w-4xl text-3xl font-semibold tracking-tight text-foreground md:text-4xl xl:text-[3.35rem] xl:leading-[1.02]">
+                                            <h1 className="text-xl font-semibold tracking-tight text-foreground md:text-2xl">
                                                 {product.name}
                                             </h1>
 
@@ -237,22 +236,20 @@ export function BuyContent({
                                                     <span>{reviewCountState} {t('review.title')}</span>
                                                 </div>
                                             ) : null}
-                                        </div>
 
-                                        <div className="rounded-[1.5rem] border border-border/30 bg-background/65 p-5 backdrop-blur-sm">
-                                            <div className="flex flex-wrap items-end gap-3">
-                                                <div className="text-4xl font-semibold tracking-tight text-primary tabular-nums md:text-5xl">
+                                            <div className="flex flex-wrap items-baseline gap-2">
+                                                <span className="text-3xl font-semibold tracking-tight text-primary tabular-nums">
                                                     {priceValue}
-                                                </div>
-                                                <div className="pb-1 text-sm font-medium uppercase tracking-[0.18em] text-muted-foreground">
+                                                </span>
+                                                <span className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">
                                                     {t('common.credits')}
-                                                </div>
+                                                </span>
                                                 {compareAtPriceValue && compareAtPriceValue > priceValue && (
                                                     <>
-                                                        <div className="pb-1 text-base tabular-nums text-muted-foreground/50 line-through">
+                                                        <span className="text-sm tabular-nums text-muted-foreground/50 line-through">
                                                             {compareAtPriceValue}
-                                                        </div>
-                                                        <span className="mb-1 rounded-full bg-red-500/10 px-2.5 py-1 text-xs font-semibold text-red-600 dark:bg-red-500/15 dark:text-red-400">
+                                                        </span>
+                                                        <span className="rounded-full bg-red-500/10 px-2 py-0.5 text-[10px] font-semibold text-red-600 dark:bg-red-500/15 dark:text-red-400">
                                                             -{Math.round((1 - priceValue / compareAtPriceValue) * 100)}%
                                                         </span>
                                                     </>
@@ -261,23 +258,16 @@ export function BuyContent({
                                         </div>
                                     </div>
                                 </div>
+
+                                <div className="border-t border-border/20 p-6 md:p-8">
+                                    <div className="prose prose-sm max-w-none break-words text-foreground/88 dark:prose-invert md:prose-base">
+                                        <ReactMarkdown>
+                                            {product.description || t('buy.noDescription')}
+                                        </ReactMarkdown>
+                                    </div>
+                                </div>
                             </div>
                         </div>
-
-                        <Card className="tech-card overflow-hidden border-border/35">
-                            <div className="border-b border-border/20 px-6 py-4 md:px-8">
-                                <div className="inline-flex items-center rounded-full border border-border/45 bg-background/78 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                                    {t('buy.description')}
-                                </div>
-                            </div>
-                            <div className="p-6 md:p-8">
-                                <div className="prose prose-sm max-w-none break-words text-foreground/88 dark:prose-invert md:prose-base">
-                                    <ReactMarkdown>
-                                        {product.description || t('buy.noDescription')}
-                                    </ReactMarkdown>
-                                </div>
-                            </div>
-                        </Card>
                     </div>
 
                     <div className="space-y-4 lg:sticky lg:top-24">
@@ -290,10 +280,10 @@ export function BuyContent({
                                             {t('buy.title')}
                                         </div>
                                         <div className="flex flex-wrap items-baseline gap-2">
-                                            <span className="text-4xl font-semibold tracking-tight text-primary tabular-nums">
+                                            <span className="text-3xl font-semibold tracking-tight text-primary tabular-nums">
                                                 {priceValue}
                                             </span>
-                                            <span className="text-sm font-medium uppercase tracking-[0.18em] text-muted-foreground">
+                                            <span className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">
                                                 {t('common.credits')}
                                             </span>
                                             {compareAtPriceValue && compareAtPriceValue > priceValue && (
@@ -467,18 +457,17 @@ export function BuyContent({
                                     )}
                                 </div>
 
-                                <div className="rounded-[1.4rem] border border-border/30 bg-background/66 p-3">
-                                    <Dialog>
-                                        <DialogTrigger asChild>
-                                            <Button
-                                                type="button"
-                                                variant="outline"
-                                                className="h-11 w-full rounded-2xl border-border/55 bg-background/82"
-                                            >
-                                                <Share2 className="mr-2 h-4 w-4" />
-                                                {t('buy.share')}
-                                            </Button>
-                                        </DialogTrigger>
+                                <Dialog>
+                                    <DialogTrigger asChild>
+                                        <Button
+                                            type="button"
+                                            variant="outline"
+                                            className="h-11 w-full rounded-2xl border-border/45"
+                                        >
+                                            <Share2 className="mr-2 h-4 w-4" />
+                                            {t('buy.share')}
+                                        </Button>
+                                    </DialogTrigger>
                                         <DialogContent>
                                             <DialogHeader>
                                                 <DialogTitle>{t('buy.shareTitle')}</DialogTitle>
@@ -530,8 +519,7 @@ export function BuyContent({
                                                 {t('buy.shareCopy')}
                                             </Button>
                                         </DialogContent>
-                                    </Dialog>
-                                </div>
+                                </Dialog>
 
                                 <div className="rounded-[1.3rem] border border-border/20 bg-muted/16 px-4 py-3 text-xs leading-6 text-muted-foreground">
                                     {t('buy.paymentTimeoutNotice')}
