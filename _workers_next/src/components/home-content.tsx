@@ -5,7 +5,7 @@ import Link from "next/link"
 import Image from "next/image"
 import { ArrowRight, Boxes, Heart, Layers3, Search, SlidersHorizontal, Sparkles, Users } from "lucide-react"
 import { AnnouncementPopup } from "@/components/announcement-popup"
-import { Card, CardContent } from "@/components/ui/card"
+import { CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -338,15 +338,12 @@ export function HomeContent({ products, announcement, visitorCount, categories =
                                 href={`/buy/${product.id}`}
                                 prefetch={false}
                                 aria-label={t("common.viewDetails")}
-                                className="block h-full"
+                                className={cn(
+                                    "group tech-card relative flex h-full flex-col overflow-hidden rounded-[1.8rem] border border-border/35 bg-card/85 shadow-[0_20px_50px_-38px_rgba(15,23,42,0.28)] transition-all duration-300 animate-in fade-in slide-in-from-bottom-2 motion-reduce:animate-none",
+                                    product.stockCount <= 0 && "opacity-90"
+                                )}
+                                style={{ animationDelay: `${index * 60}ms` }}
                             >
-                                <Card
-                                    className={cn(
-                                        "group tech-card relative flex h-full flex-col overflow-hidden rounded-[1.8rem] border border-border/35 bg-card/85 shadow-[0_20px_50px_-38px_rgba(15,23,42,0.28)] transition-all duration-300 animate-in fade-in slide-in-from-bottom-2 motion-reduce:animate-none",
-                                        product.stockCount <= 0 && "opacity-90"
-                                    )}
-                                    style={{ animationDelay: `${index * 60}ms` }}
-                                >
                                 <div className="absolute inset-x-6 top-0 h-px bg-gradient-to-r from-transparent via-primary/50 to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
                                 <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_right,_rgba(59,130,246,0.12),_transparent_32%)] opacity-80 dark:bg-[radial-gradient(circle_at_top_right,_rgba(96,165,250,0.14),_transparent_36%)]" />
 
@@ -438,7 +435,6 @@ export function HomeContent({ products, announcement, visitorCount, categories =
                                         </div>
                                     </div>
                                 </CardContent>
-                                </Card>
                             </Link>
                         ))}
                     </div>
