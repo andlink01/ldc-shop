@@ -162,13 +162,6 @@ export function BuyContent({
         ? `${t('common.stock')}: ${t('common.unlimited')}`
         : (stockCount > 0 ? `${t('common.stock')}: ${stockCount}` : t('common.outOfStock'))
     const showReviewSummary = !metaLoading && reviewCountState > 0
-    const descriptionPreview = (product.description || t('buy.noDescription'))
-        .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')
-        .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
-        .replace(/[#>*_`~-]/g, ' ')
-        .replace(/\s+/g, ' ')
-        .trim()
-
     return (
         <main className="container relative py-8 md:py-16">
             <div className="pointer-events-none absolute inset-0 -z-10 overflow-hidden">
@@ -238,40 +231,23 @@ export function BuyContent({
 
                                         <div className="rounded-[1.5rem] border border-border/30 bg-background/65 p-5 backdrop-blur-sm">
                                             <div className="flex flex-wrap items-end gap-3">
-                                                <div className="text-4xl font-semibold tracking-tight text-foreground tabular-nums md:text-5xl">
+                                                <div className="text-4xl font-semibold tracking-tight text-primary tabular-nums md:text-5xl">
                                                     {priceValue}
                                                 </div>
                                                 <div className="pb-1 text-sm font-medium uppercase tracking-[0.18em] text-muted-foreground">
                                                     {t('common.credits')}
                                                 </div>
                                                 {compareAtPriceValue && compareAtPriceValue > priceValue && (
-                                                    <div className="pb-1 text-sm text-muted-foreground line-through">
-                                                        {compareAtPriceValue}
-                                                    </div>
+                                                    <>
+                                                        <div className="pb-1 text-base tabular-nums text-muted-foreground/50 line-through">
+                                                            {compareAtPriceValue}
+                                                        </div>
+                                                        <span className="mb-1 rounded-full bg-red-500/10 px-2.5 py-1 text-xs font-semibold text-red-600 dark:bg-red-500/15 dark:text-red-400">
+                                                            -{Math.round((1 - priceValue / compareAtPriceValue) * 100)}%
+                                                        </span>
+                                                    </>
                                                 )}
                                             </div>
-                                            <div className="mt-4 flex flex-wrap gap-2">
-                                                <Badge
-                                                    variant={stockCount > 0 ? "outline" : "destructive"}
-                                                    className={stockCount > 0 ? "rounded-full border-primary/30 bg-primary/5 px-3 text-primary" : "rounded-full px-3"}
-                                                >
-                                                    {stockLabel}
-                                                </Badge>
-                                                {typeof product.purchaseLimit === 'number' && product.purchaseLimit > 0 && (
-                                                    <Badge variant="secondary" className="rounded-full border border-border/45 bg-background/70 px-3">
-                                                        {t('buy.purchaseLimit', { limit: product.purchaseLimit })}
-                                                    </Badge>
-                                                )}
-                                            </div>
-                                        </div>
-
-                                        <div className="rounded-[1.5rem] border border-border/24 bg-gradient-to-br from-background/88 to-muted/30 p-5">
-                                            <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
-                                                {t('buy.description')}
-                                            </div>
-                                            <p className="line-clamp-4 text-sm leading-7 text-foreground/75">
-                                                {descriptionPreview}
-                                            </p>
                                         </div>
                                     </div>
                                 </div>
@@ -279,29 +255,16 @@ export function BuyContent({
                         </div>
 
                         <Card className="tech-card overflow-hidden border-border/35">
-                            <div className="grid gap-0 lg:grid-cols-[14rem_minmax(0,1fr)]">
-                                <div className="border-b border-border/20 bg-muted/18 p-6 lg:border-b-0 lg:border-r">
-                                    <div className="space-y-3">
-                                        <div className="inline-flex items-center rounded-full border border-border/45 bg-background/78 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                                            {t('buy.description')}
-                                        </div>
-                                        <div className="space-y-2 text-sm leading-6 text-muted-foreground">
-                                            <p>{stockLabel}</p>
-                                            {typeof product.purchaseLimit === 'number' && product.purchaseLimit > 0 && (
-                                                <p>{t('buy.purchaseLimit', { limit: product.purchaseLimit })}</p>
-                                            )}
-                                            {showReviewSummary && (
-                                                <p>{averageRatingState.toFixed(1)} / {reviewCountState} {t('review.title')}</p>
-                                            )}
-                                        </div>
-                                    </div>
+                            <div className="border-b border-border/20 px-6 py-4 md:px-8">
+                                <div className="inline-flex items-center rounded-full border border-border/45 bg-background/78 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                                    {t('buy.description')}
                                 </div>
-                                <div className="p-6 md:p-8">
-                                    <div className="prose prose-sm max-w-none break-words text-foreground/88 dark:prose-invert md:prose-base">
-                                        <ReactMarkdown>
-                                            {product.description || t('buy.noDescription')}
-                                        </ReactMarkdown>
-                                    </div>
+                            </div>
+                            <div className="p-6 md:p-8">
+                                <div className="prose prose-sm max-w-none break-words text-foreground/88 dark:prose-invert md:prose-base">
+                                    <ReactMarkdown>
+                                        {product.description || t('buy.noDescription')}
+                                    </ReactMarkdown>
                                 </div>
                             </div>
                         </Card>
@@ -316,22 +279,23 @@ export function BuyContent({
                                         <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
                                             {t('buy.title')}
                                         </div>
-                                        <div className="flex items-end justify-between gap-4">
-                                            <div className="min-w-0">
-                                                <div className="flex items-baseline gap-2">
-                                                    <span className="text-4xl font-semibold tracking-tight text-foreground tabular-nums">
-                                                        {priceValue}
-                                                    </span>
-                                                    <span className="text-sm font-medium uppercase tracking-[0.18em] text-muted-foreground">
-                                                        {t('common.credits')}
-                                                    </span>
-                                                </div>
-                                                {compareAtPriceValue && compareAtPriceValue > priceValue && (
-                                                    <div className="mt-2 text-sm text-muted-foreground line-through">
+                                        <div className="flex flex-wrap items-baseline gap-2">
+                                            <span className="text-4xl font-semibold tracking-tight text-primary tabular-nums">
+                                                {priceValue}
+                                            </span>
+                                            <span className="text-sm font-medium uppercase tracking-[0.18em] text-muted-foreground">
+                                                {t('common.credits')}
+                                            </span>
+                                            {compareAtPriceValue && compareAtPriceValue > priceValue && (
+                                                <>
+                                                    <span className="text-sm tabular-nums text-muted-foreground/50 line-through">
                                                         {compareAtPriceValue}
-                                                    </div>
-                                                )}
-                                            </div>
+                                                    </span>
+                                                    <span className="rounded-full bg-red-500/10 px-2 py-0.5 text-[10px] font-semibold text-red-600 dark:bg-red-500/15 dark:text-red-400">
+                                                        -{Math.round((1 - priceValue / compareAtPriceValue) * 100)}%
+                                                    </span>
+                                                </>
+                                            )}
                                         </div>
                                     </div>
 
@@ -345,11 +309,6 @@ export function BuyContent({
                                         {typeof product.purchaseLimit === 'number' && product.purchaseLimit > 0 && (
                                             <Badge variant="secondary" className="rounded-full border border-border/45 bg-background/70 px-3">
                                                 {t('buy.purchaseLimit', { limit: product.purchaseLimit })}
-                                            </Badge>
-                                        )}
-                                        {showReviewSummary && (
-                                            <Badge variant="secondary" className="rounded-full border border-border/45 bg-background/70 px-3">
-                                                {averageRatingState.toFixed(1)} / {reviewCountState} {t('review.title')}
                                             </Badge>
                                         )}
                                     </div>

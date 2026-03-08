@@ -3,7 +3,7 @@
 import { useDeferredValue, useEffect, useMemo, useState } from "react"
 import Link from "next/link"
 import Image from "next/image"
-import { ArrowRight, Heart, Search, Sparkles } from "lucide-react"
+import { ArrowRight, Heart, Search, Sparkles, Users } from "lucide-react"
 import { AnnouncementPopup } from "@/components/announcement-popup"
 import { CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -182,14 +182,23 @@ export function HomeContent({ products, announcement, visitorCount, categories =
                                 {t("home.subtitle")}
                             </p>
                         </div>
-                        {wishlistEnabled && (
-                            <Link href="/wishlist" className="inline-flex shrink-0">
-                                <Button variant="outline" className="h-10 rounded-2xl border-border/50 bg-background/70 px-4 shadow-none">
-                                    <Heart className="mr-2 h-4 w-4" />
-                                    {t("wishlist.title")}
-                                </Button>
-                            </Link>
-                        )}
+                        <div className="flex shrink-0 items-center gap-3">
+                            {typeof visitorCount === "number" && (
+                                <div className="inline-flex items-center gap-2 rounded-full border border-border/40 bg-background/60 px-3.5 py-2 text-sm backdrop-blur-sm">
+                                    <Users className="h-3.5 w-3.5 text-primary" />
+                                    <span className="font-semibold tabular-nums text-foreground">{visitorCount}</span>
+                                    <span className="text-xs text-muted-foreground">{t("home.metrics.visitors")}</span>
+                                </div>
+                            )}
+                            {wishlistEnabled && (
+                                <Link href="/wishlist" className="inline-flex">
+                                    <Button variant="outline" className="h-10 rounded-2xl border-border/50 bg-background/70 px-4 shadow-none">
+                                        <Heart className="mr-2 h-4 w-4" />
+                                        {t("wishlist.title")}
+                                    </Button>
+                                </Link>
+                            )}
+                        </div>
                     </div>
                 </div>
             </section>
