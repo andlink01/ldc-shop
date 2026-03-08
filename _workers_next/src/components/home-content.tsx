@@ -96,7 +96,6 @@ export function HomeContent({ products, announcement, visitorCount, categories =
     const startIndex = (currentPage - 1) * pagination.pageSize
     const pageItems = sortedProducts.slice(startIndex, startIndex + pagination.pageSize)
     const hasMore = currentPage < totalPages
-    const highlightedCategories = categories.slice(0, 4)
     const sortOptions = [
         { key: "default", label: t("home.sort.default") },
         { key: "stockDesc", label: t("home.sort.stock") },
@@ -140,7 +139,7 @@ export function HomeContent({ products, announcement, visitorCount, categories =
             <section className="relative mb-8 overflow-hidden rounded-[2rem] border border-border/40 bg-gradient-to-br from-card via-card/95 to-primary/5 shadow-[0_25px_80px_-40px_rgba(15,23,42,0.25)]">
                 <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,_rgba(255,255,255,0.75),_transparent_36%)] dark:bg-[radial-gradient(circle_at_top_right,_rgba(255,255,255,0.08),_transparent_36%)]" />
                 <div className="absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-primary/30 to-transparent" />
-                <div className="relative grid gap-6 px-6 py-7 md:px-8 md:py-8 xl:grid-cols-[minmax(0,1.25fr)_22rem] xl:items-stretch">
+                <div className="relative px-6 py-7 md:px-8 md:py-8">
                     <div className="flex flex-col justify-between gap-6">
                         <div className="space-y-5">
                             <div className="inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/8 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-primary">
@@ -178,52 +177,6 @@ export function HomeContent({ products, announcement, visitorCount, categories =
                                 )
                             })}
                         </div>
-                    </div>
-
-                    <div className="flex flex-col gap-4">
-                        <div className="rounded-[1.7rem] border border-border/45 bg-background/76 p-5 shadow-sm backdrop-blur-xl">
-                            <div className="mb-4 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                                <Layers3 className="h-4 w-4" />
-                                <span>{t("home.heroCategoryLead")}</span>
-                            </div>
-                            <div className="space-y-3">
-                                <div className="rounded-[1.4rem] border border-border/45 bg-muted/25 p-4">
-                                    <div className="flex flex-wrap gap-2">
-                                        {highlightedCategories.length > 0 ? (
-                                            highlightedCategories.map((category) => {
-                                                const categoryIcon = categoryConfig?.find((item) => item.name === category)?.icon
-                                                return (
-                                                    <button
-                                                        key={category}
-                                                        type="button"
-                                                        onClick={() => setSelectedCategory(category)}
-                                                        className={cn(
-                                                            "rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
-                                                            selectedCategory === category
-                                                                ? "border-primary/35 bg-primary/10 text-primary"
-                                                                : "border-border/55 bg-background/80 text-muted-foreground hover:border-primary/20 hover:text-foreground"
-                                                        )}
-                                                    >
-                                                        {categoryIcon ? `${categoryIcon} ${category}` : category}
-                                                    </button>
-                                                )
-                                            })
-                                        ) : (
-                                            <span className="text-sm text-muted-foreground">{t("home.noProducts")}</span>
-                                        )}
-                                    </div>
-                                </div>
-                                <div className="rounded-[1.4rem] border border-border/45 bg-background/80 px-4 py-3">
-                                    <div className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-                                        {t("home.catalogEyebrow")}
-                                    </div>
-                                    <div className="mt-2 text-sm leading-6 text-muted-foreground">
-                                        {t("home.catalogSubtitle")}
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
                         <div className="flex flex-wrap items-center gap-2">
                             {wishlistEnabled && (
                                 <Link href="/wishlist" className="inline-flex">
@@ -292,16 +245,6 @@ export function HomeContent({ products, announcement, visitorCount, categories =
                             <div className="text-sm text-muted-foreground">
                                 {t("home.catalogSubtitle")}
                             </div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                            <Badge variant="secondary" className="h-9 rounded-full border border-border/50 bg-background/80 px-4">
-                                {t("home.resultsCount", { count: sortedProducts.length })}
-                            </Badge>
-                            {typeof visitorCount === "number" && (
-                                <Badge variant="secondary" className="h-9 rounded-full border border-border/50 bg-background/80 px-4">
-                                    {t("home.visitorCount", { count: visitorCount })}
-                                </Badge>
-                            )}
                         </div>
                     </div>
 
@@ -390,20 +333,20 @@ export function HomeContent({ products, announcement, visitorCount, categories =
                 ) : (
                     <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
                         {pageItems.map((product, index) => (
-                            <Card
+                            <Link
                                 key={product.id}
-                                className={cn(
-                                    "group tech-card relative flex h-full flex-col overflow-hidden rounded-[1.8rem] border border-border/35 bg-card/85 shadow-[0_20px_50px_-38px_rgba(15,23,42,0.28)] transition-all duration-300 animate-in fade-in slide-in-from-bottom-2 motion-reduce:animate-none",
-                                    product.stockCount <= 0 && "opacity-90"
-                                )}
-                                style={{ animationDelay: `${index * 60}ms` }}
+                                href={`/buy/${product.id}`}
+                                prefetch={false}
+                                aria-label={t("common.viewDetails")}
+                                className="block h-full"
                             >
-                                <Link
-                                    href={`/buy/${product.id}`}
-                                    prefetch={false}
-                                    aria-label={t("common.viewDetails")}
-                                    className="absolute inset-0 z-10"
-                                />
+                                <Card
+                                    className={cn(
+                                        "group tech-card relative flex h-full flex-col overflow-hidden rounded-[1.8rem] border border-border/35 bg-card/85 shadow-[0_20px_50px_-38px_rgba(15,23,42,0.28)] transition-all duration-300 animate-in fade-in slide-in-from-bottom-2 motion-reduce:animate-none",
+                                        product.stockCount <= 0 && "opacity-90"
+                                    )}
+                                    style={{ animationDelay: `${index * 60}ms` }}
+                                >
                                 <div className="absolute inset-x-6 top-0 h-px bg-gradient-to-r from-transparent via-primary/50 to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
                                 <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_right,_rgba(59,130,246,0.12),_transparent_32%)] opacity-80 dark:bg-[radial-gradient(circle_at_top_right,_rgba(96,165,250,0.14),_transparent_36%)]" />
 
@@ -495,7 +438,8 @@ export function HomeContent({ products, announcement, visitorCount, categories =
                                         </div>
                                     </div>
                                 </CardContent>
-                            </Card>
+                                </Card>
+                            </Link>
                         ))}
                     </div>
                 )}
@@ -510,11 +454,7 @@ export function HomeContent({ products, announcement, visitorCount, categories =
                         <Button variant="outline" size="sm" className="h-10 rounded-2xl px-4" onClick={() => setPage(currentPage + 1)}>
                             {t("common.loadMore")}
                         </Button>
-                    ) : (
-                        <span className="text-xs uppercase tracking-[0.18em] text-muted-foreground/80">
-                            {t("common.viewDetails")}
-                        </span>
-                    )}
+                    ) : null}
                 </div>
             )}
         </main>
