@@ -194,29 +194,31 @@ export function HomeContent({
                                 {t("home.subtitle")}
                             </p>
                         </div>
-                        <div className="flex shrink-0 items-center gap-3">
+                        <div className="flex w-full flex-col items-stretch gap-2 md:w-auto md:flex-row md:items-center md:justify-end md:gap-3">
                             {isLoggedIn && (
                                 <CheckInButton
                                     enabled={checkinEnabled}
                                     showCheckedInLabel
-                                    className="flex"
+                                    className="flex w-full md:w-auto"
                                 />
                             )}
-                            {typeof visitorCount === "number" && (
-                                <div className="inline-flex items-center gap-2 rounded-full border border-border/40 bg-background/60 px-3.5 py-2 text-sm backdrop-blur-sm">
-                                    <Users className="h-3.5 w-3.5 text-primary" />
-                                    <span className="font-semibold tabular-nums text-foreground">{visitorCount}</span>
-                                    <span className="text-xs text-muted-foreground">{t("home.metrics.visitors")}</span>
-                                </div>
-                            )}
-                            {wishlistEnabled && (
-                                <Link href="/wishlist" className="inline-flex">
-                                    <Button variant="outline" className="h-10 rounded-2xl border-border/50 bg-background/70 px-4 shadow-none">
-                                        <Heart className="mr-2 h-4 w-4" />
-                                        {t("wishlist.title")}
-                                    </Button>
-                                </Link>
-                            )}
+                            <div className="flex flex-wrap items-center gap-2 md:gap-3">
+                                {typeof visitorCount === "number" && (
+                                    <div className="inline-flex items-center gap-2 rounded-full border border-border/40 bg-background/60 px-3.5 py-2 text-sm backdrop-blur-sm">
+                                        <Users className="h-3.5 w-3.5 text-primary" />
+                                        <span className="font-semibold tabular-nums text-foreground">{visitorCount}</span>
+                                        <span className="text-xs text-muted-foreground">{t("home.metrics.visitors")}</span>
+                                    </div>
+                                )}
+                                {wishlistEnabled && (
+                                    <Link href="/wishlist" className="inline-flex">
+                                        <Button variant="outline" className="h-10 rounded-2xl border-border/50 bg-background/70 px-4 shadow-none">
+                                            <Heart className="mr-2 h-4 w-4" />
+                                            {t("wishlist.title")}
+                                        </Button>
+                                    </Link>
+                                )}
+                            </div>
                         </div>
                     </div>
                 </div>
