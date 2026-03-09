@@ -185,7 +185,9 @@ async function ensureDatabaseInitialized() {
             stock_count INTEGER DEFAULT 0,
             locked_count INTEGER DEFAULT 0,
             sold_count INTEGER DEFAULT 0,
-            created_at INTEGER DEFAULT (unixepoch() * 1000)
+            created_at INTEGER DEFAULT (unixepoch() * 1000),
+            variant_group_id TEXT,
+            variant_label TEXT
         );
         
         -- Cards (stock) table
@@ -389,6 +391,8 @@ async function ensureProductsColumns() {
         await safeAddColumn('products', 'sold_count', 'INTEGER DEFAULT 0');
         await safeAddColumn('products', 'rating', 'REAL DEFAULT 0');
         await safeAddColumn('products', 'review_count', 'INTEGER DEFAULT 0');
+        await safeAddColumn('products', 'variant_group_id', 'TEXT');
+        await safeAddColumn('products', 'variant_label', 'TEXT');
     });
 }
 
@@ -807,6 +811,8 @@ export async function getProducts() {
             visibilityLevel: products.visibilityLevel,
             sortOrder: products.sortOrder,
             purchaseLimit: products.purchaseLimit,
+            variantGroupId: products.variantGroupId,
+            variantLabel: products.variantLabel,
             stock: sql<number>`COALESCE(${products.stockCount}, 0)`,
             locked: sql<number>`COALESCE(${products.lockedCount}, 0)`,
             sold: sql<number>`COALESCE(${products.soldCount}, 0)`
@@ -827,12 +833,12 @@ function visibilityCondition(isLoggedIn?: boolean, trustLevel?: number | null) {
     return lte(sql<number>`COALESCE(${products.visibilityLevel}, -1)`, threshold);
 }
 
-// Get only active products (for home page)
+// Get only active products (for home page); groups by variant_group_id and returns one representative per group with variantCount and priceRange
 export async function getActiveProducts(options?: { isLoggedIn?: boolean; trustLevel?: number | null }) {
     // Auto-initialize database on first access
     await ensureDatabaseInitialized();
 
-    return await withProductColumnFallback(async () => {
+    const rows = await withProductColumnFallback(async () => {
         return await db.select({
             id: products.id,
             name: products.name,
@@ -845,6 +851,10 @@ export async function getActiveProducts(options?: { isLoggedIn?: boolean; trustL
             isShared: products.isShared,
             purchaseLimit: products.purchaseLimit,
             visibilityLevel: products.visibilityLevel,
+            sortOrder: products.sortOrder,
+            createdAt: products.createdAt,
+            variantGroupId: products.variantGroupId,
+            variantLabel: products.variantLabel,
             stock: sql<number>`COALESCE(${products.stockCount}, 0)`,
             locked: sql<number>`COALESCE(${products.lockedCount}, 0)`,
             sold: sql<number>`COALESCE(${products.soldCount}, 0)`,
@@ -854,7 +864,53 @@ export async function getActiveProducts(options?: { isLoggedIn?: boolean; trustL
             .from(products)
             .where(and(eq(products.isActive, true), visibilityCondition(options?.isLoggedIn, options?.trustLevel)))
             .orderBy(asc(products.sortOrder), desc(products.createdAt));
-    })
+    });
+
+    return groupProductsAsVariants(rows);
+}
+
+function groupProductsAsVariants<T extends {
+    id: string;
+    price: string;
+    variantGroupId: string | null;
+    sortOrder: number | null;
+    createdAt: Date | null;
+}>(rows: T[]): (T & { variantCount?: number; priceMin?: number; priceMax?: number })[] {
+    const byGroup = new Map<string | null, T[]>();
+    for (const row of rows) {
+        const key = (row.variantGroupId && row.variantGroupId.trim()) || null;
+        const list = byGroup.get(key) ?? [];
+        list.push(row);
+        byGroup.set(key, list);
+    }
+    const result: (T & { variantCount?: number; priceMin?: number; priceMax?: number })[] = [];
+    for (const list of byGroup.values()) {
+        const rep = list.slice().sort((a, b) => {
+            const soA = a.sortOrder ?? 0;
+            const soB = b.sortOrder ?? 0;
+            if (soA !== soB) return soA - soB;
+            const ca = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+            const cb = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+            return ca - cb;
+        })[0];
+        const prices = list.map((p) => parseFloat(p.price)).filter((n) => Number.isFinite(n));
+        const variantCount = list.length;
+        const priceMin = prices.length ? Math.min(...prices) : undefined;
+        const priceMax = prices.length ? Math.max(...prices) : undefined;
+        result.push({
+            ...rep,
+            ...(variantCount > 1 ? { variantCount, priceMin, priceMax } : {}),
+        });
+    }
+    result.sort((a, b) => {
+        const soA = a.sortOrder ?? 0;
+        const soB = b.sortOrder ?? 0;
+        if (soA !== soB) return soA - soB;
+        const ca = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const cb = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        return ca - cb;
+    });
+    return result;
 }
 
 export async function getWishlistItems(userId: string | null, limit = 10) {
@@ -946,7 +1002,9 @@ export async function getProduct(id: string, options?: { isLoggedIn?: boolean; t
             stock: sql<number>`COALESCE(${products.stockCount}, 0)`,
             locked: sql<number>`COALESCE(${products.lockedCount}, 0)`,
             rating: sql<number>`COALESCE(${products.rating}, 0)`,
-            reviewCount: sql<number>`COALESCE(${products.reviewCount}, 0)`
+            reviewCount: sql<number>`COALESCE(${products.reviewCount}, 0)`,
+            variantGroupId: products.variantGroupId,
+            variantLabel: products.variantLabel
         })
             .from(products)
             .where(and(eq(products.id, id), visibilityCondition(options?.isLoggedIn, options?.trustLevel)))
@@ -975,7 +1033,47 @@ export async function getProductVisibility(id: string) {
     });
 }
 
-// Get product for admin (includes inactive products)
+export type ProductVariantRow = {
+    id: string;
+    name: string;
+    description: string | null;
+    price: string;
+    compareAtPrice: string | null;
+    image: string | null;
+    variantLabel: string | null;
+    stock: number;
+    locked: number;
+    isShared: boolean | null;
+    purchaseLimit: number | null;
+};
+
+export async function getProductVariants(
+    groupId: string,
+    options?: { isLoggedIn?: boolean; trustLevel?: number | null }
+): Promise<ProductVariantRow[]> {
+    return await withProductColumnFallback(async () => {
+        return await db.select({
+            id: products.id,
+            name: products.name,
+            description: products.description,
+            price: products.price,
+            compareAtPrice: products.compareAtPrice,
+            image: products.image,
+            variantLabel: products.variantLabel,
+            stock: sql<number>`COALESCE(${products.stockCount}, 0)`,
+            locked: sql<number>`COALESCE(${products.lockedCount}, 0)`,
+            isShared: products.isShared,
+            purchaseLimit: products.purchaseLimit,
+        })
+            .from(products)
+            .where(and(
+                eq(products.variantGroupId, groupId),
+                eq(products.isActive, true),
+                visibilityCondition(options?.isLoggedIn, options?.trustLevel)
+            ))
+            .orderBy(asc(products.sortOrder), desc(products.createdAt));
+    });
+}
 export async function getProductForAdmin(id: string) {
     return await withProductColumnFallback(async () => {
         const result = await db.select({
@@ -992,6 +1090,8 @@ export async function getProductForAdmin(id: string) {
             purchaseLimit: products.purchaseLimit,
             purchaseWarning: products.purchaseWarning,
             visibilityLevel: products.visibilityLevel,
+            variantGroupId: products.variantGroupId,
+            variantLabel: products.variantLabel,
         })
             .from(products)
             .where(eq(products.id, id));
@@ -1294,7 +1394,7 @@ export async function searchActiveProducts(params: {
             break
     }
 
-    const [items, totalRes] = await withProductColumnFallback(async () => {
+    const [rows] = await withProductColumnFallback(async () => {
         const rowsPromise = db.select({
             id: products.id,
             name: products.name,
@@ -1306,6 +1406,10 @@ export async function searchActiveProducts(params: {
             isHot: products.isHot,
             isShared: products.isShared,
             purchaseLimit: products.purchaseLimit,
+            sortOrder: products.sortOrder,
+            createdAt: products.createdAt,
+            variantGroupId: products.variantGroupId,
+            variantLabel: products.variantLabel,
             stock: sql<number>`COALESCE(${products.stockCount}, 0)`,
             locked: sql<number>`COALESCE(${products.lockedCount}, 0)`,
             sold: sql<number>`COALESCE(${products.soldCount}, 0)`,
@@ -1315,16 +1419,17 @@ export async function searchActiveProducts(params: {
             .from(products)
             .where(whereExpr)
             .orderBy(...orderByParts)
-            .limit(pageSize)
-            .offset(offset)
 
-        const countQuery = db.select({ count: sql<number>`count(*)` }).from(products).where(whereExpr)
-        return Promise.all([rowsPromise, countQuery])
+        return [await rowsPromise] as const
     })
+
+    const grouped = groupProductsAsVariants(rows)
+    const total = grouped.length
+    const items = grouped.slice(offset, offset + pageSize)
 
     return {
         items,
-        total: totalRes[0]?.count || 0,
+        total,
         page,
         pageSize,
     }

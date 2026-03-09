@@ -176,6 +176,28 @@ export default function ProductForm({ product, categories = [] }: { product?: an
                     </div>
 
                     <div className="grid gap-2">
+                        <Label htmlFor="variantGroupId">{t('admin.productForm.variantGroupLabel')}</Label>
+                        <Input
+                            id="variantGroupId"
+                            name="variantGroupId"
+                            defaultValue={currentProduct?.variantGroupId || ''}
+                            placeholder={t('admin.productForm.variantGroupPlaceholder')}
+                        />
+                        <p className="text-xs text-muted-foreground">{t('admin.productForm.variantGroupHint')}</p>
+                    </div>
+
+                    <div className="grid gap-2">
+                        <Label htmlFor="variantLabel">{t('admin.productForm.variantLabelLabel')}</Label>
+                        <Input
+                            id="variantLabel"
+                            name="variantLabel"
+                            defaultValue={currentProduct?.variantLabel || ''}
+                            placeholder={t('admin.productForm.variantLabelPlaceholder')}
+                        />
+                        <p className="text-xs text-muted-foreground">{t('admin.productForm.variantLabelHint')}</p>
+                    </div>
+
+                    <div className="grid gap-2">
                         <Label htmlFor="visibilityLevel">{t('admin.productForm.visibilityLabel')}</Label>
                         <select
                             id="visibilityLevel"

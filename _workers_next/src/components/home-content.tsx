@@ -31,6 +31,9 @@ interface Product {
     isHot?: boolean | null
     rating?: number
     reviewCount?: number
+    variantCount?: number
+    priceMin?: number
+    priceMax?: number
 }
 
 interface HomeContentProps {
@@ -388,23 +391,52 @@ export function HomeContent({
                                     </div>
 
                                     <div className="mt-auto rounded-[1.3rem] border border-border/30 bg-muted/30 px-4 py-3">
+                                        <div className="flex flex-wrap items-center gap-2">
+                                            {product.variantCount != null && product.variantCount > 1 && (
+                                                <Badge variant="secondary" className="rounded-full text-[10px] font-medium">
+                                                    {t("home.variantCount", { count: product.variantCount })}
+                                                </Badge>
+                                            )}
+                                        </div>
                                         <div className="flex items-end justify-between gap-4">
                                             <div className="min-w-0">
                                                 <div className="flex flex-wrap items-baseline gap-2">
-                                                    <span className="whitespace-nowrap text-2xl font-semibold tracking-tight text-primary tabular-nums">
-                                                        {Number(product.price)}
-                                                    </span>
-                                                    <span className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">
-                                                        {t("common.credits")}
-                                                    </span>
-                                                    {product.compareAtPrice && Number(product.compareAtPrice) > Number(product.price) && (
+                                                    {product.variantCount != null && product.variantCount > 1 && product.priceMin != null && product.priceMax != null ? (
                                                         <>
-                                                            <span className="text-sm tabular-nums text-muted-foreground/50 line-through">
-                                                                {Number(product.compareAtPrice)}
+                                                            <span className="whitespace-nowrap text-2xl font-semibold tracking-tight text-primary tabular-nums">
+                                                                {product.priceMin} - {product.priceMax}
                                                             </span>
-                                                            <span className="rounded-full bg-red-500/10 px-2 py-0.5 text-[10px] font-semibold text-red-600 dark:bg-red-500/15 dark:text-red-400">
-                                                                -{Math.round((1 - Number(product.price) / Number(product.compareAtPrice)) * 100)}%
+                                                            <span className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                                                                {t("common.credits")}
                                                             </span>
+                                                        </>
+                                                    ) : product.variantCount != null && product.variantCount > 1 && product.priceMin != null ? (
+                                                        <>
+                                                            <span className="whitespace-nowrap text-2xl font-semibold tracking-tight text-primary tabular-nums">
+                                                                {t("home.priceFrom", { price: product.priceMin })}
+                                                            </span>
+                                                            <span className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                                                                {t("common.credits")}
+                                                            </span>
+                                                        </>
+                                                    ) : (
+                                                        <>
+                                                            <span className="whitespace-nowrap text-2xl font-semibold tracking-tight text-primary tabular-nums">
+                                                                {Number(product.price)}
+                                                            </span>
+                                                            <span className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                                                                {t("common.credits")}
+                                                            </span>
+                                                            {product.compareAtPrice && Number(product.compareAtPrice) > Number(product.price) && (
+                                                                <>
+                                                                    <span className="text-sm tabular-nums text-muted-foreground/50 line-through">
+                                                                        {Number(product.compareAtPrice)}
+                                                                    </span>
+                                                                    <span className="rounded-full bg-red-500/10 px-2 py-0.5 text-[10px] font-semibold text-red-600 dark:bg-red-500/15 dark:text-red-400">
+                                                                        -{Math.round((1 - Number(product.price) / Number(product.compareAtPrice)) * 100)}%
+                                                                    </span>
+                                                                </>
+                                                            )}
                                                         </>
                                                     )}
                                                 </div>

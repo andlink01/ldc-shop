@@ -95,7 +95,9 @@
             "sold": "Sold",
             "priceAsc": "Price ↑",
             "priceDesc": "Price ↓"
-        }
+        },
+        "priceFrom": "From {{price}}",
+        "variantCount": "{{count}} variants"
     },
     "buy": {
         "title": "Product Details",
@@ -123,6 +125,7 @@
         "shareCopy": "Copy link",
         "shareCopied": "Link copied",
         "shareFailed": "Copy failed",
+        "selectVariant": "Select variant",
         "modal": {
             "price": "Price",
             "usePoints": "Use Points",
@@ -671,6 +674,12 @@
             "purchaseWarningLabel": "Purchase Warning Popup",
             "purchaseWarningPlaceholder": "Enter a warning message, e.g.: Please confirm you have read the product description...",
             "purchaseWarningHint": "When enabled, users will see this warning popup before purchasing and must confirm to proceed.",
+            "variantGroupLabel": "Variant Group ID",
+            "variantGroupPlaceholder": "e.g. chatgpt (same value for products in the same group)",
+            "variantGroupHint": "Products with the same variant group ID are shown as one product with multiple variants on the storefront.",
+            "variantLabelLabel": "Variant Label",
+            "variantLabelPlaceholder": "e.g. Monthly, Yearly",
+            "variantLabelHint": "Label shown for this variant in the variant selector.",
             "saving": "Saving..."
         }
     },

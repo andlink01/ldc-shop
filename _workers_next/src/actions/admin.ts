@@ -52,6 +52,8 @@ export async function saveProduct(formData: FormData) {
     const isShared = formData.get('isShared') === 'on'
     const purchaseWarning = (formData.get('purchaseWarning') as string | null)?.trim() || null
     const visibilityLevelRaw = (formData.get('visibilityLevel') as string | null)?.trim() ?? ''
+    const variantGroupId = (formData.get('variantGroupId') as string | null)?.trim() || null
+    const variantLabel = (formData.get('variantLabel') as string | null)?.trim() || null
     const parsedVisibility = Number.parseInt(visibilityLevelRaw, 10)
     const visibilityLevel = Number.isFinite(parsedVisibility) ? parsedVisibility : -1
     if (![ -1, 0, 1, 2, 3 ].includes(visibilityLevel)) {
@@ -91,7 +93,9 @@ export async function saveProduct(formData: FormData) {
             purchaseWarning,
             isHot,
             isShared,
-            visibilityLevel
+            visibilityLevel,
+            variantGroupId,
+            variantLabel
         }).onConflictDoUpdate({
             target: products.id,
             set: {
@@ -105,7 +109,9 @@ export async function saveProduct(formData: FormData) {
                 purchaseWarning,
                 isHot,
                 isShared,
-                visibilityLevel
+                visibilityLevel,
+                variantGroupId,
+                variantLabel
             }
         })
     }

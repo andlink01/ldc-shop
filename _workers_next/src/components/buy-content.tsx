@@ -25,6 +25,7 @@ import { toast } from "sonner"
 import Image from "next/image"
 import { INFINITE_STOCK } from "@/lib/constants"
 import { getBuyPageMeta } from "@/actions/buy"
+import type { ProductVariantRow } from "@/lib/db/queries"
 
 interface Product {
     id: string
@@ -59,6 +60,7 @@ interface BuyContentProps {
     canReview?: boolean
     reviewOrderId?: string
     emailConfigured?: boolean
+    variants?: (ProductVariantRow & { stockCount: number; lockedCount: number })[]
 }
 
 export function BuyContent({
@@ -71,9 +73,11 @@ export function BuyContent({
     reviewCount = 0,
     canReview = false,
     reviewOrderId,
-    emailConfigured = false
+    emailConfigured = false,
+    variants = []
 }: BuyContentProps) {
     const { t } = useI18n()
+    const [selectedVariantId, setSelectedVariantId] = useState<string>(product.id)
     const [shareUrl, setShareUrl] = useState('')
     const [quantity, setQuantity] = useState(1)
     const [showWarningDialog, setShowWarningDialog] = useState(false)
@@ -87,10 +91,51 @@ export function BuyContent({
     const [metaLoading, setMetaLoading] = useState(true)
     const [metaRefreshSeq, setMetaRefreshSeq] = useState(0)
 
+    const displayProduct = useMemo(() => {
+        if (variants.length > 1 && selectedVariantId) {
+            const v = variants.find((x) => x.id === selectedVariantId)
+            if (v) {
+                return {
+                    id: v.id,
+                    name: v.name,
+                    description: v.description,
+                    price: v.price,
+                    compareAtPrice: v.compareAtPrice,
+                    image: v.image,
+                    category: product.category,
+                    purchaseLimit: v.purchaseLimit,
+                    purchaseWarning: product.purchaseWarning,
+                    isHot: product.isHot,
+                } satisfies Product
+            }
+        }
+        return product
+    }, [product, variants, selectedVariantId])
+
+    const displayStock = useMemo(() => {
+        if (variants.length > 1 && selectedVariantId) {
+            const v = variants.find((x) => x.id === selectedVariantId)
+            if (v) return v.stockCount
+        }
+        return stockCount
+    }, [stockCount, variants, selectedVariantId])
+
+    const displayLocked = useMemo(() => {
+        if (variants.length > 1 && selectedVariantId) {
+            const v = variants.find((x) => x.id === selectedVariantId)
+            if (v) return v.lockedCount
+        }
+        return lockedStockCount
+    }, [lockedStockCount, variants, selectedVariantId])
+
     useEffect(() => {
         if (typeof window !== 'undefined') {
             setShareUrl(window.location.href)
         }
+    }, [product.id])
+
+    useEffect(() => {
+        setSelectedVariantId(product.id)
     }, [product.id])
 
     useEffect(() => {
@@ -99,7 +144,7 @@ export function BuyContent({
         const loadMeta = async () => {
             setMetaLoading(true)
             try {
-                const meta = await getBuyPageMeta(product.id)
+                const meta = await getBuyPageMeta(displayProduct.id)
                 if (cancelled) return
 
                 setReviewsState(meta.reviews)
@@ -121,12 +166,12 @@ export function BuyContent({
         return () => {
             cancelled = true
         }
-    }, [product.id, metaRefreshSeq])
+    }, [displayProduct.id, metaRefreshSeq])
 
     const shareLinks = useMemo(() => {
         if (!shareUrl) return null
         const encodedUrl = encodeURIComponent(shareUrl)
-        const shareText = product.name
+        const shareText = displayProduct.name
         const encodedText = encodeURIComponent(shareText)
         return {
             x: `https://twitter.com/intent/tweet?text=${encodedText}&url=${encodedUrl}`,
@@ -135,7 +180,7 @@ export function BuyContent({
             whatsapp: `https://wa.me/?text=${encodeURIComponent(`${shareText} ${shareUrl}`)}`,
             line: `https://social-plugins.line.me/lineit/share?url=${encodedUrl}`
         }
-    }, [shareUrl, product.name])
+    }, [shareUrl, displayProduct.name])
 
     const handleCopyLink = async () => {
         if (!shareUrl) return
@@ -151,17 +196,17 @@ export function BuyContent({
         toast.error(t('buy.shareFailed'))
     }
 
-    const hasUnlimitedStock = stockCount >= INFINITE_STOCK
-    const hasStock = stockCount > 0 || hasUnlimitedStock
-    const maxStock = hasUnlimitedStock ? INFINITE_STOCK : (stockCount - lockedStockCount)
-    const maxSelectableQuantity = product.purchaseLimit && product.purchaseLimit > 0
-        ? Math.min(maxStock, product.purchaseLimit)
+    const hasUnlimitedStock = displayStock >= INFINITE_STOCK
+    const hasStock = displayStock > 0 || hasUnlimitedStock
+    const maxStock = hasUnlimitedStock ? INFINITE_STOCK : (displayStock - displayLocked)
+    const maxSelectableQuantity = displayProduct.purchaseLimit && displayProduct.purchaseLimit > 0
+        ? Math.min(maxStock, displayProduct.purchaseLimit)
         : maxStock
-    const priceValue = Number(product.price)
-    const compareAtPriceValue = product.compareAtPrice ? Number(product.compareAtPrice) : null
+    const priceValue = Number(displayProduct.price)
+    const compareAtPriceValue = displayProduct.compareAtPrice ? Number(displayProduct.compareAtPrice) : null
     const stockLabel = hasUnlimitedStock
         ? `${t('common.stock')}: ${t('common.unlimited')}`
-        : (stockCount > 0 ? `${t('common.stock')}: ${stockCount}` : t('common.outOfStock'))
+        : (displayStock > 0 ? `${t('common.stock')}: ${displayStock}` : t('common.outOfStock'))
     const showReviewSummary = !metaLoading && reviewCountState > 0
     return (
         <main className="container relative py-8 md:py-16">
@@ -181,11 +226,11 @@ export function BuyContent({
                                 <div className="grid gap-0 lg:grid-cols-[minmax(0,0.98fr)_minmax(0,1.02fr)]">
                                     <div className="relative border-b border-border/20 p-5 md:p-6 lg:border-b-0 lg:border-r">
                                         <div className="relative flex h-full min-h-[18rem] items-center justify-center overflow-hidden rounded-[1.65rem] bg-card/50 p-5 md:min-h-[22rem] md:p-8">
-                                            {product.image ? (
+                                            {displayProduct.image ? (
                                                 <div className="relative aspect-[4/3] w-full max-w-[32rem]">
                                                     <Image
-                                                        src={product.image}
-                                                        alt={product.name}
+                                                        src={displayProduct.image}
+                                                        alt={displayProduct.name}
                                                         fill
                                                         sizes="(max-width: 1024px) 100vw, 56vw"
                                                         className="object-contain"
@@ -193,7 +238,7 @@ export function BuyContent({
                                                 </div>
                                             ) : (
                                                 <div className="flex h-full items-center justify-center">
-                                                    <ProductImagePlaceholder productId={product.id} productName={product.name} size="md" />
+                                                    <ProductImagePlaceholder productId={displayProduct.id} productName={displayProduct.name} size="md" />
                                                 </div>
                                             )}
                                         </div>
@@ -201,12 +246,12 @@ export function BuyContent({
 
                                     <div className="relative flex flex-col justify-center p-6 md:p-8">
                                         <div className="mb-4 flex flex-wrap items-center gap-2">
-                                            {product.category && product.category !== 'general' && (
+                                            {displayProduct.category && displayProduct.category !== 'general' && (
                                                 <Badge variant="secondary" className="rounded-full border border-border/45 bg-background/70 px-3 py-1 capitalize">
-                                                    {product.category}
+                                                    {displayProduct.category}
                                                 </Badge>
                                             )}
-                                            {product.isHot && (
+                                            {displayProduct.isHot && (
                                                 <Badge className="rounded-full border-0 bg-orange-500 px-3 py-1 text-white shadow-lg shadow-orange-500/20">
                                                     {t('buy.hot')}
                                                 </Badge>
@@ -215,7 +260,7 @@ export function BuyContent({
 
                                         <div className="space-y-4">
                                             <h1 className="text-xl font-semibold tracking-tight text-foreground md:text-2xl">
-                                                {product.name}
+                                                {displayProduct.name}
                                             </h1>
 
                                             {metaLoading ? (
@@ -237,7 +282,7 @@ export function BuyContent({
                                 <div className="border-t border-border/20 p-6 md:p-8">
                                     <div className="prose prose-sm max-w-none break-words text-foreground/88 dark:prose-invert md:prose-base">
                                         <ReactMarkdown>
-                                            {product.description || t('buy.noDescription')}
+                                            {displayProduct.description || t('buy.noDescription')}
                                         </ReactMarkdown>
                                     </div>
                                 </div>
@@ -249,6 +294,34 @@ export function BuyContent({
                         <Card className="tech-card overflow-hidden border-border/35">
                             <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,_rgba(59,130,246,0.12),_transparent_36%)] dark:bg-[radial-gradient(circle_at_top_right,_rgba(96,165,250,0.14),_transparent_40%)]" />
                             <CardContent className="relative space-y-6 p-6">
+                                {variants.length > 1 && (
+                                    <div className="space-y-2">
+                                        <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+                                            {t('buy.selectVariant')}
+                                        </div>
+                                        <div className="flex flex-wrap gap-2">
+                                            {variants.map((v) => {
+                                                const isSelected = v.id === selectedVariantId
+                                                const vPrice = Number(v.price)
+                                                return (
+                                                    <Button
+                                                        key={v.id}
+                                                        type="button"
+                                                        variant={isSelected ? "default" : "outline"}
+                                                        size="sm"
+                                                        className="rounded-xl font-medium"
+                                                        onClick={() => setSelectedVariantId(v.id)}
+                                                    >
+                                                        {v.variantLabel || v.id}
+                                                        <span className="ml-1.5 tabular-nums opacity-90">
+                                                            {vPrice}
+                                                        </span>
+                                                    </Button>
+                                                )
+                                            })}
+                                        </div>
+                                    </div>
+                                )}
                                 <div className="space-y-3">
                                     <div className="space-y-1">
                                         <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
@@ -276,14 +349,14 @@ export function BuyContent({
 
                                     <div className="flex flex-wrap gap-2">
                                         <Badge
-                                            variant={stockCount > 0 ? "outline" : "destructive"}
-                                            className={stockCount > 0 ? "rounded-lg border-primary/25 bg-primary/5 px-3 py-1.5 text-primary font-medium" : "rounded-lg px-3 py-1.5 font-medium"}
+                                            variant={displayStock > 0 ? "outline" : "destructive"}
+                                            className={displayStock > 0 ? "rounded-lg border-primary/25 bg-primary/5 px-3 py-1.5 text-primary font-medium" : "rounded-lg px-3 py-1.5 font-medium"}
                                         >
                                             {stockLabel}
                                         </Badge>
-                                        {typeof product.purchaseLimit === 'number' && product.purchaseLimit > 0 && (
+                                        {typeof displayProduct.purchaseLimit === 'number' && displayProduct.purchaseLimit > 0 && (
                                             <Badge variant="secondary" className="rounded-lg border border-border/40 bg-muted/40 px-3 py-1.5 font-medium">
-                                                {t('buy.purchaseLimit', { limit: product.purchaseLimit })}
+                                                {t('buy.purchaseLimit', { limit: displayProduct.purchaseLimit })}
                                             </Badge>
                                         )}
                                     </div>
@@ -346,7 +419,7 @@ export function BuyContent({
                                 <div className="space-y-3">
                                     {isLoggedIn ? (
                                         hasStock ? (
-                                            product.purchaseWarning && !warningConfirmed ? (
+                                            displayProduct.purchaseWarning && !warningConfirmed ? (
                                                 <Dialog open={showWarningDialog} onOpenChange={setShowWarningDialog}>
                                                     <DialogTrigger asChild>
                                                         <Button
@@ -366,7 +439,7 @@ export function BuyContent({
                                                             </DialogTitle>
                                                         </DialogHeader>
                                                         <div className="py-4 whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground">
-                                                            {product.purchaseWarning}
+                                                            {displayProduct.purchaseWarning}
                                                         </div>
                                                         <div className="flex justify-end gap-3">
                                                             <Button
@@ -390,15 +463,15 @@ export function BuyContent({
                                                 </Dialog>
                                             ) : (
                                                 <BuyButton
-                                                    productId={product.id}
-                                                    price={product.price}
-                                                    productName={product.name}
+                                                    productId={displayProduct.id}
+                                                    price={displayProduct.price}
+                                                    productName={displayProduct.name}
                                                     quantity={quantity}
-                                                    autoOpen={warningConfirmed && !!product.purchaseWarning}
+                                                    autoOpen={warningConfirmed && !!displayProduct.purchaseWarning}
                                                     emailConfigured={emailConfiguredState}
                                                 />
                                             )
-                                        ) : lockedStockCount > 0 ? (
+                                        ) : displayLocked > 0 ? (
                                             <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 px-4 py-4 text-amber-800 dark:text-amber-200">
                                                 <div className="flex items-start gap-3">
                                                     <svg className="mt-0.5 h-5 w-5 shrink-0 opacity-80" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -515,7 +588,7 @@ export function BuyContent({
                             <div className="rounded-xl border border-border/30 bg-muted/15 p-5">
                                 <h3 className="mb-3 text-sm font-semibold text-foreground">{t('review.leaveReview')}</h3>
                                 <ReviewForm
-                                    productId={product.id}
+                                productId={displayProduct.id}
                                     orderId={reviewOrderIdState}
                                     onSuccess={() => setMetaRefreshSeq((prev) => prev + 1)}
                                 />
