@@ -38,6 +38,7 @@ interface Product {
     purchaseLimit?: number | null
     purchaseWarning?: string | null
     isHot?: boolean | null
+    sold?: number
 }
 
 interface Review {
@@ -127,6 +128,19 @@ export function BuyContent({
         }
         return lockedStockCount
     }, [lockedStockCount, variants, selectedVariantId])
+
+    const displaySold = useMemo(() => {
+        if (variants.length > 1 && selectedVariantId) {
+            const v = variants.find((x) => x.id === selectedVariantId)
+            if (v && typeof v.sold === 'number') {
+                return v.sold
+            }
+        }
+        if (typeof product.sold === 'number') {
+            return product.sold
+        }
+        return 0
+    }, [product, variants, selectedVariantId])
 
     useEffect(() => {
         if (typeof window !== 'undefined') {
@@ -350,6 +364,11 @@ export function BuyContent({
                                         >
                                             {stockLabel}
                                         </Badge>
+                                        {displaySold > 0 && (
+                                            <Badge variant="secondary" className="rounded-lg border border-border/40 bg-muted/40 px-3 py-1.5 font-medium">
+                                                {t('common.sold')}: {displaySold}
+                                            </Badge>
+                                        )}
                                         {typeof displayProduct.purchaseLimit === 'number' && displayProduct.purchaseLimit > 0 && (
                                             <Badge variant="secondary" className="rounded-lg border border-border/40 bg-muted/40 px-3 py-1.5 font-medium">
                                                 {t('buy.purchaseLimit', { limit: displayProduct.purchaseLimit })}

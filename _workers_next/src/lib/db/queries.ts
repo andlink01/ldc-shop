@@ -997,6 +997,7 @@ export async function getProduct(id: string, options?: { isLoggedIn?: boolean; t
             isHot: products.isHot,
             isActive: products.isActive,
             isShared: products.isShared,
+            sold: sql<number>`COALESCE(${products.soldCount}, 0)`,
             purchaseLimit: products.purchaseLimit,
             purchaseWarning: products.purchaseWarning,
             visibilityLevel: products.visibilityLevel,
@@ -1045,6 +1046,7 @@ export type ProductVariantRow = {
     stock: number;
     locked: number;
     isShared: boolean | null;
+    sold: number;
     purchaseLimit: number | null;
     isHot: boolean | null;
     purchaseWarning: string | null;
@@ -1065,6 +1067,7 @@ export async function getProductVariants(
             variantLabel: products.variantLabel,
             stock: sql<number>`COALESCE(${products.stockCount}, 0)`,
             locked: sql<number>`COALESCE(${products.lockedCount}, 0)`,
+            sold: sql<number>`COALESCE(${products.soldCount}, 0)`,
             isShared: products.isShared,
             purchaseLimit: products.purchaseLimit,
             isHot: products.isHot,
