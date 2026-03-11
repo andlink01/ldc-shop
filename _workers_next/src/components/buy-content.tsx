@@ -473,6 +473,7 @@ export function BuyContent({
                                                 <Input
                                                     type="number"
                                                     value={quantity}
+                                                    onWheel={(e) => e.currentTarget.blur()}
                                                     onChange={(e) => {
                                                         const val = parseInt(e.target.value) || 1
                                                         if (val >= 1 && val <= maxSelectableQuantity) setQuantity(val)

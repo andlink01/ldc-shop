@@ -185,7 +185,7 @@ export default function ProductForm({ product, categories = [] }: { product?: an
 
                     <div className="grid gap-2">
                         <Label htmlFor="price">{t('admin.productForm.priceLabel')}</Label>
-                        <Input id="price" name="price" type="number" step="0.01" defaultValue={currentProduct?.price} placeholder={t('admin.productForm.pricePlaceholder')} required />
+                        <Input id="price" name="price" type="number" step="0.01" defaultValue={currentProduct?.price} placeholder={t('admin.productForm.pricePlaceholder')} required onWheel={(e) => e.currentTarget.blur()} />
                     </div>
 
                     <div className="grid gap-2">
@@ -197,12 +197,13 @@ export default function ProductForm({ product, categories = [] }: { product?: an
                             step="0.01"
                             defaultValue={currentProduct?.compareAtPrice || ''}
                             placeholder={t('admin.productForm.compareAtPricePlaceholder')}
+                            onWheel={(e) => e.currentTarget.blur()}
                         />
                     </div>
 
                     <div className="grid gap-2">
                         <Label htmlFor="purchaseLimit">{t('admin.productForm.purchaseLimitLabel') || "Per-user Purchase Limit (0 or empty for unlimited)"}</Label>
-                        <Input id="purchaseLimit" name="purchaseLimit" type="number" defaultValue={currentProduct?.purchaseLimit} placeholder={t('admin.productForm.purchaseLimitPlaceholder') || "e.g. 1"} />
+                        <Input id="purchaseLimit" name="purchaseLimit" type="number" defaultValue={currentProduct?.purchaseLimit} placeholder={t('admin.productForm.purchaseLimitPlaceholder') || "e.g. 1"} onWheel={(e) => e.currentTarget.blur()} />
                     </div>
 
                     <div className="grid gap-2">
