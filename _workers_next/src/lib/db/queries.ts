@@ -1857,6 +1857,20 @@ function normalizeGitHubUsernameValue(username?: string | null): string | null {
     return normalized
 }
 
+function isInvalidGitHubPlaceholderUser(userId?: string | null, username?: string | null) {
+    const normalizedUserId = (userId || '').trim().toLowerCase()
+    const normalizedUsername = (username || '').trim().toLowerCase()
+
+    return (
+        normalizedUserId === 'github:undefined' ||
+        normalizedUserId === 'github:null' ||
+        normalizedUserId === 'github:nan' ||
+        normalizedUsername === 'gh_undefined' ||
+        normalizedUsername === 'gh_null' ||
+        normalizedUsername === 'gh_nan'
+    )
+}
+
 function mergeLoginUserRows(primary: GitHubLoginUserRow, secondary: GitHubLoginUserRow) {
     const createdCandidates = [toEpochMs(primary.createdAt), toEpochMs(secondary.createdAt)].filter((value): value is number => value !== null)
     const lastLoginCandidates = [toEpochMs(primary.lastLoginAt), toEpochMs(secondary.lastLoginAt)].filter((value): value is number => value !== null)
@@ -2191,6 +2205,10 @@ async function backfillLoginUsersFromOrdersAndReviews() {
 
 export async function recordLoginUser(userId: string, username?: string | null, email?: string | null) {
     if (!userId) return;
+    if (isInvalidGitHubPlaceholderUser(userId, username)) {
+        console.warn("recordLoginUser skipped invalid GitHub placeholder user", { userId, username })
+        return;
+    }
 
     try {
         const result = await db.insert(loginUsers).values({
@@ -2482,8 +2500,8 @@ export async function getUsers(page = 1, pageSize = 20, q = '') {
         await ensureLoginUsersTable();
 
         let whereClause = undefined
-        if (q) {
-            const like = `%${q}%`
+        if (search) {
+            const like = `%${search}%`
             whereClause = or(
                 sql`${loginUsers.username} LIKE ${like}`,
                 sql`${loginUsers.userId} LIKE ${like}`
