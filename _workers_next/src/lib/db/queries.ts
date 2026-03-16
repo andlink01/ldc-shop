@@ -159,7 +159,6 @@ async function ensureDatabaseInitialized() {
         await ensureLoginUsersTable();
         await ensureLoginUsersColumns(); // Add this call
         loginUsersSchemaReady = true;
-        await ensureReviewRepliesTable();
         await ensureUserNotificationsTable();
         await ensureAdminMessagesTable();
         await ensureUserMessagesTable();
@@ -1540,6 +1539,7 @@ export async function getActiveProductCategories(options?: { isLoggedIn?: boolea
 
 // Reviews
 export async function getProductReviews(productId: string) {
+    await ensureReviewRepliesTable()
     const reviewRows = await db.select()
         .from(reviews)
         .where(eq(reviews.productId, productId))
@@ -1636,6 +1636,7 @@ export async function createReviewReply(data: {
     username: string;
     comment: string;
 }) {
+    await ensureReviewRepliesTable()
     return await db.insert(reviewReplies).values({
         ...data,
         createdAt: new Date(),
