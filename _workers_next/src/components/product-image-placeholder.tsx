@@ -18,18 +18,39 @@ interface ProductImagePlaceholderProps {
     productName: string
     size?: "xs" | "sm" | "md"
     className?: string
+    fill?: boolean
 }
 
-export function ProductImagePlaceholder({ productId, productName, size = "sm", className }: ProductImagePlaceholderProps) {
+export function ProductImagePlaceholder({ productId, productName, size = "sm", className, fill = false }: ProductImagePlaceholderProps) {
     const h = hash(productId)
     const hue = HUES[Math.abs(h) % HUES.length]
     const Icon = ICONS[Math.abs(h >> 8) % ICONS.length]
-    const boxSize = size === "xs" ? "h-12 w-12" : size === "sm" ? "h-20 w-20" : "h-28 w-28"
-    const iconSize = size === "xs" ? "h-5 w-5" : size === "sm" ? "h-9 w-9" : "h-14 w-14"
+    const boxSize = fill
+        ? size === "xs"
+            ? "h-full w-full"
+            : size === "sm"
+                ? "h-full w-full max-h-[13rem]"
+                : "h-full w-full max-h-[24rem]"
+        : size === "xs"
+            ? "h-12 w-12"
+            : size === "sm"
+                ? "h-20 w-20"
+                : "h-28 w-28"
+    const iconSize = fill
+        ? size === "xs"
+            ? "h-8 w-8"
+            : size === "sm"
+                ? "h-16 w-16"
+                : "h-24 w-24"
+        : size === "xs"
+            ? "h-5 w-5"
+            : size === "sm"
+                ? "h-9 w-9"
+                : "h-14 w-14"
     const rounded = size === "xs" ? "rounded-lg" : size === "sm" ? "rounded-3xl" : "rounded-[2rem]"
 
     return (
-        <div className={`flex items-center justify-center ${className ?? ""}`} role="img" aria-label={productName || "Product"}>
+        <div className={`flex h-full w-full items-center justify-center ${className ?? ""}`} role="img" aria-label={productName || "Product"}>
             <div
                 className={`relative flex ${boxSize} items-center justify-center ${rounded} shadow-inner ring-1 ring-black/5 dark:ring-white/10`}
                 style={{

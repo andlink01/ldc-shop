@@ -464,7 +464,8 @@
             "rating": "评分",
             "comment": "内容",
             "date": "日期",
-            "actions": "操作"
+            "actions": "操作",
+            "replyLabel": "回复"
         },
         "categories": {
             "title": "分类管理",

@@ -118,9 +118,20 @@ export function ReviewList({ reviews, averageRating, totalCount, productId, isLo
                                             {review.replies.map((reply) => (
                                                 <div key={reply.id} className="rounded-xl border border-border/25 bg-muted/20 px-3 py-3">
                                                     <div className="mb-1 flex items-center gap-2 text-xs text-muted-foreground">
-                                                        <span className="font-medium text-foreground">
-                                                            {getDisplayUsername(reply.username, reply.userId) || reply.username}
-                                                        </span>
+                                                        {getExternalProfileUrl(reply.username, reply.userId) ? (
+                                                            <a
+                                                                href={getExternalProfileUrl(reply.username, reply.userId) || "#"}
+                                                                target="_blank"
+                                                                rel="noreferrer"
+                                                                className="font-medium text-foreground hover:underline"
+                                                            >
+                                                                {getDisplayUsername(reply.username, reply.userId) || reply.username}
+                                                            </a>
+                                                        ) : (
+                                                            <span className="font-medium text-foreground">
+                                                                {getDisplayUsername(reply.username, reply.userId) || reply.username}
+                                                            </span>
+                                                        )}
                                                         <ClientDate value={reply.createdAt} />
                                                     </div>
                                                     <p className="text-sm text-muted-foreground">{reply.comment}</p>

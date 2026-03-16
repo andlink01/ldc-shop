@@ -464,7 +464,8 @@
             "rating": "Rating",
             "comment": "Comment",
             "date": "Date",
-            "actions": "Actions"
+            "actions": "Actions",
+            "replyLabel": "Reply"
         },
         "categories": {
             "title": "Categories",

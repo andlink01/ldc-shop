@@ -361,7 +361,7 @@ export function BuyContent({
                                                 </button>
                                             ) : (
                                                 <div className="flex h-full items-center justify-center">
-                                                    <ProductImagePlaceholder productId={displayProduct.id} productName={displayProduct.name} size="md" />
+                                                    <ProductImagePlaceholder productId={displayProduct.id} productName={displayProduct.name} size="md" fill />
                                                 </div>
                                             )}
                                             {canSwitchGallery && (

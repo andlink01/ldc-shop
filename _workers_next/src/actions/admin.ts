@@ -2,7 +2,7 @@
 
 import { auth } from "@/lib/auth"
 import { db } from "@/lib/db"
-import { products, cards, reviews, categories } from "@/lib/db/schema"
+import { products, cards, reviews, reviewReplies, categories } from "@/lib/db/schema"
 import { eq, sql, inArray, and, or, isNull, lte } from "drizzle-orm"
 import { sendBarkMessage, sendTelegramMessage } from "@/lib/notifications"
 import { revalidatePath, updateTag } from "next/cache"
@@ -623,6 +623,13 @@ export async function deleteReview(reviewId: number) {
     await db.delete(reviews).where(eq(reviews.id, reviewId))
     revalidatePath('/admin/reviews')
     updateTag('home:ratings')
+    revalidatePath('/')
+}
+
+export async function deleteReviewReply(replyId: number) {
+    await checkAdmin()
+    await db.delete(reviewReplies).where(eq(reviewReplies.id, replyId))
+    revalidatePath('/admin/reviews')
     revalidatePath('/')
 }
 
