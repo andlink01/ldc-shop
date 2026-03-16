@@ -26,6 +26,7 @@ import Image from "next/image"
 import { INFINITE_STOCK } from "@/lib/constants"
 import { getBuyPageMeta } from "@/actions/buy"
 import type { ProductVariantRow } from "@/lib/db/queries"
+import { buildProductImageGallery } from "@/lib/product-images"
 
 interface Product {
     id: string
@@ -34,6 +35,7 @@ interface Product {
     price: string
     compareAtPrice?: string | null
     image: string | null
+    productImages?: string | null
     category: string | null
     purchaseLimit?: number | null
     purchaseWarning?: string | null
@@ -49,6 +51,13 @@ interface Review {
     rating: number
     comment: string | null
     createdAt: Date | string | null
+    replies?: Array<{
+        id: number
+        username: string
+        userId?: string | null
+        comment: string
+        createdAt: Date | string | null
+    }>
 }
 
 interface BuyContentProps {
@@ -80,6 +89,7 @@ export function BuyContent({
 }: BuyContentProps) {
     const { t } = useI18n()
     const [selectedVariantId, setSelectedVariantId] = useState<string>(product.id)
+    const [selectedGalleryImage, setSelectedGalleryImage] = useState<string | null>(null)
     const [shareUrl, setShareUrl] = useState('')
     const [quantity, setQuantity] = useState(1)
     const [showWarningDialog, setShowWarningDialog] = useState(false)
@@ -108,6 +118,7 @@ export function BuyContent({
                     price: v.price,
                     compareAtPrice: v.compareAtPrice,
                     image: v.image,
+                    productImages: v.productImages,
                     category: product.category,
                     purchaseLimit: v.purchaseLimit,
                     purchaseWarning: v.purchaseWarning ?? null,
@@ -159,6 +170,11 @@ export function BuyContent({
         return []
     }, [displayProduct.purchaseQuestions])
 
+    const galleryImages = useMemo(
+        () => buildProductImageGallery(displayProduct.image, displayProduct.productImages ?? null),
+        [displayProduct.image, displayProduct.productImages]
+    )
+
     useEffect(() => {
         setQuestionAnswers(questions.map(() => ''))
         setQuestionsVerified(false)
@@ -191,6 +207,10 @@ export function BuyContent({
     useEffect(() => {
         setSelectedVariantId(product.id)
     }, [product.id])
+
+    useEffect(() => {
+        setSelectedGalleryImage(galleryImages[0] ?? null)
+    }, [displayProduct.id, displayProduct.image, displayProduct.productImages])
 
     useEffect(() => {
         let cancelled = false
@@ -262,6 +282,9 @@ export function BuyContent({
         ? `${t('common.stock')}: ${t('common.unlimited')}`
         : (displayStock > 0 ? `${t('common.stock')}: ${displayStock}` : t('common.outOfStock'))
     const showReviewSummary = !metaLoading && reviewCountState > 0
+    const activeGalleryImage = selectedGalleryImage && galleryImages.includes(selectedGalleryImage)
+        ? selectedGalleryImage
+        : galleryImages[0] ?? null
     return (
         <main className="container relative py-8 md:py-16">
             <div className="pointer-events-none absolute inset-0 -z-10 overflow-hidden">
@@ -280,10 +303,10 @@ export function BuyContent({
                                 <div className="grid gap-0 lg:grid-cols-[minmax(0,0.98fr)_minmax(0,1.02fr)]">
                                     <div className="relative border-b border-border/20 p-5 md:p-6 lg:border-b-0 lg:border-r">
                                         <div className="relative flex h-full min-h-[18rem] items-center justify-center overflow-hidden rounded-[1.65rem] bg-card/50 p-5 md:min-h-[22rem] md:p-8">
-                                            {displayProduct.image ? (
+                                            {activeGalleryImage ? (
                                                 <div className="relative aspect-[4/3] w-full max-w-[32rem]">
                                                     <Image
-                                                        src={displayProduct.image}
+                                                        src={activeGalleryImage}
                                                         alt={displayProduct.name}
                                                         fill
                                                         sizes="(max-width: 1024px) 100vw, 56vw"
@@ -296,6 +319,33 @@ export function BuyContent({
                                                 </div>
                                             )}
                                         </div>
+                                        {galleryImages.length > 1 && (
+                                            <div className="mt-4 flex gap-3 overflow-x-auto pb-1">
+                                                {galleryImages.map((image, index) => {
+                                                    const isActive = image === activeGalleryImage
+                                                    return (
+                                                        <button
+                                                            key={`${image}-${index}`}
+                                                            type="button"
+                                                            className={`relative h-20 w-24 shrink-0 overflow-hidden rounded-2xl border bg-background/80 transition ${
+                                                                isActive
+                                                                    ? "border-primary shadow-lg shadow-primary/15"
+                                                                    : "border-border/35 hover:border-border"
+                                                            }`}
+                                                            onClick={() => setSelectedGalleryImage(image)}
+                                                        >
+                                                            <Image
+                                                                src={image}
+                                                                alt={`${displayProduct.name} ${index + 1}`}
+                                                                fill
+                                                                sizes="96px"
+                                                                className="object-cover"
+                                                            />
+                                                        </button>
+                                                    )
+                                                })}
+                                            </div>
+                                        )}
                                     </div>
 
                                     <div className="relative flex flex-col justify-center p-6 md:p-8">
@@ -704,6 +754,9 @@ export function BuyContent({
                                 reviews={reviewsState}
                                 averageRating={averageRatingState}
                                 totalCount={reviewCountState}
+                                productId={displayProduct.id}
+                                isLoggedIn={isLoggedIn}
+                                onReplySubmitted={() => setMetaRefreshSeq((prev) => prev + 1)}
                             />
                         )}
                     </CardContent>

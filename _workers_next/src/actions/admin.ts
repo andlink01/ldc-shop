@@ -11,6 +11,14 @@ import { isAdminUsername } from "@/lib/admin-auth"
 import { getProductCardApiConfig, pullOneCardFromApi, saveProductCardApiConfig } from "@/lib/card-api"
 import { unstable_noStore } from "next/cache"
 import { isThemeFont } from "@/lib/theme-fonts"
+import {
+    PRODUCT_GALLERY_MAX_ITEMS,
+    PRODUCT_GALLERY_MAX_JSON_LENGTH,
+    normalizeProductImageRefs,
+    parseStoredProductImages,
+    splitProductImageGallery,
+    validateProductImageRef,
+} from "@/lib/product-images"
 
 export async function checkAdmin() {
     const session = await auth()
@@ -47,6 +55,7 @@ export async function saveProduct(formData: FormData) {
     const compareAtPrice = (formData.get('compareAtPrice') as string | null) || null
     const category = formData.get('category') as string
     const image = (formData.get('image') as string || '').trim()
+    const productImagesRaw = (formData.get('productImages') as string | null)?.trim() || null
     const purchaseLimit = formData.get('purchaseLimit') ? parseInt(formData.get('purchaseLimit') as string) : null
     const isHot = formData.get('isHot') === 'on'
     const isShared = formData.get('isShared') === 'on'
@@ -72,15 +81,21 @@ export async function saveProduct(formData: FormData) {
     if (![ -1, 0, 1, 2, 3 ].includes(visibilityLevel)) {
         throw new Error("Invalid visibility level")
     }
-    if (image.startsWith('data:')) {
-        if (!image.startsWith('data:image/')) {
-            throw new Error("Only image data URLs are allowed")
-        }
-        if (image.length > 900_000) {
-            throw new Error("Product image is too large")
-        }
-    } else if (image.length > 2000) {
-        throw new Error("Product image URL is too long")
+    const submittedGallery = normalizeProductImageRefs([image, ...parseStoredProductImages(productImagesRaw)])
+    if (submittedGallery.length > PRODUCT_GALLERY_MAX_ITEMS) {
+        throw new Error(`Product gallery supports up to ${PRODUCT_GALLERY_MAX_ITEMS} images`)
+    }
+    for (const [index, galleryImage] of submittedGallery.entries()) {
+        validateProductImageRef(galleryImage, index === 0 ? "Product image" : `Product gallery image ${index}`)
+    }
+
+    const {
+        primaryImage,
+        additionalImagesJson,
+    } = splitProductImageGallery(image, productImagesRaw)
+
+    if (additionalImagesJson && additionalImagesJson.length > PRODUCT_GALLERY_MAX_JSON_LENGTH) {
+        throw new Error("Additional product images are too large")
     }
 
     const doSave = async () => {
@@ -101,7 +116,8 @@ export async function saveProduct(formData: FormData) {
             price,
             compareAtPrice: compareAtPrice && compareAtPrice !== '0' ? compareAtPrice : null,
             category,
-            image,
+            image: primaryImage,
+            productImages: additionalImagesJson,
             purchaseLimit,
             purchaseWarning,
             isHot,
@@ -118,7 +134,8 @@ export async function saveProduct(formData: FormData) {
                 price,
                 compareAtPrice: compareAtPrice && compareAtPrice !== '0' ? compareAtPrice : null,
                 category,
-                image,
+                image: primaryImage,
+                productImages: additionalImagesJson,
                 purchaseLimit,
                 purchaseWarning,
                 isHot,
@@ -147,6 +164,9 @@ export async function saveProduct(formData: FormData) {
         } catch { /* column exists */ }
         try {
             await db.run(sql.raw(`ALTER TABLE products ADD COLUMN visibility_level INTEGER DEFAULT -1`));
+        } catch { /* column exists */ }
+        try {
+            await db.run(sql.raw(`ALTER TABLE products ADD COLUMN product_images TEXT`));
         } catch { /* column exists */ }
     }
 
