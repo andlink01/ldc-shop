@@ -388,9 +388,9 @@ export function BuyContent({
                                         )}
                                     </div>
 
-                                    <div className="rounded-[1.55rem] border border-border/20 bg-background/58 px-5 py-5 shadow-[0_18px_48px_-42px_rgba(15,23,42,0.34)] md:px-6 md:py-6">
-                                        <div className="space-y-4">
-                                            <h1 className="max-w-3xl text-[1.7rem] font-semibold leading-[1.12] tracking-[-0.035em] text-foreground [text-wrap:balance] md:text-[2.1rem]">
+                                    <div className="rounded-[1.4rem] border border-border/15 bg-background/52 px-5 py-4 shadow-[0_16px_40px_-42px_rgba(15,23,42,0.28)] md:px-6 md:py-5">
+                                        <div className="space-y-3.5">
+                                            <h1 className="product-detail-title max-w-3xl text-[1.14rem] font-semibold leading-[1.34] tracking-[-0.015em] text-foreground/96 [text-wrap:balance] md:text-[1.38rem]">
                                                 {displayProduct.name}
                                             </h1>
 
@@ -400,7 +400,7 @@ export function BuyContent({
                                                     <span>{t('common.loading')}</span>
                                                 </div>
                                             ) : showReviewSummary ? (
-                                                <div className="flex w-fit flex-wrap items-center gap-3 rounded-full border border-border/45 bg-card/75 px-4 py-2 text-sm text-muted-foreground">
+                                                <div className="flex w-fit flex-wrap items-center gap-3 rounded-full border border-border/35 bg-card/72 px-3.5 py-1.5 text-sm text-muted-foreground">
                                                     <StarRating rating={Math.round(averageRatingState)} size="sm" />
                                                     <span className="font-medium text-foreground">{averageRatingState.toFixed(1)}</span>
                                                     <span>{reviewCountState} {t('review.title')}</span>
