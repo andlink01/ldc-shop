@@ -335,8 +335,8 @@ export function BuyContent({
                                                         className="object-contain"
                                                         draggable={false}
                                                     />
-                                                    <div className="absolute bottom-3 right-3 inline-flex h-9 w-9 items-center justify-center rounded-full border border-border/35 bg-background/88 text-foreground shadow-sm backdrop-blur">
-                                                        <Expand className="h-4 w-4" />
+                                                    <div className="absolute bottom-3 right-3 inline-flex h-7 w-7 items-center justify-center rounded-full border border-border/20 bg-background/62 text-muted-foreground/85 shadow-sm backdrop-blur-sm transition-colors group-hover:text-foreground/80">
+                                                        <Expand className="h-3.5 w-3.5" />
                                                     </div>
                                                 </button>
                                             ) : (
