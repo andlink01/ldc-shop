@@ -3,6 +3,7 @@
         "appName": "LDC Shop",
         "shopNamePattern": "{{name}}'s {{appName}}",
         "login": "Sign in",
+        "loginRequired": "Please sign in before purchasing or paying.",
         "categories": "Categories",
         "all": "All",
         "searchPlaceholder": "Search products...",

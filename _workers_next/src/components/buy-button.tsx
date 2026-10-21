@@ -95,6 +95,10 @@ export function BuyButton({ productId, price, productName, disabled, quantity = 
             if (!result?.success) {
                 const message = result?.error ? t(result.error) : t('common.error')
                 toast.error(message)
+                if (result?.error === 'common.loginRequired') {
+                    window.location.href = `/login?callbackUrl=${encodeURIComponent(window.location.pathname + window.location.search)}`
+                    return
+                }
                 if (!isNavigatingRef.current) setLoading(false)
                 return
             }

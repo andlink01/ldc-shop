@@ -3,6 +3,7 @@
         "appName": "LDC 商店",
         "shopNamePattern": "{{name}}的 {{appName}}",
         "login": "登录",
+        "loginRequired": "请先登录后再继续购买或支付",
         "categories": "商品分类",
         "all": "全部",
         "searchPlaceholder": "搜索商品...",

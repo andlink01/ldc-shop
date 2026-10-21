@@ -23,6 +23,7 @@ import { ChevronLeft, ChevronRight, Expand, Loader2, Minus, Plus, Share2 } from 
 import { ProductImagePlaceholder } from "@/components/product-image-placeholder"
 import { toast } from "sonner"
 import Image from "next/image"
+import Link from "next/link"
 import { INFINITE_STOCK } from "@/lib/constants"
 import { getBuyPageMeta } from "@/actions/buy"
 import type { ProductVariantRow } from "@/lib/db/queries"
@@ -761,6 +762,11 @@ export function BuyContent({
                                                 </svg>
                                                 <p className="text-sm font-medium">{t('buy.loginToBuy')}</p>
                                             </div>
+                                            <Button asChild className="mt-3 w-full">
+                                                <Link href={`/login?callbackUrl=${encodeURIComponent(`/buy/${displayProduct.id}`)}`}>
+                                                    {t('common.login')}
+                                                </Link>
+                                            </Button>
                                         </div>
                                     )}
                                 </div>

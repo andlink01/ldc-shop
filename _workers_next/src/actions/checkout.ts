@@ -66,6 +66,9 @@ async function autoReplenishByApi(productId: string, reason: string) {
 export async function createOrder(productId: string, quantity: number = 1, email?: string, usePoints: boolean = false, answers?: string[]) {
     const session = await auth()
     const user = session?.user
+
+    if (!user?.id) return { success: false, error: 'common.loginRequired' }
+
     const normalizedQuantity = Number(quantity)
 
     if (!Number.isFinite(normalizedQuantity) || !Number.isInteger(normalizedQuantity) || normalizedQuantity <= 0) {
@@ -589,7 +592,7 @@ export async function getRetryPaymentParams(orderId: string) {
     const session = await auth()
     const user = session?.user
 
-    if (!user?.id) return { success: false, error: 'common.error' }
+    if (!user?.id) return { success: false, error: 'common.loginRequired' }
 
     const order = await db.query.orders.findFirst({
         where: and(eq(orders.orderId, orderId), eq(orders.userId, user.id))
