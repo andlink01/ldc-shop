@@ -127,7 +127,9 @@ function SidebarContent({ closeOnNavigate = false, showTitle = true, username, t
             )}
             <nav className="flex flex-col gap-2">
                 <NavLink href="/admin/settings" icon={<Settings className="mr-2 h-4 w-4" />} label={t('common.storeSettings')} closeOnNavigate={closeOnNavigate} />
+                <NavLink href="/admin/inventory-api" icon={<Package className="mr-2 h-4 w-4" />} label={t('inventory.apiTitle')} closeOnNavigate={closeOnNavigate} />
                 <NavLink href="/admin/products" icon={<Package className="mr-2 h-4 w-4" />} label={t('common.productManagement')} closeOnNavigate={closeOnNavigate} />
+                <NavLink href="/admin/fulfillment" icon={<CreditCard className="mr-2 h-4 w-4" />} label={t('inventory.pendingDelivery')} closeOnNavigate={closeOnNavigate} />
                 <NavLink href="/admin/orders" icon={<CreditCard className="mr-2 h-4 w-4" />} label={t('common.ordersRefunds')} closeOnNavigate={closeOnNavigate} />
                 <NavLink href="/admin/refunds" icon={<RotateCcw className="mr-2 h-4 w-4" />} label={t('common.refundRequests')} badge={refundBadge} closeOnNavigate={closeOnNavigate} />
                 <NavLink href="/admin/messages" icon={<MessageSquare className="mr-2 h-4 w-4" />} label={t('common.adminMessages')} badge={messageBadge} closeOnNavigate={closeOnNavigate} />

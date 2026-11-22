@@ -12,6 +12,7 @@ import { Label } from "@/components/ui/label"
 import { CopyButton } from "@/components/copy-button"
 import { ClientDate } from "@/components/client-date"
 import { RefundButton } from "@/components/admin/refund-button"
+import { retryOrderDelivery } from '@/actions/inventory'
 import { toast } from "sonner"
 import { markOrderDelivered, markOrderPaid, cancelOrder, updateOrderEmail, deleteOrder } from "@/actions/admin-orders"
 import { getDisplayUsername, getExternalProfileUrl } from "@/lib/user-profile-link"
@@ -40,11 +41,17 @@ export function AdminOrderDetailContent({ order }: { order: any }) {
   const canCancel = status === 'pending'
   const canDelete = true
 
-  const handleStatus = async (action: 'paid' | 'delivered' | 'cancel') => {
+  const handleStatus = async (action: 'paid' | 'delivered' | 'cancel' | 'retry') => {
     if (actionLock.current) return
     try {
       actionLock.current = true
       setActionLoading(true)
+      if (action === 'retry') {
+        const result = await retryOrderDelivery(order.orderId)
+        if (result.delivered) toast.success(t('common.success'))
+        else toast.info(t('inventory.waitingStock'))
+        return
+      }
       if (action === 'paid') {
         if (!confirm(t('admin.orders.confirmMarkPaid'))) return
         await markOrderPaid(order.orderId)
@@ -65,6 +72,7 @@ export function AdminOrderDetailContent({ order }: { order: any }) {
     } catch (e: any) {
       toast.error(e.message)
     } finally {
+      router.refresh()
       setActionLoading(false)
       actionLock.current = false
     }
@@ -101,6 +109,9 @@ export function AdminOrderDetailContent({ order }: { order: any }) {
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle>{t('admin.orders.detail')}</CardTitle>
           <div className="flex items-center gap-2">
+            {status === 'paid' && !order.cardKey && order.productId !== 'payment_link' && (
+              <Button variant="outline" onClick={() => handleStatus('retry')} disabled={actionLoading}>{t('inventory.retryDelivery')}</Button>
+            )}
             {canMarkPaid && (
               <Button variant="outline" onClick={() => handleStatus('paid')} disabled={actionLoading}>{t('admin.orders.markPaid')}</Button>
             )}
@@ -125,7 +136,8 @@ export function AdminOrderDetailContent({ order }: { order: any }) {
                   } catch (e: any) {
                     toast.error(e.message)
                   } finally {
-                    setActionLoading(false)
+                    router.refresh()
+      setActionLoading(false)
                     actionLock.current = false
                   }
                 }}

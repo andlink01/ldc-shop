@@ -1,22 +1,28 @@
 'use server'
 
-import { db, dbRun } from "@/lib/db"
+import { db, dbRun, dbBatchRaw } from "@/lib/db"
 import { cards, orders, refundRequests, loginUsers } from "@/lib/db/schema"
 import { and, eq, sql } from "drizzle-orm"
 import { revalidatePath, updateTag } from "next/cache"
 import { checkAdmin } from "@/actions/admin"
-import { recalcProductAggregates, recalcProductAggregatesForMany, createUserNotification } from "@/lib/db/queries"
-import { pullOneCardFromApi } from "@/lib/card-api"
+import { recalcProductAggregates, recalcProductAggregatesForMany, ensureDatabaseInitialized } from "@/lib/db/queries"
+import { fulfillPaidOrder, queuePaymentNotification } from '@/lib/fulfillment'
+import { scheduleInventoryEvents } from '@/lib/inventory-events'
+import { cancelPendingOrder } from '@/lib/order-transitions'
 
 export async function markOrderPaid(orderId: string) {
   await checkAdmin()
+  await ensureDatabaseInitialized()
   if (!orderId) throw new Error("Missing order id")
 
   const order = await db.query.orders.findFirst({ where: eq(orders.orderId, orderId), columns: { productId: true } })
   await db.update(orders).set({
     status: 'paid',
     paidAt: new Date(),
-  }).where(eq(orders.orderId, orderId))
+  }).where(and(eq(orders.orderId, orderId), eq(orders.status, 'pending')))
+  await queuePaymentNotification(orderId)
+  await fulfillPaidOrder(orderId)
+  scheduleInventoryEvents()
 
   revalidatePath('/admin/orders')
   revalidatePath(`/admin/orders/${orderId}`)
@@ -37,91 +43,43 @@ export async function markOrderPaid(orderId: string) {
 
 export async function markOrderDelivered(orderId: string) {
   await checkAdmin()
-  if (!orderId) throw new Error("Missing order id")
-
-  const order = await db.query.orders.findFirst({ where: eq(orders.orderId, orderId) })
-  if (!order) throw new Error("Order not found")
-  if (!order.cardKey) throw new Error("Missing card key; cannot mark delivered")
-
-  await db.update(orders).set({
-    status: 'delivered',
-    deliveredAt: new Date(),
-  }).where(eq(orders.orderId, orderId))
-
-  if (order.userId) {
-    await createUserNotification({
-      userId: order.userId,
-      type: 'order_delivered',
-      titleKey: 'profile.notifications.orderDeliveredTitle',
-      contentKey: 'profile.notifications.orderDeliveredBody',
-      data: {
-        params: {
-          orderId: order.orderId,
-          productName: order.productName || 'Product'
-        },
-        href: `/order/${order.orderId}`
-      }
-    })
+  await ensureDatabaseInitialized()
+  const existing = await db.query.orders.findFirst({ where: eq(orders.orderId, orderId) })
+  if (existing?.status === 'paid' && existing.cardKey) {
+    // Legacy paid orders may already contain issued keys. Complete their status without taking stock again.
+    const token = crypto.randomUUID(), now = Date.now()
+    await dbBatchRaw([{
+      sql: `INSERT OR IGNORE INTO order_deliveries (order_id, attempt_id, card_ids, card_key, created_at)
+        SELECT order_id, ?, COALESCE(card_ids, ''), card_key, ? FROM orders WHERE order_id = ? AND status = 'paid' AND COALESCE(card_key, '') != ''`,
+      params: [token, now, orderId],
+    }, {
+      sql: `UPDATE orders SET status = 'delivered', delivered_at = ? WHERE order_id = ? AND status = 'paid'
+        AND EXISTS (SELECT 1 FROM order_deliveries WHERE order_id = ? AND attempt_id = ?)`, params: [now, orderId, orderId, token],
+    }, {
+      sql: `INSERT OR IGNORE INTO inventory_events (event_id, kind, order_id, product_id, created_at)
+        SELECT ?, 'delivery', order_id, product_id, ? FROM orders WHERE order_id = ? AND status = 'delivered'`,
+      params: [`delivery:${orderId}`, now, orderId],
+    }, {
+      sql: `INSERT INTO user_notifications (user_id, type, title_key, content_key, data, created_at)
+        SELECT user_id, 'order_delivered', 'profile.notifications.orderDeliveredTitle', 'profile.notifications.orderDeliveredBody', ?, ?
+        FROM orders WHERE order_id = ? AND status = 'delivered' AND EXISTS (SELECT 1 FROM login_users WHERE user_id = orders.user_id)
+        AND EXISTS (SELECT 1 FROM order_deliveries WHERE order_id = ? AND attempt_id = ?)`,
+      params: [JSON.stringify({ params: { orderId, productName: existing.productName }, href: `/order/${orderId}` }), now, orderId, orderId, token],
+    }])
   }
-
-  if (order.productId && order.cardIds) {
-    try {
-      const result = await pullOneCardFromApi(order.productId)
-      if (result.ok) {
-        console.log(`[Card API] Auto replenished for product ${order.productId}, reason=admin_mark_delivered:${orderId}`)
-      } else if (result.skipped) {
-        console.info(`[Card API] Auto replenish skipped for product ${order.productId}, reason=admin_mark_delivered:${orderId}, detail=${result.error || "skipped"}`)
-      } else {
-        console.warn(`[Card API] Auto replenish failed for product ${order.productId}, reason=admin_mark_delivered:${orderId}, detail=${result.error || "unknown_error"}`)
-      }
-    } catch (error: any) {
-      console.warn(`[Card API] Auto replenish exception for product ${order.productId}, reason=admin_mark_delivered:${orderId}, detail=${error?.message || "unknown_error"}`)
-    }
-  }
-
+  const result = await fulfillPaidOrder(orderId)
+  scheduleInventoryEvents()
+  if (!result.delivered) throw new Error('Stock unavailable or order not awaiting delivery')
   revalidatePath('/admin/orders')
-  revalidatePath(`/admin/orders/${orderId}`)
   revalidatePath(`/order/${orderId}`)
-  if (order?.productId) {
-    try {
-      await recalcProductAggregates(order.productId)
-    } catch {
-      // best effort
-    }
-  }
-  try {
-    updateTag('home:products')
-  } catch {
-    // best effort
-  }
 }
 
 export async function cancelOrder(orderId: string) {
   await checkAdmin()
   if (!orderId) throw new Error("Missing order id")
 
-  // No transaction - D1 doesn't support SQL transactions
-  // 1. Refund points if used
-  const order = await db.query.orders.findFirst({
-    where: eq(orders.orderId, orderId),
-    columns: { userId: true, pointsUsed: true, productId: true }
-  })
-
-  if (order?.userId && order.pointsUsed && order.pointsUsed > 0) {
-    await db.update(loginUsers)
-      .set({ points: sql`${loginUsers.points} + ${order.pointsUsed}` })
-      .where(eq(loginUsers.userId, order.userId))
-  }
-
-  await db.update(orders).set({ status: 'cancelled' }).where(eq(orders.orderId, orderId))
-  try {
-    await dbRun(sql.raw(`ALTER TABLE cards ADD COLUMN reserved_order_id TEXT`));
-  } catch { /* duplicate column */ }
-  try {
-    await dbRun(sql.raw(`ALTER TABLE cards ADD COLUMN reserved_at INTEGER`));
-  } catch { /* duplicate column */ }
-  await db.update(cards).set({ reservedOrderId: null, reservedAt: null })
-    .where(sql`${cards.reservedOrderId} = ${orderId} AND ${cards.isUsed} = false`)
+  const order = await db.query.orders.findFirst({ where: eq(orders.orderId, orderId), columns: { productId: true } })
+  await cancelPendingOrder(orderId)
 
   revalidatePath('/admin/orders')
   revalidatePath(`/admin/orders/${orderId}`)

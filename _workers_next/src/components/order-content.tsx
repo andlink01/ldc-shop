@@ -78,7 +78,7 @@ export function OrderContent({ order, canViewKey, isOwner, refundRequest }: Orde
 
     const getStatusMessage = (status: string) => {
         switch (status) {
-            case 'paid': return isPayment ? t('payment.paidMessage') : t('order.stockDepleted')
+            case 'paid': return isPayment ? t('payment.paidMessage') : t('inventory.paidProcessing')
             case 'cancelled': return t('order.cancelledMessage')
             case 'refunded': return t('order.orderRefunded')
             default: return t('order.waitingPayment')
@@ -90,7 +90,7 @@ export function OrderContent({ order, canViewKey, isOwner, refundRequest }: Orde
 
     // Check status on mount and polling
     useEffect(() => {
-        if (order.status !== 'pending') return
+        if (order.status !== 'pending' && order.status !== 'paid') return
 
         let mounted = true
         let intervalId: NodeJS.Timeout
@@ -98,7 +98,7 @@ export function OrderContent({ order, canViewKey, isOwner, refundRequest }: Orde
         const check = async () => {
             try {
                 const result = await checkOrderStatus(order.orderId)
-                if (result.success && (result.status === 'paid' || result.status === 'delivered') && mounted) {
+                if (result.success && (result.status === 'delivered' || (order.status === 'pending' && result.status === 'paid')) && mounted) {
                     toast.success(t('order.paymentSuccess'))
                     router.refresh()
                 }

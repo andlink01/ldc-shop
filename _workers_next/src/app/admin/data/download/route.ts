@@ -19,10 +19,10 @@ import {
   broadcastReads,
   wishlistItems,
   wishlistVotes,
-  inventoryImports,
+  inventoryImports, inventoryApiKeys, inventoryApiRequests, orderDeliveries, inventoryEvents, supplierRequests,
 } from "@/lib/db/schema"
 import { and, desc, eq, or, sql } from "drizzle-orm"
-import { getProducts, normalizeTimestampMs } from "@/lib/db/queries"
+import { getProducts, normalizeTimestampMs, ensureDatabaseInitialized } from "@/lib/db/queries"
 
 function requireAdminUsername(username?: string | null) {
   const adminUsers = process.env.ADMIN_USERS?.toLowerCase().split(",") || []
@@ -79,7 +79,7 @@ function formatSqlValue(val: any): string {
     return "'" + val.toISOString().replace("T", " ").replace("Z", "") + "'"
   }
   if (typeof val === "number") return String(val)
-  if (typeof val === "string") return escapeString(val)
+  if (typeof val === "string") return val.split(/([\r\n])/).map(part => part === '\n' ? 'char(10)' : part === '\r' ? 'char(13)' : escapeString(part)).join(' || ')
   return escapeString(JSON.stringify(val))
 }
 
@@ -273,6 +273,7 @@ export async function GET(req: Request) {
     }
 
     if (type === "full") {
+      await ensureDatabaseInitialized()
       const full: Record<string, any[]> = {}
       const tables: Array<[string, () => Promise<any[]>]> = [
         ["categories", async () => db.select().from(categories).all()],
@@ -280,6 +281,11 @@ export async function GET(req: Request) {
         ["cards", async () => db.select().from(cards).all()],
         ["inventory_imports", async () => db.select().from(inventoryImports).all()],
         ["orders", async () => db.select().from(orders).all()],
+        ["inventory_api_keys", async () => db.select().from(inventoryApiKeys).all()],
+        ["inventory_api_requests", async () => db.select().from(inventoryApiRequests).all()],
+        ["order_deliveries", async () => db.select().from(orderDeliveries).all()],
+        ["inventory_events", async () => db.select().from(inventoryEvents).all()],
+        ["supplier_requests", async () => db.select().from(supplierRequests).all()],
         ["reviews", async () => db.select().from(reviews).all()],
         ["review_replies", async () => db.select().from(reviewReplies).all()],
         ["settings", async () => db.select().from(settings).all()],
@@ -386,6 +392,34 @@ export async function GET(req: Request) {
           // Broadcast / admin messages
           targetType: 'target_type',
           targetValue: 'target_value',
+            tokenHash: 'token_hash',
+            tokenPrefix: 'token_prefix',
+            productIds: 'product_ids',
+            canRead: 'can_read',
+            canWrite: 'can_write',
+            isEnabled: 'is_enabled',
+            lastUsedAt: 'last_used_at',
+            createdBy: 'created_by',
+            keyId: 'key_id',
+            addedCount: 'added_count',
+            durationMs: 'duration_ms',
+            attemptId: 'attempt_id',
+            eventId: 'event_id',
+            telegramSent: 'telegram_sent',
+            barkSent: 'bark_sent',
+            emailSent: 'email_sent',
+            replenishAttempted: 'replenish_attempted',
+            leaseToken: 'lease_token',
+            leaseUntil: 'lease_until',
+            nextAttemptAt: 'next_attempt_at',
+            completedAt: 'completed_at',
+
+            supplierRequestId: 'supplier_request_id',
+            requestId: 'request_id',
+            itemIndex: 'item_index',
+            serverUrl: 'server_url',
+            cardId: 'card_id',
+
         }
 
         for (const [tableName, rows] of Object.entries(full)) {

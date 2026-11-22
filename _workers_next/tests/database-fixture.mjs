@@ -51,7 +51,7 @@ function d1Binding(sqlite) {
     };
 }
 
-export function fixture(t, { env: overrides = {}, initialize = true } = {}) {
+export function fixture(t, { env: overrides = {}, initialize = true, fetch: initialFetch, mocks: extraMocks = {} } = {}) {
     const directory = mkdtempSync(path.join(tmpdir(), 'ldc-db-test-'));
     const sqlite = isDocker ? null : new DatabaseSync(':memory:');
     sqlite?.exec('PRAGMA foreign_keys = ON');
@@ -61,6 +61,7 @@ export function fixture(t, { env: overrides = {}, initialize = true } = {}) {
         INVENTORY_API_KEY: API_KEY, NEXT_PUBLIC_APP_URL: 'https://shop.example', ...overrides,
     };
     const invalidations = [];
+    let networkFetch = initialFetch || (() => { throw new Error('Network disabled in database tests'); });
     const modules = new Map();
     const mocks = {
         '@opennextjs/cloudflare': { getCloudflareContext: () => ({ env: { DB: binding } }) },
@@ -69,6 +70,8 @@ export function fixture(t, { env: overrides = {}, initialize = true } = {}) {
             updateTag() {}, unstable_cache: (fn) => fn,
         },
         react: { cache: (fn) => fn },
+        'next/server': { after() {} },
+        ...extraMocks,
     };
     function load(relative) {
         const resolved = ['.ts', '.tsx', '/index.ts'].map((suffix) => path.join(root, 'src', relative + suffix)).find(existsSync);
@@ -89,6 +92,7 @@ export function fixture(t, { env: overrides = {}, initialize = true } = {}) {
             },
             process: { env, cwd: () => root }, console: { log() {}, warn() {}, error() {} },
             crypto: globalThis.crypto, TextEncoder, TextDecoder, Request, Response, URL, Date,
+            fetch: (...args) => networkFetch(...args), AbortSignal,
             setTimeout, clearTimeout, Buffer,
         }, { filename: resolved });
         return loadedModule.exports;
@@ -103,6 +107,7 @@ export function fixture(t, { env: overrides = {}, initialize = true } = {}) {
     });
     return {
         ...driver, schema, queries, load, env, invalidations,
+        setFetch(fn) { networkFetch = fn; },
         reload(relative) {
             modules.delete(path.join(root, 'src', relative + '.ts'));
             return load(relative);

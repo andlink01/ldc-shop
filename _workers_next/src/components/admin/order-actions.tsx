@@ -4,6 +4,8 @@ import Link from "next/link"
 import { useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { markOrderDelivered, markOrderPaid, cancelOrder } from "@/actions/admin-orders"
+import { retryOrderDelivery } from '@/actions/inventory'
+import { useRouter } from 'next/navigation'
 import { toast } from "sonner"
 import { useI18n } from "@/lib/i18n/context"
 import { CheckCircle, Truck, XCircle, ExternalLink } from "lucide-react"
@@ -13,16 +15,23 @@ export function AdminOrderActions({ order }: { order: any }) {
   const [loading, setLoading] = useState(false)
   const loadingRef = useRef(false)
 
+  const router = useRouter()
   const status = order.status || 'pending'
   const canMarkPaid = status === 'pending'
   const canMarkDelivered = status === 'paid' && !!order.cardKey
   const canCancel = status === 'pending'
 
-  const handle = async (action: 'paid' | 'delivered' | 'cancel') => {
+  const handle = async (action: 'paid' | 'delivered' | 'cancel' | 'retry') => {
     if (loadingRef.current) return
     try {
       loadingRef.current = true
       setLoading(true)
+      if (action === 'retry') {
+        const result = await retryOrderDelivery(order.orderId)
+        if (result.delivered) toast.success(t('common.success'))
+        else toast.info(t('inventory.waitingStock'))
+        return
+      }
       if (action === 'paid') {
         if (!confirm(t('admin.orders.confirmMarkPaid'))) return
         await markOrderPaid(order.orderId)
@@ -43,6 +52,7 @@ export function AdminOrderActions({ order }: { order: any }) {
     } catch (e: any) {
       toast.error(e.message)
     } finally {
+      router.refresh()
       setLoading(false)
       loadingRef.current = false
     }
@@ -55,6 +65,9 @@ export function AdminOrderActions({ order }: { order: any }) {
           <ExternalLink className="h-3.5 w-3.5" />
         </Link>
       </Button>
+      {status === 'paid' && !order.cardKey && order.productId !== 'payment_link' && (
+        <Button variant="outline" size="sm" onClick={() => handle('retry')} disabled={loading}>{t('inventory.retryDelivery')}</Button>
+      )}
       {canMarkPaid && (
         <Button variant="outline" size="sm" onClick={() => handle('paid')} title={t('admin.orders.markPaid')} disabled={loading}>
           <CheckCircle className="h-3.5 w-3.5" />

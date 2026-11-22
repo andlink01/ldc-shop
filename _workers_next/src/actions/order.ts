@@ -1,11 +1,14 @@
 'use server'
 
+import { cancelPendingOrder as cancelInventoryOrder } from '@/lib/order-transitions'
+import { fulfillPaidOrder } from '@/lib/fulfillment'
+import { scheduleInventoryEvents } from '@/lib/inventory-events'
 import { auth } from "@/lib/auth"
 import { queryOrderStatus } from "@/lib/epay"
 import { processOrderFulfillment } from "@/lib/order-processing"
 import { revalidatePath } from "next/cache"
 import { db } from "@/lib/db"
-import { orders, cards } from "@/lib/db/schema"
+import { orders } from "@/lib/db/schema"
 import { eq } from "drizzle-orm"
 import { withOrderColumnFallback, recalcProductAggregates } from "@/lib/db/queries"
 import { cookies } from "next/headers"
@@ -19,15 +22,11 @@ export async function checkOrderStatus(orderId: string) {
     const order = await withOrderColumnFallback(async () => {
         return await db.query.orders.findFirst({
             where: eq(orders.orderId, orderId),
-            columns: { userId: true, status: true, amount: true, currentPaymentId: true }
+            columns: { userId: true, status: true, amount: true, currentPaymentId: true, productId: true, cardKey: true }
         })
     })
 
     if (!order) return { success: false, error: 'Order not found' }
-    if (order.status === 'paid' || order.status === 'delivered') {
-        return { success: true, status: order.status }
-    }
-
     const cookieStore = await cookies()
     const pending = cookieStore.get('ldc_pending_order')?.value
     const hasPendingCookie = pending === orderId
@@ -39,6 +38,16 @@ export async function checkOrderStatus(orderId: string) {
         }
     } else if (!hasPendingCookie) {
         return { success: false, error: 'Unauthorized' }
+    }
+
+    if (order.status === 'paid' || order.status === 'delivered') {
+        if (order.status === 'paid' && !order.cardKey && order.productId !== 'payment_link') {
+            await fulfillPaidOrder(orderId)
+            scheduleInventoryEvents()
+            const refreshed = await db.query.orders.findFirst({ where: eq(orders.orderId, orderId), columns: { status: true } })
+            return { success: true, status: refreshed?.status || order.status }
+        }
+        return { success: true, status: order.status }
     }
 
     try {
@@ -84,15 +93,7 @@ export async function cancelPendingOrder(orderId: string) {
     if (order.status !== 'pending') return { success: false, error: 'order.cannotCancel' }
 
     try {
-        // Release reserved cards
-        await db.update(cards)
-            .set({ reservedOrderId: null, reservedAt: null })
-            .where(eq(cards.reservedOrderId, orderId))
-
-        // Update order status
-        await db.update(orders)
-            .set({ status: 'cancelled' })
-            .where(eq(orders.orderId, orderId))
+        await cancelInventoryOrder(orderId)
 
         revalidatePath(`/order/${orderId}`)
         revalidatePath('/orders')

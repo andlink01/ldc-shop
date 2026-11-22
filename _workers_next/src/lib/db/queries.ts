@@ -4,12 +4,13 @@ import { INFINITE_STOCK, RESERVATION_TTL_MS } from "@/lib/constants";
 import { eq, sql, desc, and, asc, gte, or, inArray, lte, lt, isNull } from "drizzle-orm";
 import { updateTag, revalidatePath } from "next/cache";
 import { cache } from "react";
+import { ensureInventoryFeatureTables } from './inventory-schema';
 
 // Database initialization state
 let dbInitialized = false;
 let loginUsersSchemaReady = false;
 let wishlistTablesReady = false;
-const CURRENT_SCHEMA_VERSION = 22;
+const CURRENT_SCHEMA_VERSION = 24;
 type ColumnEnsureKey = 'products' | 'orders' | 'cards' | 'loginUsers';
 const columnEnsureState: Record<ColumnEnsureKey, { ready: boolean; pending: Promise<void> | null }> = {
     products: { ready: false, pending: null },
@@ -165,9 +166,11 @@ export async function ensureDatabaseInitialized() {
                 dbInitialized = true;
                 return;
             }
-            if (parsedVersion === 20 || parsedVersion === 21) {
+            if (parsedVersion >= 20 && parsedVersion < CURRENT_SCHEMA_VERSION) {
                 await ensureProductsColumns();
                 await ensureInventoryImportsTable();
+                await ensureCardsColumns();
+                await ensureInventoryFeatureTables();
                 await setSetting('schema_version', String(CURRENT_SCHEMA_VERSION));
                 dbInitialized = true;
                 return;
@@ -194,6 +197,7 @@ export async function ensureDatabaseInitialized() {
         await ensureWishlistTables();
         await ensureReviewRepliesTable();
         await ensureInventoryImportsTable();
+        await ensureInventoryFeatureTables();
         await migrateTimestampColumnsToMs();
         await migrateMalformedGitHubUserIds();
         await migrateGitHubUsersDedupAndCanonicalize();
@@ -245,6 +249,7 @@ export async function ensureDatabaseInitialized() {
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             product_id TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
             card_key TEXT NOT NULL,
+            supplier_request_id TEXT,
             is_used INTEGER DEFAULT 0,
             reserved_order_id TEXT,
             reserved_at INTEGER,
@@ -427,6 +432,8 @@ export async function ensureDatabaseInitialized() {
 
     // Set initial schema version
     await ensureInventoryImportsTable();
+    await ensureCardsColumns();
+    await ensureInventoryFeatureTables();
     try {
         await setSetting('schema_version', String(CURRENT_SCHEMA_VERSION));
     } catch {
@@ -485,6 +492,7 @@ async function ensureCardsColumns() {
         await safeAddColumn('cards', 'reserved_order_id', 'TEXT');
         await safeAddColumn('cards', 'reserved_at', 'INTEGER');
         await safeAddColumn('cards', 'expires_at', 'INTEGER');
+        await safeAddColumn('cards', 'supplier_request_id', 'TEXT');
     });
 }
 
@@ -560,8 +568,8 @@ export async function recalcProductAggregates(productId: string) {
     try {
         const cardRows = await db.select({
             unused: sql<number>`COALESCE(SUM(CASE WHEN COALESCE(${cards.isUsed}, 0) = 0 AND (${cards.expiresAt} IS NULL OR ${cards.expiresAt} > ${nowMs}) THEN 1 ELSE 0 END), 0)`,
-            available: sql<number>`COALESCE(SUM(CASE WHEN COALESCE(${cards.isUsed}, 0) = 0 AND (${cards.expiresAt} IS NULL OR ${cards.expiresAt} > ${nowMs}) AND (${cards.reservedAt} IS NULL OR ${cards.reservedAt} < ${fiveMinutesAgo}) THEN 1 ELSE 0 END), 0)`,
-            locked: sql<number>`COALESCE(SUM(CASE WHEN COALESCE(${cards.isUsed}, 0) = 0 AND (${cards.expiresAt} IS NULL OR ${cards.expiresAt} > ${nowMs}) AND ${cards.reservedAt} IS NOT NULL AND ${cards.reservedAt} >= ${fiveMinutesAgo} THEN 1 ELSE 0 END), 0)`
+            available: sql<number>`COALESCE(SUM(CASE WHEN COALESCE(${cards.isUsed}, 0) = 0 AND (${cards.expiresAt} IS NULL OR ${cards.expiresAt} > ${nowMs}) AND (${cards.reservedAt} IS NULL OR ${cards.reservedAt} < ${fiveMinutesAgo}) AND NOT EXISTS (SELECT 1 FROM orders holding WHERE holding.order_id = ${cards.reservedOrderId} AND holding.status = 'paid') THEN 1 ELSE 0 END), 0)`,
+            locked: sql<number>`COALESCE(SUM(CASE WHEN COALESCE(${cards.isUsed}, 0) = 0 AND (${cards.expiresAt} IS NULL OR ${cards.expiresAt} > ${nowMs}) AND ((${cards.reservedAt} IS NOT NULL AND ${cards.reservedAt} >= ${fiveMinutesAgo}) OR EXISTS (SELECT 1 FROM orders holding WHERE holding.order_id = ${cards.reservedOrderId} AND holding.status = 'paid')) THEN 1 ELSE 0 END), 0)`
         })
             .from(cards)
             .where(eq(cards.productId, pid));
@@ -668,8 +676,8 @@ export async function recalcProductAggregatesForMany(productIds: string[]) {
             const cardRows = await db.select({
                 productId: cards.productId,
                 unused: sql<number>`COALESCE(SUM(CASE WHEN COALESCE(${cards.isUsed}, 0) = 0 AND (${cards.expiresAt} IS NULL OR ${cards.expiresAt} > ${nowMs}) THEN 1 ELSE 0 END), 0)`,
-                available: sql<number>`COALESCE(SUM(CASE WHEN COALESCE(${cards.isUsed}, 0) = 0 AND (${cards.expiresAt} IS NULL OR ${cards.expiresAt} > ${nowMs}) AND (${cards.reservedAt} IS NULL OR ${cards.reservedAt} < ${fiveMinutesAgo}) THEN 1 ELSE 0 END), 0)`,
-                locked: sql<number>`COALESCE(SUM(CASE WHEN COALESCE(${cards.isUsed}, 0) = 0 AND (${cards.expiresAt} IS NULL OR ${cards.expiresAt} > ${nowMs}) AND ${cards.reservedAt} IS NOT NULL AND ${cards.reservedAt} >= ${fiveMinutesAgo} THEN 1 ELSE 0 END), 0)`
+                available: sql<number>`COALESCE(SUM(CASE WHEN COALESCE(${cards.isUsed}, 0) = 0 AND (${cards.expiresAt} IS NULL OR ${cards.expiresAt} > ${nowMs}) AND (${cards.reservedAt} IS NULL OR ${cards.reservedAt} < ${fiveMinutesAgo}) AND NOT EXISTS (SELECT 1 FROM orders holding WHERE holding.order_id = ${cards.reservedOrderId} AND holding.status = 'paid') THEN 1 ELSE 0 END), 0)`,
+                locked: sql<number>`COALESCE(SUM(CASE WHEN COALESCE(${cards.isUsed}, 0) = 0 AND (${cards.expiresAt} IS NULL OR ${cards.expiresAt} > ${nowMs}) AND ((${cards.reservedAt} IS NOT NULL AND ${cards.reservedAt} >= ${fiveMinutesAgo}) OR EXISTS (SELECT 1 FROM orders holding WHERE holding.order_id = ${cards.reservedOrderId} AND holding.status = 'paid')) THEN 1 ELSE 0 END), 0)`
             })
                 .from(cards)
                 .where(inArray(cards.productId, batch))
@@ -807,8 +815,8 @@ export async function getLiveCardStats(productIds: string[]): Promise<Map<string
             const rows = await db.select({
                 productId: cards.productId,
                 unused: sql<number>`COALESCE(SUM(CASE WHEN COALESCE(${cards.isUsed}, 0) = 0 AND (${cards.expiresAt} IS NULL OR ${cards.expiresAt} > ${nowMs}) THEN 1 ELSE 0 END), 0)`,
-                available: sql<number>`COALESCE(SUM(CASE WHEN COALESCE(${cards.isUsed}, 0) = 0 AND (${cards.expiresAt} IS NULL OR ${cards.expiresAt} > ${nowMs}) AND (${cards.reservedAt} IS NULL OR ${cards.reservedAt} < ${fiveMinutesAgo}) THEN 1 ELSE 0 END), 0)`,
-                locked: sql<number>`COALESCE(SUM(CASE WHEN COALESCE(${cards.isUsed}, 0) = 0 AND (${cards.expiresAt} IS NULL OR ${cards.expiresAt} > ${nowMs}) AND ${cards.reservedAt} IS NOT NULL AND ${cards.reservedAt} >= ${fiveMinutesAgo} THEN 1 ELSE 0 END), 0)`
+                available: sql<number>`COALESCE(SUM(CASE WHEN COALESCE(${cards.isUsed}, 0) = 0 AND (${cards.expiresAt} IS NULL OR ${cards.expiresAt} > ${nowMs}) AND (${cards.reservedAt} IS NULL OR ${cards.reservedAt} < ${fiveMinutesAgo}) AND NOT EXISTS (SELECT 1 FROM orders holding WHERE holding.order_id = ${cards.reservedOrderId} AND holding.status = 'paid') THEN 1 ELSE 0 END), 0)`,
+                locked: sql<number>`COALESCE(SUM(CASE WHEN COALESCE(${cards.isUsed}, 0) = 0 AND (${cards.expiresAt} IS NULL OR ${cards.expiresAt} > ${nowMs}) AND ((${cards.reservedAt} IS NOT NULL AND ${cards.reservedAt} >= ${fiveMinutesAgo}) OR EXISTS (SELECT 1 FROM orders holding WHERE holding.order_id = ${cards.reservedOrderId} AND holding.status = 'paid')) THEN 1 ELSE 0 END), 0)`
             })
                 .from(cards)
                 .where(inArray(cards.productId, batch))
@@ -874,6 +882,14 @@ export async function withOrderColumnFallback<T>(fn: () => Promise<T>): Promise<
     }
 }
 
+
+export function onDemandProductCondition() {
+    return sql`COALESCE(${products.isShared}, 0) = 0
+        AND EXISTS (SELECT 1 FROM settings WHERE key = 'cards_api_mode_' || ${products.id} AND value = 'on_demand')
+        AND EXISTS (SELECT 1 FROM settings WHERE key = 'cards_api_enabled_' || ${products.id} AND value = 'true')
+        AND EXISTS (SELECT 1 FROM settings WHERE key = 'cards_api_url_' || ${products.id} AND COALESCE(value, '') != '')`
+}
+
 export async function getProducts() {
     return await withProductColumnFallback(async () => {
         return await db.select({
@@ -889,12 +905,13 @@ export async function getProducts() {
             isHot: products.isHot,
             isActive: products.isActive,
             isShared: products.isShared,
+            isOnDemand: sql<number>`CASE WHEN ${onDemandProductCondition()} THEN 1 ELSE 0 END`,
             visibilityLevel: products.visibilityLevel,
             sortOrder: products.sortOrder,
             purchaseLimit: products.purchaseLimit,
             variantGroupId: products.variantGroupId,
             variantLabel: products.variantLabel,
-            stock: sql<number>`COALESCE(${products.stockCount}, 0)`,
+            stock: sql<number>`CASE WHEN ${onDemandProductCondition()} THEN ${INFINITE_STOCK} ELSE COALESCE(${products.stockCount}, 0) END`,
             locked: sql<number>`COALESCE(${products.lockedCount}, 0)`,
             sold: sql<number>`COALESCE(${products.soldCount}, 0)`
         })
@@ -932,13 +949,14 @@ export async function getActiveProducts(options?: { isLoggedIn?: boolean; trustL
             category: products.category,
             isHot: products.isHot,
             isShared: products.isShared,
+            isOnDemand: sql<number>`CASE WHEN ${onDemandProductCondition()} THEN 1 ELSE 0 END`,
             purchaseLimit: products.purchaseLimit,
             visibilityLevel: products.visibilityLevel,
             sortOrder: products.sortOrder,
             createdAt: products.createdAt,
             variantGroupId: products.variantGroupId,
             variantLabel: products.variantLabel,
-            stock: sql<number>`COALESCE(${products.stockCount}, 0)`,
+            stock: sql<number>`CASE WHEN ${onDemandProductCondition()} THEN ${INFINITE_STOCK} ELSE COALESCE(${products.stockCount}, 0) END`,
             locked: sql<number>`COALESCE(${products.lockedCount}, 0)`,
             sold: sql<number>`COALESCE(${products.soldCount}, 0)`,
             rating: sql<number>`COALESCE(${products.rating}, 0)`,
@@ -1100,11 +1118,12 @@ export async function getProduct(id: string, options?: { isLoggedIn?: boolean; t
             isHot: products.isHot,
             isActive: products.isActive,
             isShared: products.isShared,
+            isOnDemand: sql<number>`CASE WHEN ${onDemandProductCondition()} THEN 1 ELSE 0 END`,
             sold: sql<number>`COALESCE(${products.soldCount}, 0)`,
             purchaseLimit: products.purchaseLimit,
             purchaseWarning: products.purchaseWarning,
             visibilityLevel: products.visibilityLevel,
-            stock: sql<number>`COALESCE(${products.stockCount}, 0)`,
+            stock: sql<number>`CASE WHEN ${onDemandProductCondition()} THEN ${INFINITE_STOCK} ELSE COALESCE(${products.stockCount}, 0) END`,
             locked: sql<number>`COALESCE(${products.lockedCount}, 0)`,
             rating: sql<number>`COALESCE(${products.rating}, 0)`,
             reviewCount: sql<number>`COALESCE(${products.reviewCount}, 0)`,
@@ -1140,6 +1159,7 @@ export async function getProductVisibility(id: string) {
 }
 
 export type ProductVariantRow = {
+    isOnDemand?: number;
     id: string;
     name: string;
     description: string | null;
@@ -1174,10 +1194,11 @@ export async function getProductVariants(
             image: products.image,
             productImages: products.productImages,
             variantLabel: products.variantLabel,
-            stock: sql<number>`COALESCE(${products.stockCount}, 0)`,
+            stock: sql<number>`CASE WHEN ${onDemandProductCondition()} THEN ${INFINITE_STOCK} ELSE COALESCE(${products.stockCount}, 0) END`,
             locked: sql<number>`COALESCE(${products.lockedCount}, 0)`,
             sold: sql<number>`COALESCE(${products.soldCount}, 0)`,
             isShared: products.isShared,
+            isOnDemand: sql<number>`CASE WHEN ${onDemandProductCondition()} THEN 1 ELSE 0 END`,
             purchaseLimit: products.purchaseLimit,
             isHot: products.isHot,
             purchaseWarning: products.purchaseWarning,
@@ -1222,6 +1243,7 @@ export async function getProductForAdmin(id: string) {
             isHot: products.isHot,
             isActive: products.isActive,
             isShared: products.isShared,
+            isOnDemand: sql<number>`CASE WHEN ${onDemandProductCondition()} THEN 1 ELSE 0 END`,
             purchaseLimit: products.purchaseLimit,
             purchaseWarning: products.purchaseWarning,
             visibilityLevel: products.visibilityLevel,
@@ -1542,12 +1564,13 @@ export async function searchActiveProducts(params: {
             category: products.category,
             isHot: products.isHot,
             isShared: products.isShared,
+            isOnDemand: sql<number>`CASE WHEN ${onDemandProductCondition()} THEN 1 ELSE 0 END`,
             purchaseLimit: products.purchaseLimit,
             sortOrder: products.sortOrder,
             createdAt: products.createdAt,
             variantGroupId: products.variantGroupId,
             variantLabel: products.variantLabel,
-            stock: sql<number>`COALESCE(${products.stockCount}, 0)`,
+            stock: sql<number>`CASE WHEN ${onDemandProductCondition()} THEN ${INFINITE_STOCK} ELSE COALESCE(${products.stockCount}, 0) END`,
             locked: sql<number>`COALESCE(${products.lockedCount}, 0)`,
             sold: sql<number>`COALESCE(${products.soldCount}, 0)`,
             rating: sql<number>`COALESCE(${products.rating}, 0)`,
@@ -2500,7 +2523,7 @@ export async function cleanupExpiredCardsIfNeeded(throttleMs: number = 10 * 60 *
     }
 
     try {
-        await dbRun(sql`DELETE FROM cards WHERE expires_at IS NOT NULL AND expires_at < ${now}`);
+        await dbRun(sql`UPDATE cards SET reserved_at = NULL, reserved_order_id = NULL WHERE expires_at IS NOT NULL AND expires_at <= ${now} AND COALESCE(is_used, 0) = 0 AND NOT EXISTS (SELECT 1 FROM orders holding WHERE holding.order_id = cards.reserved_order_id AND holding.status = 'paid')`);
     } catch (error: any) {
         if (!isMissingTableOrColumn(error)) throw error;
     }
@@ -2575,17 +2598,8 @@ export async function cancelExpiredOrders(filters: { productId?: string; userId?
         for (const expired of candidates) {
             const expiredOrderId = expired.orderId;
             if (!expiredOrderId) continue;
-            try {
-                // Mirror manual cancel behavior to guarantee release
-                await db.update(cards)
-                    .set({ reservedOrderId: null, reservedAt: null })
-                    .where(eq(cards.reservedOrderId, expiredOrderId));
-            } catch (error: any) {
-                if (!isMissingTableOrColumn(error)) throw error;
-            }
-            await db.update(orders)
-                .set({ status: 'cancelled' })
-                .where(eq(orders.orderId, expiredOrderId));
+            const { cancelPendingOrder } = await import('@/lib/order-transitions');
+            await cancelPendingOrder(expiredOrderId, fiveMinutesAgoMs);
         }
 
         const productIds = Array.from(new Set(candidates.map((row) => row.productId).filter(Boolean)));

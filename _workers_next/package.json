@@ -1,6 +1,6 @@
 {
   "name": "ldc-shop",
-  "version": "1.4.3",
+  "version": "1.5.0",
   "private": true,
   "scripts": {
     "dev": "next dev --webpack",
@@ -11,7 +11,8 @@
     "test:inventory": "node --test tests/inventory-api.test.mjs",
     "test:db": "node --test tests/database.test.mjs",
     "test:update": "node --test tests/update-check.test.mjs",
-    "deploy": "opennextjs-cloudflare build && wrangler deploy"
+    "deploy": "opennextjs-cloudflare build && wrangler deploy",
+    "test:features": "node --test tests/fulfillment.test.mjs tests/inventory-management.test.mjs tests/supplier-fulfillment.test.mjs tests/order-processing.test.mjs tests/notification-events.test.mjs tests/inventory-backup.test.mjs"
   },
   "dependencies": {
     "@opennextjs/cloudflare": "^1.19.11",

@@ -48,12 +48,17 @@ export async function getEmailSettings() {
     }
 }
 
+function escapeEmailHtml(value: string) {
+    return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;')
+}
+
 interface OrderEmailParams {
     to: string
     orderId: string
     productName: string
     cardKeys: string
     language?: 'zh' | 'en'
+    idempotencyKey?: string
 }
 
 const emailTemplates = {
@@ -163,20 +168,19 @@ export async function sendOrderEmail(params: OrderEmailParams) {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${settings.apiKey}`
+                'Authorization': `Bearer ${settings.apiKey}`,
+                ...(params.idempotencyKey ? { 'Idempotency-Key': params.idempotencyKey } : {}),
             },
             body: JSON.stringify({
                 from: `${settings.fromName} <${settings.fromEmail}>`,
                 to: params.to,
                 subject: template.subject(params.orderId),
-                html: template.body(params)
-            })
+                html: template.body({ ...params, productName: escapeEmailHtml(params.productName), orderId: escapeEmailHtml(params.orderId), cardKeys: escapeEmailHtml(params.cardKeys) })
+            }), signal: AbortSignal.timeout(15000), redirect: 'error',
         })
 
         if (!response.ok) {
-            const error = await response.text()
-            console.error('[Email] Resend API Error:', error)
-            return { success: false, error }
+            return { success: false, error: `Email HTTP ${response.status}` }
         }
 
         const result = await response.json()
@@ -213,7 +217,7 @@ export async function testResendEmail(to: string) {
                         <p style="color: #666; font-size: 14px;">This is a test email from LDC Shop.</p>
                     </div>
                 `
-            })
+            }), signal: AbortSignal.timeout(15000), redirect: 'error',
         })
 
         if (!response.ok) {

@@ -124,7 +124,7 @@ export function NotificationsContent({ settings }: NotificationsContentProps) {
             if (res.success) {
                 toast.success(t('admin.settings.notifications.barkTestSuccess'))
             } else {
-                toast.error(t('admin.settings.notifications.barkTestFailed', { error: res.error }))
+                toast.error(t('admin.settings.notifications.barkTestFailed', { error: res.error || t('common.error') }))
             }
         } catch {
             toast.error(t('common.error'))

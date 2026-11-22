@@ -28,11 +28,13 @@ function toAbsoluteUrl(input: string, baseUrl: string) {
     const raw = (input || "").trim()
     if (!raw) return ""
     try {
-        return new URL(raw).toString()
+        const url = new URL(raw)
+        return ['http:', 'https:'].includes(url.protocol) && !url.username && !url.password ? url.toString() : ''
     } catch {
         if (!baseUrl) return ""
         try {
-            return new URL(raw, baseUrl).toString()
+            const url = new URL(raw, baseUrl)
+            return ['http:', 'https:'].includes(url.protocol) && !url.username && !url.password ? url.toString() : ''
         } catch {
             return ""
         }
@@ -76,9 +78,9 @@ export async function getNotificationSettings() {
     const appBaseUrl = getAppBaseUrl()
     const shopLogo = resolveEffectiveShopLogo(values.shop_logo || "", values.shop_logo_source || "").effectiveLogo
     const shopLogoUpdatedAt = (values.shop_logo_updated_at || "").trim()
-    const barkIconUrl = shopLogo
-        ? toAbsoluteUrl(shopLogo, appBaseUrl)
-        : (appBaseUrl ? `${appBaseUrl}/favicon${shopLogoUpdatedAt ? `?v=${encodeURIComponent(shopLogoUpdatedAt)}` : ""}` : "")
+    const logoUrl = toAbsoluteUrl(shopLogo, appBaseUrl)
+    const barkIconUrl = logoUrl && logoUrl.length <= 2048 ? logoUrl
+        : (appBaseUrl ? `${appBaseUrl}/favicon${shopLogoUpdatedAt ? `?v=${encodeURIComponent(shopLogoUpdatedAt.slice(0, 100))}` : ""}` : "")
 
     return {
         token,
@@ -118,7 +120,7 @@ export async function sendTelegramMessage(text: string) {
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify(body)
+            body: JSON.stringify(body), signal: AbortSignal.timeout(15_000), redirect: 'error',
         })
 
         if (!response.ok) {
@@ -138,63 +140,64 @@ function normalizeBarkServerUrl(raw: string) {
     const trimmed = (raw || "").trim()
     const withProtocol = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`
     const parsed = new URL(withProtocol)
+    if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password || parsed.search || parsed.hash) throw new Error('Invalid Bark server address')
     const pathname = parsed.pathname.replace(/\/+$/, "")
     return `${parsed.origin}${pathname}`
 }
 
-export async function sendBarkMessage(
-    title: string,
-    body: string,
-    options?: { url?: string; group?: string }
-) {
-    try {
-        const { barkEnabled, barkServerUrl, barkDeviceKey, barkIconUrl } = await getNotificationSettings()
-
-        if (!barkEnabled) {
-            console.log('[Notification] Bark skipped: disabled')
-            return { success: false, error: 'Bark disabled' }
-        }
-
-        if (!barkDeviceKey) {
-            console.log('[Notification] Bark skipped: missing device key')
-            return { success: false, error: 'Missing Bark device key' }
-        }
-
-        const baseUrl = normalizeBarkServerUrl(barkServerUrl || 'https://api.day.app')
-        const safeTitle = (title || 'LDC Shop').trim() || 'LDC Shop'
-        const safeBody = (body || '-').trim() || '-'
-
-        let requestUrl = `${baseUrl}/${encodeURIComponent(barkDeviceKey)}/${encodeURIComponent(safeTitle)}/${encodeURIComponent(safeBody)}`
-        const query = new URLSearchParams()
-        if (options?.url) query.set('url', options.url)
-        if (options?.group) query.set('group', options.group)
-        if (barkIconUrl) query.set('icon', barkIconUrl)
-        const queryString = query.toString()
-        if (queryString) {
-            requestUrl += `?${queryString}`
-        }
-
-        const response = await fetch(requestUrl, {
-            method: 'GET',
-            headers: {
-                Accept: 'application/json, text/plain;q=0.9, */*;q=0.8'
-            },
-            cache: 'no-store'
-        })
-
-        if (!response.ok) {
-            const error = await response.text()
-            console.error('[Notification] Bark API Error:', error)
-            return { success: false, error }
-        }
-
-        return { success: true }
-    } catch (e: any) {
-        console.error('[Notification] Bark Send Error:', e)
-        return { success: false, error: e.message }
+function truncatePushText(value: string, maxBytes: number) {
+    const encoder = new TextEncoder()
+    let bytes = 0, result = ''
+    for (const character of value) {
+        const size = encoder.encode(character).length
+        if (bytes + size > maxBytes) break
+        bytes += size
+        result += character
     }
+    return result
 }
 
+export async function sendBarkMessage(title: string, body: string, options?: { url?: string; group?: string }) {
+    try {
+        const { barkEnabled, barkServerUrl, barkDeviceKey, barkIconUrl } = await getNotificationSettings()
+        if (!barkEnabled) return { success: false, error: 'Bark disabled' }
+        if (!barkDeviceKey) return { success: false, error: 'Missing Bark device key' }
+        const baseUrl = normalizeBarkServerUrl(barkServerUrl || 'https://api.day.app')
+        const push = {
+            device_key: barkDeviceKey,
+            title: truncatePushText((title || 'LDC Shop').trim() || 'LDC Shop', 256),
+            body: truncatePushText((body || '-').trim() || '-', 2400),
+            ...(options?.group ? { group: truncatePushText(options.group, 100) } : {}),
+            ...(options?.url && toAbsoluteUrl(options.url, '').length <= 1000 ? { url: toAbsoluteUrl(options.url, '') } : {}),
+            ...(barkIconUrl ? { icon: barkIconUrl } : {}),
+        }
+        // JSON escaping and optional URLs also consume the APNs payload budget.
+        while (new TextEncoder().encode(JSON.stringify(push)).length > 3500 && push.body.length > 1) {
+            push.body = Array.from(push.body).slice(0, -100).join('') || '-'
+        }
+        if (new TextEncoder().encode(JSON.stringify(push)).length > 3500) delete push.icon
+        if (new TextEncoder().encode(JSON.stringify(push)).length > 3500) delete push.url
+        const response = await fetch(`${baseUrl}/push`, {
+            method: 'POST',
+            headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+            body: JSON.stringify(push),
+            cache: 'no-store', signal: AbortSignal.timeout(15_000), redirect: 'error',
+        })
+        if (!response.ok) {
+            console.error('[Notification] Bark HTTP error:', response.status)
+            return { success: false, error: `Bark HTTP ${response.status}${response.status >= 500 ? ' (服务暂时不可用，请稍后重试)' : ''}` }
+        }
+        const payload: unknown = await response.json()
+        if (!payload || typeof payload !== 'object' || !('code' in payload) || payload.code !== 200) {
+            return { success: false, error: 'Bark rejected the push; check the device key and server address' }
+        }
+        return { success: true }
+    } catch {
+        // Never log the request URL, JSON body or device key.
+        console.error('[Notification] Bark request failed')
+        return { success: false, error: 'Bark network error; check the server address and try again' }
+    }
+}
 // 消息模板
 const messages = {
     zh: {
@@ -242,18 +245,18 @@ export async function notifyAdminPaymentSuccess(order: {
     email?: string | null,
     username?: string | null,
     tradeNo?: string | null
-}) {
+}, channels?: { telegram?: boolean; bark?: boolean }) {
     const { language } = await getNotificationSettings()
     const t = messages[language as keyof typeof messages] || messages.zh
 
     const telegramText = `
 <b>${t.paymentTitle}</b>
 
-<b>${t.order}:</b> <code>${order.orderId}</code>
-<b>${t.product}:</b> ${order.productName}
-<b>${t.amount}:</b> ${order.amount}
-<b>${t.user}:</b> ${order.username || t.guest} (${order.email || t.noEmail})
-<b>${t.tradeNo}:</b> <code>${order.tradeNo || 'N/A'}</code>
+<b>${t.order}:</b> <code>${escapeHtml(order.orderId)}</code>
+<b>${t.product}:</b> ${escapeHtml(order.productName)}
+<b>${t.amount}:</b> ${escapeHtml(order.amount)}
+<b>${t.user}:</b> ${escapeHtml(order.username || t.guest)} (${escapeHtml(order.email || t.noEmail)})
+<b>${t.tradeNo}:</b> <code>${escapeHtml(order.tradeNo || 'N/A')}</code>
 `.trim()
 
     const barkBody = [
@@ -265,15 +268,18 @@ export async function notifyAdminPaymentSuccess(order: {
     ].join('\n')
 
     const [telegramResult, barkResult] = await Promise.allSettled([
-        sendTelegramMessage(telegramText),
-        sendBarkMessage(t.paymentTitle, barkBody, { group: 'LDC Shop' })
+        channels?.telegram === false ? Promise.resolve({ success: true }) : sendTelegramMessage(telegramText),
+        channels?.bark === false ? Promise.resolve({ success: true }) : sendBarkMessage(t.paymentTitle, barkBody, { group: 'LDC Shop' })
     ])
 
     const success =
         (telegramResult.status === 'fulfilled' && telegramResult.value.success) ||
         (barkResult.status === 'fulfilled' && barkResult.value.success)
 
-    return { success }
+    return { success,
+        telegram: telegramResult.status === 'fulfilled' && telegramResult.value.success,
+        bark: barkResult.status === 'fulfilled' && barkResult.value.success,
+    }
 }
 
 export async function notifyAdminRefundRequest(order: {

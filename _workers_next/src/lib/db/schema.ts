@@ -1,4 +1,5 @@
 import { sqliteTable, text, integer } from 'drizzle-orm/sqlite-core';
+import { sql } from 'drizzle-orm';
 
 // Products
 export const products = sqliteTable('products', {
@@ -34,6 +35,7 @@ export const cards = sqliteTable('cards', {
     id: integer('id', { mode: 'number' }).primaryKey({ autoIncrement: true }),
     productId: text('product_id').notNull().references(() => products.id, { onDelete: 'cascade' }),
     cardKey: text('card_key').notNull(),
+    supplierRequestId: text('supplier_request_id'),
     isUsed: integer('is_used', { mode: 'boolean' }).default(false),
     reservedOrderId: text('reserved_order_id'),
     reservedAt: integer('reserved_at', { mode: 'timestamp_ms' }),
@@ -48,6 +50,27 @@ export const inventoryImports = sqliteTable('inventory_imports', {
     productId: text('product_id').notNull().references(() => products.id, { onDelete: 'cascade' }),
     payloadHash: text('payload_hash').notNull(),
     importedCount: integer('imported_count').notNull(),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+});
+
+export const inventoryApiKeys = sqliteTable('inventory_api_keys', {
+    id: text('id').primaryKey(), name: text('name').notNull(),
+    tokenHash: text('token_hash').notNull().unique(), tokenPrefix: text('token_prefix').notNull(),
+    productIds: text('product_ids').notNull().default('[]'),
+    canRead: integer('can_read', { mode: 'boolean' }).notNull().default(true),
+    canWrite: integer('can_write', { mode: 'boolean' }).notNull().default(true),
+    isEnabled: integer('is_enabled', { mode: 'boolean' }).notNull().default(true),
+    expiresAt: integer('expires_at', { mode: 'timestamp_ms' }),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+    lastUsedAt: integer('last_used_at', { mode: 'timestamp_ms' }), createdBy: text('created_by'),
+});
+
+export const inventoryApiRequests = sqliteTable('inventory_api_requests', {
+    id: text('id').primaryKey(), keyId: text('key_id').references(() => inventoryApiKeys.id, { onDelete: 'set null' }),
+    action: text('action').notNull(), productId: text('product_id'), method: text('method').notNull(),
+    status: integer('status').notNull(), addedCount: integer('added_count').notNull().default(0),
+    replayed: integer('replayed', { mode: 'boolean' }).notNull().default(false), idempotencyKey: text('idempotency_key'),
+    error: text('error'), durationMs: integer('duration_ms').notNull(),
     createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
 });
 
@@ -71,6 +94,34 @@ export const orders = sqliteTable('orders', {
     quantity: integer('quantity').default(1).notNull(),
     currentPaymentId: text('current_payment_id'),
     createdAt: integer('created_at', { mode: 'timestamp_ms' }).$defaultFn(() => new Date()),
+});
+
+export const orderDeliveries = sqliteTable('order_deliveries', {
+    orderId: text('order_id').primaryKey().references(() => orders.orderId, { onDelete: 'cascade' }),
+    attemptId: text('attempt_id').notNull().unique(), cardIds: text('card_ids').notNull(), cardKey: text('card_key').notNull(),
+    isShared: integer('is_shared', { mode: 'boolean' }).notNull().default(false),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+});
+
+export const inventoryEvents = sqliteTable('inventory_events', {
+    eventId: text('event_id').primaryKey(), kind: text('kind').notNull(),
+    orderId: text('order_id').references(() => orders.orderId, { onDelete: 'cascade' }), productId: text('product_id'), data: text('data'),
+    telegramSent: integer('telegram_sent', { mode: 'boolean' }).notNull().default(false),
+    barkSent: integer('bark_sent', { mode: 'boolean' }).notNull().default(false),
+    emailSent: integer('email_sent', { mode: 'boolean' }).notNull().default(false),
+    replenishAttempted: integer('replenish_attempted', { mode: 'boolean' }).notNull().default(false),
+    leaseToken: text('lease_token'), leaseUntil: integer('lease_until', { mode: 'timestamp_ms' }),
+    nextAttemptAt: integer('next_attempt_at', { mode: 'timestamp_ms' }).notNull().default(sql`0`),
+    attempts: integer('attempts').notNull().default(0), completedAt: integer('completed_at', { mode: 'timestamp_ms' }),
+    error: text('error'), createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+});
+
+export const supplierRequests = sqliteTable('supplier_requests', {
+    requestId: text('request_id').primaryKey(), orderId: text('order_id').notNull().references(() => orders.orderId, { onDelete: 'cascade' }),
+    itemIndex: integer('item_index').notNull(), serverUrl: text('server_url').notNull(),
+    cardId: integer('card_id').references(() => cards.id, { onDelete: 'set null' }), state: text('state').notNull().default('pending'),
+    leaseToken: text('lease_token'), leaseUntil: integer('lease_until', { mode: 'timestamp_ms' }),
+    attempts: integer('attempts').notNull().default(0), error: text('error'), createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
 });
 
 // Logged-in users (for visitor counts)

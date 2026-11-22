@@ -6,11 +6,13 @@ import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { addCards, deleteCard, deleteCards, pullCardFromApi, saveCardsApiConfig, setCardsApiEnabled } from "@/actions/admin"
+import { updateCardsExpiry } from '@/actions/inventory'
 import { Checkbox } from "@/components/ui/checkbox"
-import { useRef, useState } from "react"
+import { useRef, useState, useEffect } from "react"
 import { Badge } from "@/components/ui/badge"
 import { toast } from "sonner"
 import { CopyButton } from "@/components/copy-button"
+import { ClientDate } from '@/components/client-date'
 import { Trash2 } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -18,20 +20,25 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 interface CardData {
     id: number
     cardKey: string
+    expiresAt: number | null
+    createdAt: number | null
+    locked: boolean
 }
 
 interface CardsContentProps {
     productId: string
     productName: string
+    snapshotAt: number
     unusedCards: CardData[]
     apiConfig: {
         enabled: boolean
         url: string
         token: string
+        mode: 'stock' | 'on_demand'
     }
 }
 
-export function CardsContent({ productId, productName, unusedCards, apiConfig }: CardsContentProps) {
+export function CardsContent({ productId, productName, unusedCards, apiConfig, snapshotAt }: CardsContentProps) {
     const { t } = useI18n()
     const router = useRouter()
     const [selectedIds, setSelectedIds] = useState<number[]>([])
@@ -41,6 +48,7 @@ export function CardsContent({ productId, productName, unusedCards, apiConfig }:
     const [confirmOpen, setConfirmOpen] = useState(false)
     const [pendingCount, setPendingCount] = useState(0)
     const [pendingHasExpiry, setPendingHasExpiry] = useState(false)
+    const [apiMode, setApiMode] = useState(apiConfig.mode)
     const [apiEnabled, setApiEnabled] = useState(apiConfig.enabled)
     const [apiUrl, setApiUrl] = useState(apiConfig.url)
     const [apiToken, setApiToken] = useState(apiConfig.token)
@@ -53,11 +61,26 @@ export function CardsContent({ productId, productName, unusedCards, apiConfig }:
     const formRef = useRef<HTMLFormElement | null>(null)
     const pendingFormRef = useRef<FormData | null>(null)
 
+    const [now, setNow] = useState(snapshotAt)
+    const [expiryValue, setExpiryValue] = useState(''), [expiryBusy, setExpiryBusy] = useState(false)
+    const expiryLock = useRef(false)
+    useEffect(() => { const timer = setInterval(() => setNow(Date.now()), 30000); return () => clearInterval(timer) }, [])
+    const selectable = unusedCards.filter(c => !c.locked).slice(0, 500)
+    const availableCount = unusedCards.filter(c => !c.locked && (!c.expiresAt || c.expiresAt > now)).length
+    const changeExpiry = async (permanent: boolean) => {
+        if (expiryLock.current || !selectedIds.length || (!permanent && !expiryValue)) return
+        expiryLock.current = true; setExpiryBusy(true)
+        try {
+            await updateCardsExpiry(productId, selectedIds, permanent ? null : new Date(expiryValue).toISOString())
+            toast.success(t('common.success')); setSelectedIds([]); router.refresh()
+        } catch (e) { toast.error(e instanceof Error ? e.message : t('common.error')) }
+        finally { expiryLock.current = false; setExpiryBusy(false) }
+    }
     const toggleSelectAll = () => {
-        if (selectedIds.length === unusedCards.length) {
+        if (selectedIds.length === selectable.length) {
             setSelectedIds([])
         } else {
-            setSelectedIds(unusedCards.map(c => c.id))
+            setSelectedIds(selectable.slice(0, 500).map(c => c.id))
         }
     }
 
@@ -65,7 +88,7 @@ export function CardsContent({ productId, productName, unusedCards, apiConfig }:
         setSelectedIds(prev =>
             prev.includes(id)
                 ? prev.filter(pid => pid !== id)
-                : [...prev, id]
+                : [...prev, id].slice(0, 500)
         )
     }
 
@@ -80,8 +103,8 @@ export function CardsContent({ productId, productName, unusedCards, apiConfig }:
                 toast.success(t('common.success'))
                 setSelectedIds([])
                 router.refresh()
-            } catch (e: any) {
-                toast.error(e.message)
+            } catch (e) {
+                toast.error(e instanceof Error ? e.message : t('common.error'))
             } finally {
                 setBatchDeleting(false)
                 batchDeleteLock.current = false
@@ -103,8 +126,8 @@ export function CardsContent({ productId, productName, unusedCards, apiConfig }:
             router.refresh()
             formRef.current?.reset()
             setPendingCount(0)
-        } catch (e: any) {
-            toast.error(e?.message || t('common.error'))
+        } catch (e) {
+            toast.error(e instanceof Error ? e.message : t('common.error'))
         } finally {
             setSubmitting(false)
             submitLock.current = false
@@ -150,7 +173,7 @@ export function CardsContent({ productId, productName, unusedCards, apiConfig }:
         if (savingApi) return
         setSavingApi(true)
         try {
-            const result = await saveCardsApiConfig(productId, apiUrl, apiToken, apiEnabled)
+            const result = await saveCardsApiConfig(productId, apiUrl, apiToken, apiEnabled, apiMode)
             toast.success(t('common.success'))
             if (result.autoPulled) {
                 toast.success(t('admin.cards.apiAutoPulled'))
@@ -158,8 +181,8 @@ export function CardsContent({ productId, productName, unusedCards, apiConfig }:
                 toast.error(`${t('admin.cards.apiAutoPullFailed')}: ${result.autoPullError}`)
             }
             router.refresh()
-        } catch (e: any) {
-            toast.error(e?.message || t('common.error'))
+        } catch (e) {
+            toast.error(e instanceof Error ? e.message : t('common.error'))
         } finally {
             setSavingApi(false)
         }
@@ -170,7 +193,7 @@ export function CardsContent({ productId, productName, unusedCards, apiConfig }:
         const nextEnabled = !apiEnabled
         setTogglingApiEnabled(true)
         try {
-            const result = await setCardsApiEnabled(productId, nextEnabled, apiUrl, apiToken)
+            const result = await setCardsApiEnabled(productId, nextEnabled, apiUrl, apiToken, apiMode)
             setApiEnabled(nextEnabled)
             toast.success(t('common.success'))
             if (result.autoPulled) {
@@ -179,8 +202,8 @@ export function CardsContent({ productId, productName, unusedCards, apiConfig }:
                 toast.error(`${t('admin.cards.apiAutoPullFailed')}: ${result.autoPullError}`)
             }
             router.refresh()
-        } catch (e: any) {
-            toast.error(e?.message || t('common.error'))
+        } catch (e) {
+            toast.error(e instanceof Error ? e.message : t('common.error'))
         } finally {
             setTogglingApiEnabled(false)
         }
@@ -193,8 +216,8 @@ export function CardsContent({ productId, productName, unusedCards, apiConfig }:
             await pullCardFromApi(productId)
             toast.success(t('admin.cards.apiPullSuccess'))
             router.refresh()
-        } catch (e: any) {
-            toast.error(`${t('admin.cards.apiPullFailed')}: ${e?.message || ''}`)
+        } catch (e) {
+            toast.error(`${t('admin.cards.apiPullFailed')}: ${e instanceof Error ? e.message : ''}`)
         } finally {
             setPullingApi(false)
         }
@@ -207,7 +230,7 @@ export function CardsContent({ productId, productName, unusedCards, apiConfig }:
                     <h1 className="text-3xl font-bold tracking-tight">{t('admin.cards.title')}: {productName}</h1>
                 </div>
                 <div className="text-right">
-                    <div className="text-2xl font-bold">{unusedCards.length}</div>
+                    <div className="text-2xl font-bold">{availableCount}</div>
                     <div className="text-xs text-muted-foreground">{t('admin.cards.available')}</div>
                 </div>
             </div>
@@ -270,9 +293,14 @@ export function CardsContent({ productId, productName, unusedCards, apiConfig }:
                     <Card>
                         <CardHeader>
                             <CardTitle>{t('admin.cards.apiTitle')}</CardTitle>
-                            <CardDescription>{t('admin.cards.apiHint')}</CardDescription>
+                            <CardDescription>{t(apiMode === 'on_demand' ? 'inventory.onDemandHint' : 'admin.cards.apiHint')}</CardDescription>
                         </CardHeader>
                         <CardContent className="space-y-4">
+                            <label className="block text-sm">{t('inventory.deliveryMode')}
+                                <select value={apiMode} onChange={e => setApiMode(e.target.value as 'stock' | 'on_demand')} disabled={savingApi || pullingApi || togglingApiEnabled} className="block w-full border rounded p-2 mt-1">
+                                    <option value="stock">{t('inventory.stockMode')}</option><option value="on_demand">{t('inventory.onDemandMode')}</option>
+                                </select>
+                            </label>
                             <div className="grid gap-2">
                                 <label className="text-sm font-medium">{t('admin.cards.apiUrl')}</label>
                                 <Input
@@ -310,7 +338,7 @@ export function CardsContent({ productId, productName, unusedCards, apiConfig }:
                                 </Button>
                                 <Button
                                     onClick={handlePullOneCard}
-                                    disabled={pullingApi || savingApi || togglingApiEnabled || !apiEnabled}
+                                    disabled={pullingApi || savingApi || togglingApiEnabled || !apiEnabled || apiMode === 'on_demand'}
                                 >
                                     {pullingApi ? t('common.processing') : t('admin.cards.apiPullOne')}
                                 </Button>
@@ -323,12 +351,19 @@ export function CardsContent({ productId, productName, unusedCards, apiConfig }:
                     <CardHeader>
                         <CardTitle>{t('admin.cards.available')}</CardTitle>
                     </CardHeader>
-                    <CardContent className="max-h-[400px] overflow-y-auto space-y-2">
+                    <CardContent className="space-y-3">
+                        <p className="text-xs text-muted-foreground">{t('inventory.expiryHint')}</p>
+                        <label className="block text-sm">{t('inventory.batchExpiry')}<Input type="datetime-local" value={expiryValue} onChange={e => setExpiryValue(e.target.value)} disabled={expiryBusy} /></label>
+                        <div className="flex flex-wrap gap-2">
+                            <Button size="sm" disabled={expiryBusy || !selectedIds.length || !expiryValue} onClick={() => void changeExpiry(false)}>{t('inventory.batchExpiry')}</Button>
+                            <Button size="sm" variant="outline" disabled={expiryBusy || !selectedIds.length} onClick={() => void changeExpiry(true)}>{t('inventory.setPermanent')}</Button>
+                        </div>
+                        <div className="max-h-[500px] overflow-y-auto space-y-2">
                         {unusedCards.length > 0 && (
                             <div className="flex items-center justify-between pb-2 mb-2 border-b sticky top-0 bg-background z-10">
                                 <div className="flex items-center gap-2">
                                     <Checkbox
-                                        checked={selectedIds.length === unusedCards.length && unusedCards.length > 0}
+                                        checked={selectedIds.length === selectable.length && unusedCards.length > 0}
                                         onCheckedChange={toggleSelectAll}
                                         id="select-all"
                                     />
@@ -357,10 +392,20 @@ export function CardsContent({ productId, productName, unusedCards, apiConfig }:
                                 <div key={c.id} className="flex items-center justify-between p-2 rounded bg-muted/40 text-sm font-mono gap-2 animate-in fade-in transition-colors hover:bg-muted/60">
                                     <div className="flex items-center gap-3">
                                         <Checkbox
+                                            disabled={c.locked || expiryBusy}
                                             checked={selectedIds.includes(c.id)}
                                             onCheckedChange={() => toggleSelect(c.id)}
                                         />
-                                        <CopyButton text={c.cardKey} truncate maxLength={30} />
+                                        <div>
+                                            <CopyButton text={c.cardKey} truncate maxLength={30} />
+                                            <div className="text-xs text-muted-foreground font-sans mt-1">
+                                                {c.locked && <Badge variant="outline" className="mr-1">{t('inventory.locked')}</Badge>}
+                                                {!c.expiresAt ? t('inventory.permanent') : <>
+                                                    <span>{t('inventory.expiresAt')}: <ClientDate value={new Date(c.expiresAt)} format="dateTime" /></span>
+                                                    {now && <span className="ml-2">{c.expiresAt <= now ? t('inventory.expired') : t('inventory.remaining', { minutes: Math.ceil((c.expiresAt - now) / 60000) })}</span>}
+                                                </>}
+                                            </div>
+                                        </div>
                                     </div>
                                     <Button
                                         variant="ghost"
@@ -373,23 +418,25 @@ export function CardsContent({ productId, productName, unusedCards, apiConfig }:
                                                 setDeletingId(c.id)
                                                 try {
                                                     await deleteCard(c.id)
+                                                    setSelectedIds(prev => prev.filter(id => id !== c.id))
                                                     toast.success(t('common.success'))
                                                     router.refresh()
-                                                } catch (e: any) {
-                                                    toast.error(e.message)
+                                                } catch (e) {
+                                                    toast.error(e instanceof Error ? e.message : t('common.error'))
                                                 } finally {
                                                     setDeletingId(null)
                                                     deleteLock.current = null
                                                 }
                                             }
                                         }}
-                                        disabled={deletingId === c.id}
+                                        disabled={deletingId === c.id || c.locked || expiryBusy}
                                     >
                                         <Trash2 className="h-4 w-4" />
                                     </Button>
                                 </div>
                             ))
                         )}
+                        </div>
                     </CardContent>
                 </Card>
             </div>

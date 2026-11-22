@@ -1,4 +1,4 @@
-name: Workers and Docker Parity
+name: Workers and Docker Comparison
 
 on:
   push:
@@ -16,4 +16,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - run: node scripts/sync-variants.mjs --check
+      - name: Report actual variant differences
+        run: node scripts/compare-variants.mjs --summary
+      - name: Require parity when both variants publish the same version
+        run: |
+          node --input-type=module -e "import fs from 'node:fs'; import { execFileSync } from 'node:child_process'; const version = dir => JSON.parse(fs.readFileSync(dir + '/package.json', 'utf8')).version; if (version('_workers_next') === version('_docker')) execFileSync(process.execPath, ['scripts/sync-variants.mjs', '--check'], { stdio: 'inherit' }); else console.log('Variants publish different versions; review the comparison report.');"

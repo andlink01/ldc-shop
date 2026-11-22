@@ -1,5 +1,6 @@
 'use server'
 
+import { refundOrderInventory } from '@/lib/order-transitions'
 import { db } from "@/lib/db"
 import { cards, orders, refundRequests, loginUsers, products } from "@/lib/db/schema"
 import { and, eq, sql, inArray } from "drizzle-orm"
@@ -14,65 +15,8 @@ export async function markOrderRefunded(orderId: string) {
     const order = await db.query.orders.findFirst({ where: eq(orders.orderId, orderId) })
     if (!order) throw new Error("Order not found")
 
-    // Refund points if used
-    if (order.userId && order.pointsUsed && order.pointsUsed > 0) {
-        await db.update(loginUsers)
-            .set({ points: sql`${loginUsers.points} + ${order.pointsUsed}` })
-            .where(eq(loginUsers.userId, order.userId))
-    }
-
-    // Update order status
-    await db.update(orders).set({ status: 'refunded' }).where(eq(orders.orderId, orderId))
-
-    // Reclaim card back to stock (best effort)
-    let reclaimCards = true
-    try {
-        const v = await getSetting('refund_reclaim_cards')
-        reclaimCards = v !== 'false'
-    } catch {
-        reclaimCards = true
-    }
-    if (reclaimCards) {
-        if (order.productId) {
-            const product = await db.query.products.findFirst({
-                where: eq(products.id, order.productId),
-                columns: { isShared: true }
-            });
-            if (product?.isShared) {
-                reclaimCards = false;
-            }
-        }
-    }
-
-    if (reclaimCards) {
-        const rawIds = order.cardIds || '';
-        const parsedIds = rawIds
-            .split(',')
-            .map((id) => Number(id.trim()))
-            .filter((id) => Number.isFinite(id));
-
-        const uniqueIds = Array.from(new Set(parsedIds));
-
-        if (uniqueIds.length > 0) {
-            await db.update(cards).set({ isUsed: false, usedAt: null, reservedOrderId: null, reservedAt: null })
-                .where(inArray(cards.id, uniqueIds));
-        } else if (order.cardKey) {
-            const keys = order.cardKey.split('\n').map((k: string) => k.trim()).filter((k: string) => k !== '')
-            if (keys.length > 0) {
-                const uniqueKeys = Array.from(new Set(keys)) as string[]
-                await db.update(cards).set({ isUsed: false, usedAt: null, reservedOrderId: null, reservedAt: null })
-                    .where(and(eq(cards.productId, order.productId), inArray(cards.cardKey, uniqueKeys)))
-            }
-        }
-    }
-
-    // Mark refund request processed if table exists
-    try {
-        await db.update(refundRequests).set({ status: 'processed', processedAt: new Date(), updatedAt: new Date() })
-            .where(eq(refundRequests.orderId, orderId))
-    } catch {
-        // ignore (table may not exist)
-    }
+    const reclaimCards = (await getSetting('refund_reclaim_cards')) !== 'false'
+    await refundOrderInventory(orderId, reclaimCards)
 
     revalidatePath('/admin/orders')
     revalidatePath('/admin/refunds')

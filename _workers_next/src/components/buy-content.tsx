@@ -42,6 +42,7 @@ interface Product {
     purchaseLimit?: number | null
     purchaseWarning?: string | null
     purchaseQuestions?: string | null
+    isOnDemand?: number
     isHot?: boolean | null
     sold?: number
 }
@@ -127,6 +128,7 @@ export function BuyContent({
                     purchaseLimit: v.purchaseLimit,
                     purchaseWarning: v.purchaseWarning ?? null,
                     purchaseQuestions: v.purchaseQuestions ?? null,
+                    isOnDemand: v.isOnDemand,
                     isHot: v.isHot ?? false,
                 } satisfies Product
             }
@@ -276,13 +278,13 @@ export function BuyContent({
 
     const hasUnlimitedStock = displayStock >= INFINITE_STOCK
     const hasStock = displayStock > 0 || hasUnlimitedStock
-    const maxStock = hasUnlimitedStock ? INFINITE_STOCK : (displayStock - displayLocked)
+    const maxStock = displayProduct.isOnDemand ? 100 : hasUnlimitedStock ? INFINITE_STOCK : displayStock
     const maxSelectableQuantity = displayProduct.purchaseLimit && displayProduct.purchaseLimit > 0
         ? Math.min(maxStock, displayProduct.purchaseLimit)
         : maxStock
     const priceValue = Number(displayProduct.price)
     const compareAtPriceValue = displayProduct.compareAtPrice ? Number(displayProduct.compareAtPrice) : null
-    const stockLabel = hasUnlimitedStock
+    const stockLabel = displayProduct.isOnDemand ? t('inventory.onDemandBuyerHint') : hasUnlimitedStock
         ? `${t('common.stock')}: ${t('common.unlimited')}`
         : (displayStock > 0 ? `${t('common.stock')}: ${displayStock}` : t('common.outOfStock'))
     const showReviewSummary = !metaLoading && reviewCountState > 0

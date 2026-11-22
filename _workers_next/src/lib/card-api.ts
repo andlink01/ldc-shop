@@ -1,15 +1,17 @@
-import { db } from "@/lib/db"
-import { cards, settings } from "@/lib/db/schema"
-import { setSetting } from "@/lib/db/queries"
-import { inArray } from "drizzle-orm"
+import { recoverAfterRestock } from '@/lib/inventory-management'
+import { db, dbBatchRaw } from "@/lib/db"
+import { cards, settings, products } from "@/lib/db/schema"
+import { ensureDatabaseInitialized } from "@/lib/db/queries"
+import { inArray, eq } from "drizzle-orm"
 
 export interface ProductCardApiConfig {
     enabled: boolean
     url: string
     token: string
+    mode: 'stock' | 'on_demand'
 }
 
-function keyOf(productId: string, field: "enabled" | "url" | "token") {
+function keyOf(productId: string, field: "enabled" | "url" | "token" | "mode") {
     return `cards_api_${field}_${productId}`
 }
 
@@ -77,25 +79,40 @@ export async function getProductCardApiConfig(productId: string): Promise<Produc
     const enabledKey = keyOf(productId, "enabled")
     const urlKey = keyOf(productId, "url")
     const tokenKey = keyOf(productId, "token")
-    const values = await getSettingsUncached([enabledKey, urlKey, tokenKey])
+    const values = await getSettingsUncached([enabledKey, urlKey, tokenKey, keyOf(productId, 'mode')])
 
     return {
         enabled: values[enabledKey] === "true",
         url: (values[urlKey] || "").trim(),
         token: (values[tokenKey] || "").trim(),
+        mode: values[keyOf(productId, 'mode')] === 'on_demand' ? 'on_demand' : 'stock',
     }
 }
 
-export async function saveProductCardApiConfig(productId: string, config: ProductCardApiConfig) {
+export async function saveProductCardApiConfig(productId: string, config: Omit<ProductCardApiConfig, 'mode'> & { mode?: 'stock' | 'on_demand' }) {
+    await ensureDatabaseInitialized()
     const url = config.url.trim()
     const token = config.token.trim()
     const enabled = !!config.enabled
 
-    await Promise.all([
-        setSetting(keyOf(productId, "enabled"), enabled ? "true" : "false"),
-        setSetting(keyOf(productId, "url"), url),
-        setSetting(keyOf(productId, "token"), token),
-    ])
+    const mode = config.mode || 'stock'
+    if (mode !== 'stock' && mode !== 'on_demand') throw new Error('Invalid fulfillment mode')
+    if (url) {
+        const parsed = new URL(url)
+        if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password) throw new Error('Invalid supplier URL')
+        if (mode === 'on_demand' && (parsed.search || parsed.hash)) throw new Error('Use a supplier URL without query parameters')
+    }
+    if (mode === 'on_demand') {
+        const product = await db.query.products.findFirst({ where: eq(products.id, productId), columns: { isShared: true } })
+        if (!product || product.isShared) throw new Error('On-demand delivery requires a finite-stock product')
+    }
+    await dbBatchRaw(([
+        ['enabled', enabled ? 'true' : 'false'], ['url', url], ['token', token], ['mode', mode],
+    ] as const).map(([field, value]) => ({
+        sql: 'INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at',
+        params: [keyOf(productId, field), value, Date.now()],
+    })))
+    await recoverAfterRestock(productId)
 }
 
 export async function pullOneCardFromApi(productId: string): Promise<{
@@ -105,6 +122,7 @@ export async function pullOneCardFromApi(productId: string): Promise<{
     cardKey?: string
 }> {
     const config = await getProductCardApiConfig(productId)
+    if (config.mode === 'on_demand') return { ok: false, skipped: true, error: 'on_demand_uses_paid_orders' }
     if (!config.enabled) {
         return { ok: false, skipped: true, error: "api_disabled" }
     }
@@ -129,7 +147,7 @@ export async function pullOneCardFromApi(productId: string): Promise<{
     const response = await fetch(requestUrl, {
         method: "GET",
         headers,
-        cache: "no-store",
+        cache: "no-store", signal: AbortSignal.timeout(15000), redirect: "error",
     })
 
     if (!response.ok) {
@@ -162,5 +180,6 @@ export async function pullOneCardFromApi(productId: string): Promise<{
         return { ok: false, error: error?.message || "api_insert_failed" }
     }
 
+    await recoverAfterRestock(productId)
     return { ok: true, cardKey }
 }

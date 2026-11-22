@@ -1,5 +1,6 @@
 'use server'
 
+import { recoverAfterRestock, deleteUnconsumedCards } from '@/lib/inventory-management'
 import { auth } from "@/lib/auth"
 import { db, dbRun, dbExecRaw } from "@/lib/db"
 import { products, cards, reviews, reviewReplies, categories } from "@/lib/db/schema"
@@ -305,6 +306,7 @@ export async function addCards(formData: FormData) {
         // best effort
     }
 
+    await recoverAfterRestock(productId)
     revalidatePath('/admin/products')
     revalidatePath('/admin/settings')
     revalidatePath(`/admin/cards/${productId}`)
@@ -317,81 +319,16 @@ export async function addCards(formData: FormData) {
 
 export async function deleteCard(cardId: number) {
     await checkAdmin()
-
-    // Only delete unused cards
-    const card = await db.query.cards.findFirst({
-        where: eq(cards.id, cardId)
-    })
-
-    if (!card) {
-        throw new Error("Card not found")
-    }
-
-    if (card.isUsed) {
-        throw new Error("Cannot delete used card")
-    }
-    if (card.reservedAt && card.reservedAt > new Date(Date.now() - 60 * 1000)) {
-        throw new Error("Cannot delete reserved card")
-    }
-
-    await db.delete(cards).where(eq(cards.id, cardId))
-    try {
-        await recalcProductAggregates(card.productId)
-    } catch {
-        // best effort
-    }
-
-    revalidatePath('/admin/products')
-    revalidatePath('/admin/settings')
-    revalidatePath('/admin/cards')
-    revalidatePath('/')
-    updateTag('home:products')
-    updateTag('home:product-categories')
+    await deleteUnconsumedCards([cardId])
 }
 
 export async function deleteCards(cardIds: number[]) {
     await checkAdmin()
-
     if (!cardIds.length) return
-
-    const BATCH_SIZE = 100
-    const productIds: string[] = []
-    for (let i = 0; i < cardIds.length; i += BATCH_SIZE) {
-        const batch = cardIds.slice(i, i + BATCH_SIZE)
-
-        try {
-            const rows = await db.select({ productId: cards.productId })
-                .from(cards)
-                .where(inArray(cards.id, batch))
-            productIds.push(...rows.map(r => r.productId))
-        } catch {
-            // best effort
-        }
-
-        await db.delete(cards)
-            .where(
-                and(
-                    inArray(cards.id, batch),
-                    or(isNull(cards.isUsed), eq(cards.isUsed, false)),
-                    or(isNull(cards.reservedAt), lte(cards.reservedAt, new Date(Date.now() - 60 * 1000)))
-                )
-            )
-    }
-    try {
-        await recalcProductAggregatesForMany(productIds)
-    } catch {
-        // best effort
-    }
-
-    revalidatePath('/admin/products')
-    revalidatePath('/admin/settings')
-    revalidatePath('/admin/cards')
-    revalidatePath('/')
-    updateTag('home:products')
-    updateTag('home:product-categories')
+    await deleteUnconsumedCards(cardIds)
 }
 
-export async function saveCardsApiConfig(productId: string, apiUrl: string, apiToken: string, enabled: boolean) {
+export async function saveCardsApiConfig(productId: string, apiUrl: string, apiToken: string, enabled: boolean, mode: 'stock' | 'on_demand' = 'stock') {
     await checkAdmin()
 
     const id = String(productId || "").trim()
@@ -422,7 +359,7 @@ export async function saveCardsApiConfig(productId: string, apiUrl: string, apiT
     }
 
     await saveProductCardApiConfig(id, {
-        enabled: safeEnabled,
+        enabled: safeEnabled, mode,
         url,
         token,
     })
@@ -461,7 +398,8 @@ export async function setCardsApiEnabled(
     productId: string,
     enabled: boolean,
     apiUrl?: string,
-    apiToken?: string
+    apiToken?: string,
+    mode?: 'stock' | 'on_demand'
 ) {
     await checkAdmin()
 
@@ -491,7 +429,7 @@ export async function setCardsApiEnabled(
     }
 
     await saveProductCardApiConfig(id, {
-        enabled,
+        enabled, mode: mode || current.mode,
         url: nextUrl,
         token: nextToken,
     })
