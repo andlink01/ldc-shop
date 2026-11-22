@@ -6,6 +6,7 @@ function normalizeOrderId(input: string | null): string | null {
   if (!input) return null
   const trimmed = input.trim()
   if (!trimmed) return null
+  // Handle "123?out_trade_no=123" style junk
   if (trimmed.includes("?")) {
     return trimmed.split("?")[0] || null
   }
@@ -13,7 +14,6 @@ function normalizeOrderId(input: string | null): string | null {
 }
 
 export async function GET(request: Request) {
-  const baseUrl = getRequestBaseUrl(request)
   const url = new URL(request.url)
   const queryOrder =
     normalizeOrderId(url.searchParams.get("out_trade_no")) ||
@@ -27,5 +27,5 @@ export async function GET(request: Request) {
   }
 
   const destination = orderId ? `/order/${orderId}` : "/orders"
-  return NextResponse.redirect(new URL(destination, baseUrl))
+  return NextResponse.redirect(new URL(destination, getRequestBaseUrl(request)))
 }

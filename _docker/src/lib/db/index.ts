@@ -4,6 +4,9 @@ import * as schema from './schema';
 import path from 'path';
 import fs from 'fs';
 import { PHASE_PRODUCTION_BUILD, PHASE_EXPORT } from 'next/constants';
+import { SQLiteSyncDialect } from 'drizzle-orm/sqlite-core';
+import type { SQL } from 'drizzle-orm';
+import type { RawResult, SqlStatement } from './contracts';
 
 let sqliteInstance: Database.Database;
 
@@ -14,7 +17,8 @@ const BUILD_TIME_SCHEMA = `
         is_active INTEGER DEFAULT 1, is_shared INTEGER DEFAULT 0, sort_order INTEGER DEFAULT 0,
         purchase_limit INTEGER, purchase_warning TEXT, visibility_level INTEGER DEFAULT -1,
         stock_count INTEGER DEFAULT 0, locked_count INTEGER DEFAULT 0, sold_count INTEGER DEFAULT 0,
-        rating INTEGER DEFAULT 0, review_count INTEGER DEFAULT 0, created_at INTEGER
+        rating INTEGER DEFAULT 0, review_count INTEGER DEFAULT 0, created_at INTEGER,
+        variant_group_id TEXT, variant_label TEXT, purchase_questions TEXT, product_images TEXT
     );
     CREATE TABLE IF NOT EXISTS cards (
         id INTEGER PRIMARY KEY AUTOINCREMENT, product_id TEXT NOT NULL, card_key TEXT NOT NULL,
@@ -48,6 +52,14 @@ const BUILD_TIME_SCHEMA = `
         id INTEGER PRIMARY KEY AUTOINCREMENT, product_id TEXT NOT NULL, order_id TEXT NOT NULL,
         user_id TEXT NOT NULL, username TEXT NOT NULL, rating INTEGER NOT NULL,
         comment TEXT, created_at INTEGER
+    );
+    CREATE TABLE IF NOT EXISTS review_replies (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, review_id INTEGER NOT NULL REFERENCES reviews(id) ON DELETE CASCADE,
+        user_id TEXT NOT NULL, username TEXT NOT NULL, comment TEXT NOT NULL, created_at INTEGER
+    );
+    CREATE TABLE IF NOT EXISTS inventory_imports (
+        idempotency_key TEXT PRIMARY KEY, product_id TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+        payload_hash TEXT NOT NULL, imported_count INTEGER NOT NULL, created_at INTEGER NOT NULL
     );
     CREATE TABLE IF NOT EXISTS refund_requests (
         id INTEGER PRIMARY KEY AUTOINCREMENT, order_id TEXT NOT NULL, user_id TEXT,
@@ -109,6 +121,24 @@ export const db = createDb();
  * better-sqlite3's db.run()/prepare() only accepts a single statement,
  * but .exec() supports multiple statements separated by semicolons.
  */
-export function dbExecRaw(sqlStr: string) {
+export async function dbExecRaw(sqlStr: string): Promise<void> {
     sqliteInstance.exec(sqlStr);
+}
+
+const dialect = new SQLiteSyncDialect();
+
+export async function dbRun<T = Record<string, unknown>>(query: SQL): Promise<RawResult<T>> {
+    const compiled = dialect.sqlToQuery(query);
+    const statement = sqliteInstance.prepare(compiled.sql);
+    if (statement.reader) {
+        return { results: statement.all(...compiled.params) as T[] };
+    }
+    const result = statement.run(...compiled.params);
+    return { results: [], meta: { changes: result.changes, last_row_id: Number(result.lastInsertRowid) } };
+}
+
+export async function dbBatchRaw(statements: SqlStatement[]): Promise<void> {
+    sqliteInstance.transaction(() => {
+        for (const { sql, params } of statements) sqliteInstance.prepare(sql).run(...params);
+    }).immediate();
 }

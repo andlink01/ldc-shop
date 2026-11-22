@@ -1,6 +1,6 @@
 "use server"
 
-import { db } from "@/lib/db"
+import { db, dbRun } from "@/lib/db"
 import { sql } from "drizzle-orm"
 import { revalidatePath, updateTag } from "next/cache"
 import { checkAdmin } from "@/actions/admin"
@@ -10,7 +10,7 @@ import { products } from "@/lib/db/schema"
 async function executeStatement(statement: string) {
     if (!statement.trim()) return
     try {
-        await db.run(sql.raw(statement))
+        await dbRun(sql.raw(statement))
     } catch (e) {
         console.error('Import Error:', e)
         throw new Error(`Failed to execute statement: ${statement.substring(0, 50)}... ${e instanceof Error ? e.message : String(e)}`)
@@ -44,7 +44,7 @@ async function repairTimestamps() {
                 // SQLite: Convert TEXT timestamps (e.g. '2023-01-01...') to INTEGER (Unix MS)
                 // Only targets rows where column is currently TEXT
                 // strftime('%s') returns seconds, so * 1000 for ms
-                await db.run(sql.raw(`
+                await dbRun(sql.raw(`
                     UPDATE ${table} 
                     SET ${col} = CAST(strftime('%s', ${col}) AS INTEGER) * 1000 
                     WHERE typeof(${col}) = 'text' AND ${col} IS NOT NULL AND ${col} != ''
@@ -87,6 +87,9 @@ export async function importData(formData: FormData) {
             reviewId: 'review_id',
             itemId: 'item_id',
             messageId: 'message_id',
+            idempotencyKey: 'idempotency_key',
+            payloadHash: 'payload_hash',
+            importedCount: 'imported_count',
             // Products
             compareAtPrice: 'compare_at_price',
             maxPointsDiscount: 'max_points_discount',

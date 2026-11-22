@@ -19,6 +19,7 @@ import {
   broadcastReads,
   wishlistItems,
   wishlistVotes,
+  inventoryImports,
 } from "@/lib/db/schema"
 import { and, desc, eq, or, sql } from "drizzle-orm"
 import { getProducts, normalizeTimestampMs } from "@/lib/db/queries"
@@ -274,23 +275,24 @@ export async function GET(req: Request) {
     if (type === "full") {
       const full: Record<string, any[]> = {}
       const tables: Array<[string, () => Promise<any[]>]> = [
-        ["categories", () => db.select().from(categories).all()],
-        ["products", () => db.select().from(products).all()],
-        ["cards", () => db.select().from(cards).all()],
-        ["orders", () => db.select().from(orders).all()],
-        ["reviews", () => db.select().from(reviews).all()],
-        ["review_replies", () => db.select().from(reviewReplies).all()],
-        ["settings", () => db.select().from(settings).all()],
-        ["login_users", () => db.select().from(loginUsers).all()],
-        ["user_notifications", () => db.select().from(userNotifications).all()],
-        ["user_messages", () => db.select().from(userMessages).all()],
-        ["admin_messages", () => db.select().from(adminMessages).all()],
-        ["broadcast_messages", () => db.select().from(broadcastMessages).all()],
-        ["broadcast_reads", () => db.select().from(broadcastReads).all()],
-        ["wishlist_items", () => db.select().from(wishlistItems).all()],
-        ["wishlist_votes", () => db.select().from(wishlistVotes).all()],
-        ["refund_requests", () => db.select().from(refundRequests).all()],
-        ["daily_checkins_v2", () => db.select().from(dailyCheckins).all()],
+        ["categories", async () => db.select().from(categories).all()],
+        ["products", async () => db.select().from(products).all()],
+        ["cards", async () => db.select().from(cards).all()],
+        ["inventory_imports", async () => db.select().from(inventoryImports).all()],
+        ["orders", async () => db.select().from(orders).all()],
+        ["reviews", async () => db.select().from(reviews).all()],
+        ["review_replies", async () => db.select().from(reviewReplies).all()],
+        ["settings", async () => db.select().from(settings).all()],
+        ["login_users", async () => db.select().from(loginUsers).all()],
+        ["user_notifications", async () => db.select().from(userNotifications).all()],
+        ["user_messages", async () => db.select().from(userMessages).all()],
+        ["admin_messages", async () => db.select().from(adminMessages).all()],
+        ["broadcast_messages", async () => db.select().from(broadcastMessages).all()],
+        ["broadcast_reads", async () => db.select().from(broadcastReads).all()],
+        ["wishlist_items", async () => db.select().from(wishlistItems).all()],
+        ["wishlist_votes", async () => db.select().from(wishlistVotes).all()],
+        ["refund_requests", async () => db.select().from(refundRequests).all()],
+        ["daily_checkins_v2", async () => db.select().from(dailyCheckins).all()],
       ]
 
       for (const [tableName, fetcher] of tables) {
@@ -326,6 +328,9 @@ export async function GET(req: Request) {
           reviewId: 'review_id',
           itemId: 'item_id',
           messageId: 'message_id',
+          idempotencyKey: 'idempotency_key',
+          payloadHash: 'payload_hash',
+          importedCount: 'imported_count',
           // Products
           compareAtPrice: 'compare_at_price',
           maxPointsDiscount: 'max_points_discount',

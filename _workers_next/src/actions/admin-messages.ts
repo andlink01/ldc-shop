@@ -1,6 +1,6 @@
 "use server"
 
-import { db } from "@/lib/db"
+import { db, dbRun } from "@/lib/db"
 import { adminMessages, loginUsers, userNotifications, broadcastMessages, broadcastReads } from "@/lib/db/schema"
 import { eq, sql } from "drizzle-orm"
 import { checkAdmin } from "@/actions/admin"
@@ -9,7 +9,7 @@ import { revalidatePath } from "next/cache"
 type TargetType = "all" | "username" | "userId"
 
 async function ensureAdminMessagesTable() {
-    await db.run(sql`
+    await dbRun(sql`
         CREATE TABLE IF NOT EXISTS admin_messages(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             target_type TEXT NOT NULL,
@@ -23,7 +23,7 @@ async function ensureAdminMessagesTable() {
 }
 
 async function ensureBroadcastTables() {
-    await db.run(sql`
+    await dbRun(sql`
         CREATE TABLE IF NOT EXISTS broadcast_messages(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             title TEXT NOT NULL,
@@ -32,7 +32,7 @@ async function ensureBroadcastTables() {
             created_at INTEGER DEFAULT (unixepoch() * 1000)
         )
     `)
-    await db.run(sql`
+    await dbRun(sql`
         CREATE TABLE IF NOT EXISTS broadcast_reads(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             message_id INTEGER NOT NULL REFERENCES broadcast_messages(id) ON DELETE CASCADE,
@@ -43,7 +43,7 @@ async function ensureBroadcastTables() {
 }
 
 async function ensureUserNotificationsTable() {
-    await db.run(sql`
+    await dbRun(sql`
         CREATE TABLE IF NOT EXISTS user_notifications(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id TEXT NOT NULL REFERENCES login_users(user_id) ON DELETE CASCADE,

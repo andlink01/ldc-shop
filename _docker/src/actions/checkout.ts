@@ -1,7 +1,8 @@
 'use server'
+import { getAppBaseUrl } from "@/lib/url"
 
 import { auth } from "@/lib/auth"
-import { db } from "@/lib/db"
+import { db, dbRun } from "@/lib/db"
 import { products, cards, orders, loginUsers } from "@/lib/db/schema"
 import { cancelExpiredOrders, cleanupExpiredCardsIfNeeded, recalcProductAggregates, createUserNotification } from "@/lib/db/queries"
 import { generateOrderId, generateSign } from "@/lib/crypto"
@@ -19,7 +20,7 @@ const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 function isMissingColumnError(error: any) {
     const errorString = (JSON.stringify(error) + String(error) + (error?.message || '')).toLowerCase()
-    return errorString.includes('no such column') || errorString.includes('column not found')
+    return errorString.includes('no such column') || errorString.includes('column not found') || errorString.includes('d1_column_notfound')
 }
 
 function getMaxPointDeduction(totalAmount: number, quantity: number, maxPointsDiscount: string | number | null | undefined) {
@@ -63,9 +64,12 @@ async function autoReplenishByApi(productId: string, reason: string) {
     }
 }
 
-export async function createOrder(productId: string, quantity: number = 1, email?: string, usePoints: boolean = false) {
+export async function createOrder(productId: string, quantity: number = 1, email?: string, usePoints: boolean = false, answers?: string[]) {
     const session = await auth()
     const user = session?.user
+
+    if (!user?.id) return { success: false, error: 'common.loginRequired' }
+
     const normalizedQuantity = Number(quantity)
 
     if (!Number.isFinite(normalizedQuantity) || !Number.isInteger(normalizedQuantity) || normalizedQuantity <= 0) {
@@ -84,7 +88,8 @@ export async function createOrder(productId: string, quantity: number = 1, email
                 price: true,
                 purchaseLimit: true,
                 maxPointsDiscount: true,
-                isShared: true
+                isShared: true,
+                purchaseQuestions: true
             }
         })
 
@@ -93,13 +98,31 @@ export async function createOrder(productId: string, quantity: number = 1, email
         } catch (error: any) {
             if (!isMissingColumnError(error)) throw error
             try {
-                await db.run(sql.raw(`ALTER TABLE products ADD COLUMN max_points_discount TEXT`))
+                await dbRun(sql.raw(`ALTER TABLE products ADD COLUMN max_points_discount TEXT`))
             } catch { /* column exists */ }
             return await query()
         }
     }
     const product = await getCheckoutProduct()
     if (!product) return { success: false, error: 'buy.productNotFound' }
+
+    if (product.purchaseQuestions) {
+        try {
+            const qs: Array<{ q: string; a: string }> = JSON.parse(product.purchaseQuestions)
+            if (Array.isArray(qs) && qs.length > 0) {
+                if (!answers || answers.length !== qs.length) {
+                    return { success: false, error: 'buy.answersRequired' }
+                }
+                const allCorrect = qs.every((q, i) => {
+                    const userAnswer = (answers[i] || '').trim().toLowerCase()
+                    return userAnswer === q.a.trim().toLowerCase()
+                })
+                if (!allCorrect) {
+                    return { success: false, error: 'buy.questionsWrong' }
+                }
+            }
+        } catch { /* malformed JSON, skip */ }
+    }
 
     const purchaseLimit = product.purchaseLimit && product.purchaseLimit > 0 ? product.purchaseLimit : null
     const maxQuantity = purchaseLimit ?? MAX_ORDER_QUANTITY
@@ -265,7 +288,7 @@ export async function createOrder(productId: string, quantity: number = 1, email
 
                     // A. Try strictly free card (single atomic UPDATE ... RETURNING)
                     const nowMs = Date.now();
-                    const claimedRows: any[] = await db.all(sql`
+                    const claimResult: any = await dbRun(sql`
                         UPDATE cards
                         SET reserved_order_id = ${orderId}, reserved_at = ${nowMs}
                         WHERE id = (
@@ -278,6 +301,8 @@ export async function createOrder(productId: string, quantity: number = 1, email
                         )
                         RETURNING id, card_key
                     `);
+
+                    const claimedRows = claimResult?.results || claimResult?.rows || [];
                     if (claimedRows.length > 0) {
                         const row = claimedRows[0];
                         const id = Number(row.id);
@@ -535,7 +560,7 @@ export async function createOrder(productId: string, quantity: number = 1, email
     if (isZeroPrice) {
         return {
             success: true,
-            url: `${process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL || ''}/order/${orderId}`,
+            url: `${getAppBaseUrl()}/order/${orderId}`,
             isZeroPrice: true
         }
     }
@@ -543,7 +568,7 @@ export async function createOrder(productId: string, quantity: number = 1, email
     const cookieStore = await cookies()
     cookieStore.set('ldc_pending_order', orderId, { secure: true, path: '/', sameSite: 'lax' })
 
-    const baseUrl = process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+    const baseUrl = getAppBaseUrl() || 'http://localhost:3000';
     const payParams: Record<string, any> = {
         pid: process.env.MERCHANT_ID!,
         type: 'epay',
@@ -568,7 +593,7 @@ export async function getRetryPaymentParams(orderId: string) {
     const session = await auth()
     const user = session?.user
 
-    if (!user?.id) return { success: false, error: 'common.error' }
+    if (!user?.id) return { success: false, error: 'common.loginRequired' }
 
     const order = await db.query.orders.findFirst({
         where: and(eq(orders.orderId, orderId), eq(orders.userId, user.id))
@@ -577,7 +602,7 @@ export async function getRetryPaymentParams(orderId: string) {
     if (!order) return { success: false, error: 'buy.productNotFound' }
     if (order.status !== 'pending') return { success: false, error: 'order.status.paid' }
 
-    const baseUrl = process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+    const baseUrl = getAppBaseUrl() || 'http://localhost:3000';
 
     const uniqueTradeNo = `${order.orderId}_retry${Date.now()}`;
 

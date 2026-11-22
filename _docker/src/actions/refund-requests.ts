@@ -12,7 +12,7 @@ import { markOrderRefunded, proxyRefund } from "@/actions/refund"
 import { createUserNotification } from "@/lib/db/queries"
 
 async function ensureRefundRequestsTable() {
-  dbExecRaw(`
+  await dbExecRaw(`
     CREATE TABLE IF NOT EXISTS refund_requests (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       order_id TEXT NOT NULL,

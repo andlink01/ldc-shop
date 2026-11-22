@@ -1,8 +1,8 @@
 'use server'
 
 import { auth } from "@/lib/auth"
-import { db, dbExecRaw } from "@/lib/db"
-import { products, cards, reviews, categories } from "@/lib/db/schema"
+import { db, dbRun, dbExecRaw } from "@/lib/db"
+import { products, cards, reviews, reviewReplies, categories } from "@/lib/db/schema"
 import { eq, sql, inArray, and, or, isNull, lte } from "drizzle-orm"
 import { sendBarkMessage, sendTelegramMessage } from "@/lib/notifications"
 import { revalidatePath, updateTag } from "next/cache"
@@ -10,6 +10,16 @@ import { setSetting, getSetting, recalcProductAggregates, recalcProductAggregate
 import { isAdminUsername } from "@/lib/admin-auth"
 import { getProductCardApiConfig, pullOneCardFromApi, saveProductCardApiConfig } from "@/lib/card-api"
 import { unstable_noStore } from "next/cache"
+import { isThemeFont } from "@/lib/theme-fonts"
+import { normalizeCurrencyUnit } from "@/lib/currency-unit"
+import {
+    PRODUCT_GALLERY_MAX_ITEMS,
+    PRODUCT_GALLERY_MAX_JSON_LENGTH,
+    normalizeProductImageRefs,
+    parseStoredProductImages,
+    splitProductImageGallery,
+    validateProductImageRef,
+} from "@/lib/product-images"
 
 export async function checkAdmin() {
     const session = await auth()
@@ -55,23 +65,55 @@ export async function saveProduct(formData: FormData) {
             return Math.floor(value).toFixed(2)
         })()
     const category = formData.get('category') as string
-    const image = formData.get('image') as string
+    const image = (formData.get('image') as string || '').trim()
+    const productImagesRaw = (formData.get('productImages') as string | null)?.trim() || null
     const purchaseLimit = formData.get('purchaseLimit') ? parseInt(formData.get('purchaseLimit') as string) : null
     const isHot = formData.get('isHot') === 'on'
     const isShared = formData.get('isShared') === 'on'
     const purchaseWarning = (formData.get('purchaseWarning') as string | null)?.trim() || null
     const visibilityLevelRaw = (formData.get('visibilityLevel') as string | null)?.trim() ?? ''
+    const variantGroupId = (formData.get('variantGroupId') as string | null)?.trim() || null
+    const variantLabel = (formData.get('variantLabel') as string | null)?.trim() || null
+    const purchaseQuestionsRaw = (formData.get('purchaseQuestions') as string | null)?.trim() || null
+    let purchaseQuestions: string | null = null
+    if (purchaseQuestionsRaw) {
+        try {
+            const parsed = JSON.parse(purchaseQuestionsRaw)
+            if (Array.isArray(parsed)) {
+                const valid = parsed.filter((item: any) => item && typeof item.q === 'string' && item.q.trim() && typeof item.a === 'string' && item.a.trim())
+                purchaseQuestions = valid.length > 0 ? JSON.stringify(valid.map((item: any) => ({ q: item.q.trim(), a: item.a.trim() }))) : null
+            }
+        } catch {
+            // ignore invalid JSON
+        }
+    }
     const parsedVisibility = Number.parseInt(visibilityLevelRaw, 10)
     const visibilityLevel = Number.isFinite(parsedVisibility) ? parsedVisibility : -1
     if (![ -1, 0, 1, 2, 3 ].includes(visibilityLevel)) {
         throw new Error("Invalid visibility level")
+    }
+    const submittedGallery = normalizeProductImageRefs([image, ...parseStoredProductImages(productImagesRaw)])
+    if (submittedGallery.length > PRODUCT_GALLERY_MAX_ITEMS) {
+        throw new Error(`Product gallery supports up to ${PRODUCT_GALLERY_MAX_ITEMS} images`)
+    }
+    for (const [index, galleryImage] of submittedGallery.entries()) {
+        validateProductImageRef(galleryImage, index === 0 ? "Product image" : `Product gallery image ${index}`)
+    }
+
+    const {
+        primaryImage,
+        additionalImagesJson,
+    } = splitProductImageGallery(image, productImagesRaw)
+
+    if (additionalImagesJson && additionalImagesJson.length > PRODUCT_GALLERY_MAX_JSON_LENGTH) {
+        throw new Error("Additional product images are too large")
     }
 
     const doSave = async () => {
         // Auto-create category if it doesn't exist
         if (category) {
             await ensureCategoriesTable()
-            await db.run(sql`
+            await dbRun(sql`
                 INSERT INTO categories (name, updated_at) 
                 VALUES (${category}, (unixepoch() * 1000)) 
                 ON CONFLICT (name) DO NOTHING
@@ -86,12 +128,16 @@ export async function saveProduct(formData: FormData) {
             compareAtPrice: compareAtPrice && compareAtPrice !== '0' ? compareAtPrice : null,
             maxPointsDiscount,
             category,
-            image,
+            image: primaryImage,
+            productImages: additionalImagesJson,
             purchaseLimit,
             purchaseWarning,
             isHot,
             isShared,
-            visibilityLevel
+            visibilityLevel,
+            variantGroupId,
+            variantLabel,
+            purchaseQuestions
         }).onConflictDoUpdate({
             target: products.id,
             set: {
@@ -101,12 +147,16 @@ export async function saveProduct(formData: FormData) {
                 compareAtPrice: compareAtPrice && compareAtPrice !== '0' ? compareAtPrice : null,
                 maxPointsDiscount,
                 category,
-                image,
+                image: primaryImage,
+                productImages: additionalImagesJson,
                 purchaseLimit,
                 purchaseWarning,
                 isHot,
                 isShared,
-                visibilityLevel
+                visibilityLevel,
+                variantGroupId,
+                variantLabel,
+                purchaseQuestions
             }
         })
     }
@@ -114,22 +164,25 @@ export async function saveProduct(formData: FormData) {
     // Ensure all product columns exist before saving
     const ensureColumns = async () => {
         try {
-            await db.run(sql.raw(`ALTER TABLE products ADD COLUMN compare_at_price TEXT`));
+            await dbRun(sql.raw(`ALTER TABLE products ADD COLUMN compare_at_price TEXT`));
         } catch { /* column exists */ }
         try {
-            await db.run(sql.raw(`ALTER TABLE products ADD COLUMN max_points_discount TEXT`));
+            await dbRun(sql.raw(`ALTER TABLE products ADD COLUMN max_points_discount TEXT`));
         } catch { /* column exists */ }
         try {
-            await db.run(sql.raw(`ALTER TABLE products ADD COLUMN is_hot INTEGER DEFAULT 0`));
+            await dbRun(sql.raw(`ALTER TABLE products ADD COLUMN is_hot INTEGER DEFAULT 0`));
         } catch { /* column exists */ }
         try {
-            await db.run(sql.raw(`ALTER TABLE products ADD COLUMN purchase_warning TEXT`));
+            await dbRun(sql.raw(`ALTER TABLE products ADD COLUMN purchase_warning TEXT`));
         } catch { /* column exists */ }
         try {
-            await db.run(sql.raw(`ALTER TABLE products ADD COLUMN is_shared INTEGER DEFAULT 0`));
+            await dbRun(sql.raw(`ALTER TABLE products ADD COLUMN is_shared INTEGER DEFAULT 0`));
         } catch { /* column exists */ }
         try {
-            await db.run(sql.raw(`ALTER TABLE products ADD COLUMN visibility_level INTEGER DEFAULT -1`));
+            await dbRun(sql.raw(`ALTER TABLE products ADD COLUMN visibility_level INTEGER DEFAULT -1`));
+        } catch { /* column exists */ }
+        try {
+            await dbRun(sql.raw(`ALTER TABLE products ADD COLUMN product_images TEXT`));
         } catch { /* column exists */ }
     }
 
@@ -510,12 +563,10 @@ export async function saveShopName(rawName: string) {
         await setSetting('shop_name', name)
     } catch (error: any) {
         // If settings table doesn't exist, create it and retry
-        const msg = error.message || ''
-        if (msg.includes('does not exist') ||
-            msg.includes('no such table') ||
+        if (error.message?.includes('does not exist') ||
             error.code === '42P01' ||
             JSON.stringify(error).includes('42P01')) {
-            await db.run(sql`
+            await dbRun(sql`
                 CREATE TABLE IF NOT EXISTS settings (
                     key TEXT PRIMARY KEY,
                     value TEXT,
@@ -555,11 +606,19 @@ export async function saveShopLogo(logoUrl: string) {
     await checkAdmin()
 
     const url = logoUrl.trim()
-    if (url && url.length > 500) {
+    if (url.startsWith('data:')) {
+        if (!url.startsWith('data:image/')) {
+            throw new Error("Only image data URLs are allowed")
+        }
+        if (url.length > 1_000_000) {
+            throw new Error("Logo image is too large")
+        }
+    } else if (url && url.length > 500) {
         throw new Error("Logo URL is too long")
     }
 
     await setSetting('shop_logo', url)
+    await setSetting('shop_logo_source', url ? 'custom' : 'generated')
     await setSetting('shop_logo_updated_at', String(Date.now()))
     revalidatePath('/')
     revalidatePath('/admin/products')
@@ -577,9 +636,42 @@ export async function saveRefundReclaimCards(enabled: boolean) {
 
 export async function deleteReview(reviewId: number) {
     await checkAdmin()
+    const existing = await db.select({
+        productId: reviews.productId,
+    }).from(reviews).where(eq(reviews.id, reviewId)).limit(1)
+
     await db.delete(reviews).where(eq(reviews.id, reviewId))
+
+    const productId = existing[0]?.productId
+    if (productId) {
+        await recalcProductAggregates(productId)
+        revalidatePath(`/buy/${productId}`)
+    }
+
     revalidatePath('/admin/reviews')
     updateTag('home:ratings')
+    updateTag('home:products')
+    revalidatePath('/')
+}
+
+export async function deleteReviewReply(replyId: number) {
+    await checkAdmin()
+    const existing = await db.select({
+        productId: reviews.productId,
+    })
+        .from(reviewReplies)
+        .leftJoin(reviews, eq(reviewReplies.reviewId, reviews.id))
+        .where(eq(reviewReplies.id, replyId))
+        .limit(1)
+
+    await db.delete(reviewReplies).where(eq(reviewReplies.id, replyId))
+
+    const productId = existing[0]?.productId
+    if (productId) {
+        revalidatePath(`/buy/${productId}`)
+    }
+
+    revalidatePath('/admin/reviews')
     revalidatePath('/')
 }
 
@@ -657,6 +749,21 @@ export async function saveShopFooter(footer: string) {
     updateTag('home:product-categories')
 }
 
+export async function saveCurrencyUnit(rawCurrencyUnit: string) {
+    await checkAdmin()
+
+    const currencyUnit = normalizeCurrencyUnit(rawCurrencyUnit) || ''
+    if (currencyUnit.length > 20) {
+        throw new Error("Currency unit is too long")
+    }
+
+    await setSetting('currency_unit', currencyUnit)
+    revalidatePath('/admin/settings')
+    revalidatePath('/')
+    updateTag('home:products')
+    updateTag('home:product-categories')
+}
+
 const VALID_THEME_COLORS = ['purple', 'indigo', 'blue', 'cyan', 'teal', 'green', 'lime', 'amber', 'orange', 'red', 'rose', 'pink', 'black']
 
 export async function saveThemeColor(color: string) {
@@ -667,6 +774,20 @@ export async function saveThemeColor(color: string) {
     }
 
     await setSetting('theme_color', color)
+    revalidatePath('/admin/settings')
+    revalidatePath('/')
+    updateTag('home:products')
+    updateTag('home:product-categories')
+}
+
+export async function saveThemeFont(font: string) {
+    await checkAdmin()
+
+    if (!isThemeFont(font)) {
+        throw new Error("Invalid theme font")
+    }
+
+    await setSetting('theme_font', font)
     revalidatePath('/admin/settings')
     revalidatePath('/')
     updateTag('home:products')
@@ -755,7 +876,7 @@ export async function testEmailNotification(to: string) {
 }
 
 async function ensureCategoriesTable() {
-    dbExecRaw(`
+    await dbExecRaw(`
         CREATE TABLE IF NOT EXISTS categories (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,

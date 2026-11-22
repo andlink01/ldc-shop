@@ -3,6 +3,8 @@ import { drizzle as drizzleD1 } from 'drizzle-orm/d1';
 import * as schema from './schema';
 import { getCloudflareContext } from '@opennextjs/cloudflare';
 import { PHASE_EXPORT, PHASE_PRODUCTION_BUILD } from "next/constants";
+import type { SQL } from 'drizzle-orm';
+import type { RawResult, SqlStatement } from './contracts';
 
 // D1 Proxy to bridge async context with sync Drizzle setup
 class D1StatementProxy {
@@ -115,3 +117,22 @@ const getDb = () => {
 };
 
 export const db = getDb();
+
+export async function dbRun<T = Record<string, unknown>>(query: SQL): Promise<RawResult<T>> {
+    const result = await db.run(query);
+    return { results: (result.results || []) as T[], meta: result.meta };
+}
+
+export async function dbExecRaw(statement: string): Promise<void> {
+    const binding = await getD1();
+    // Only used for static schema DDL. Prepare each complete statement rather
+    // than passing multiline SQL to D1.exec's line-oriented parser.
+    const statements = statement.replace(/^\s*--.*$/gm, '').split(';').map((sql) => sql.trim()).filter(Boolean);
+    if (statements.length) await binding.batch(statements.map((sql) => binding.prepare(sql)));
+}
+
+// D1 executes the entire batch as a transaction and rolls back on any failure.
+export async function dbBatchRaw(statements: SqlStatement[]): Promise<void> {
+    const binding = await getD1();
+    await binding.batch(statements.map(({ sql, params }) => binding.prepare(sql).bind(...params)));
+}

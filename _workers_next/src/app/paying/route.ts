@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
+import { getRequestBaseUrl } from "@/lib/url"
 
 const DEFAULT_PAY_URL = "https://credit.linux.do/epay/pay/submit.php"
 
@@ -13,14 +14,13 @@ function escapeHtml(value: string) {
 }
 
 export async function GET(request: Request) {
-  const url = new URL(request.url)
-  return NextResponse.redirect(new URL("/", url))
+  return NextResponse.redirect(new URL("/", getRequestBaseUrl(request)))
 }
 
 export async function POST(request: Request) {
   const session = await auth()
   if (!session?.user?.id) {
-    return NextResponse.redirect(new URL("/login?callbackUrl=%2Forders", request.url), 303)
+    return NextResponse.redirect(new URL("/login?callbackUrl=%2Forders", getRequestBaseUrl(request)), 303)
   }
 
   const formData = await request.formData()

@@ -1,7 +1,8 @@
 'use server'
+import { getAppBaseUrl } from "@/lib/url"
 
 import { auth } from "@/lib/auth"
-import { db } from "@/lib/db"
+import { db, dbRun } from "@/lib/db"
 import { products, cards, orders, loginUsers } from "@/lib/db/schema"
 import { cancelExpiredOrders, cleanupExpiredCardsIfNeeded, recalcProductAggregates, createUserNotification } from "@/lib/db/queries"
 import { generateOrderId, generateSign } from "@/lib/crypto"
@@ -97,7 +98,7 @@ export async function createOrder(productId: string, quantity: number = 1, email
         } catch (error: any) {
             if (!isMissingColumnError(error)) throw error
             try {
-                await db.run(sql.raw(`ALTER TABLE products ADD COLUMN max_points_discount TEXT`))
+                await dbRun(sql.raw(`ALTER TABLE products ADD COLUMN max_points_discount TEXT`))
             } catch { /* column exists */ }
             return await query()
         }
@@ -287,7 +288,7 @@ export async function createOrder(productId: string, quantity: number = 1, email
 
                     // A. Try strictly free card (single atomic UPDATE ... RETURNING)
                     const nowMs = Date.now();
-                    const claimResult: any = await db.run(sql`
+                    const claimResult: any = await dbRun(sql`
                         UPDATE cards
                         SET reserved_order_id = ${orderId}, reserved_at = ${nowMs}
                         WHERE id = (
@@ -559,7 +560,7 @@ export async function createOrder(productId: string, quantity: number = 1, email
     if (isZeroPrice) {
         return {
             success: true,
-            url: `${process.env.NEXT_PUBLIC_APP_URL || ''}/order/${orderId}`,
+            url: `${getAppBaseUrl()}/order/${orderId}`,
             isZeroPrice: true
         }
     }
@@ -567,7 +568,7 @@ export async function createOrder(productId: string, quantity: number = 1, email
     const cookieStore = await cookies()
     cookieStore.set('ldc_pending_order', orderId, { secure: true, path: '/', sameSite: 'lax' })
 
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000');
+    const baseUrl = getAppBaseUrl() || 'http://localhost:3000';
     const payParams: Record<string, any> = {
         pid: process.env.MERCHANT_ID!,
         type: 'epay',
@@ -601,7 +602,7 @@ export async function getRetryPaymentParams(orderId: string) {
     if (!order) return { success: false, error: 'buy.productNotFound' }
     if (order.status !== 'pending') return { success: false, error: 'order.status.paid' }
 
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000');
+    const baseUrl = getAppBaseUrl() || 'http://localhost:3000';
 
     const uniqueTradeNo = `${order.orderId}_retry${Date.now()}`;
 

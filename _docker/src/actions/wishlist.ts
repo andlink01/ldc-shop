@@ -1,7 +1,7 @@
 "use server"
 
 import { auth } from "@/lib/auth"
-import { db, dbExecRaw } from "@/lib/db"
+import { db, dbRun, dbExecRaw } from "@/lib/db"
 import { loginUsers } from "@/lib/db/schema"
 import { eq, sql } from "drizzle-orm"
 import { revalidatePath } from "next/cache"
@@ -9,15 +9,15 @@ import { getSetting } from "@/lib/db/queries"
 
 async function safeAddColumn(table: string, column: string, definition: string) {
     try {
-        await db.run(sql.raw(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`))
+        await dbRun(sql.raw(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`))
     } catch (e: any) {
-        const msg = ((e?.message || '') + (e?.cause?.message || '') + String(e)).toLowerCase()
-        if (!msg.includes("duplicate column")) throw e
+        const errorString = (JSON.stringify(e) + String(e)).toLowerCase()
+        if (!errorString.includes("duplicate column")) throw e
     }
 }
 
 async function ensureWishlistTables() {
-    dbExecRaw(`
+    await dbExecRaw(`
         CREATE TABLE IF NOT EXISTS wishlist_items(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             title TEXT NOT NULL,
@@ -86,12 +86,18 @@ export async function submitWishlistItem(title: string, description?: string) {
     }
 
     await ensureWishlistTables()
-    const rows: any[] = await db.all(sql`
+    const result: any = await dbRun(sql`
         INSERT INTO wishlist_items (title, description, user_id, username, created_at)
         VALUES (${cleanTitle}, ${cleanDesc || null}, ${userId}, ${username}, (unixepoch() * 1000))
         RETURNING id
     `)
-    const id = Number(rows[0]?.id || 0)
+    const rows = result?.results || result?.rows || []
+    let id = Number(rows[0]?.id || 0)
+
+    // Fallback to meta.last_row_id if RETURNING didn't work (older D1 behavior)
+    if (!id && result?.meta?.last_row_id) {
+        id = Number(result.meta.last_row_id)
+    }
 
     revalidatePath("/")
     revalidatePath("/wishlist")
@@ -134,28 +140,30 @@ export async function toggleWishlistVote(itemId: number) {
 
     await ensureWishlistTables()
 
-    const existingRows: any[] = await db.all(sql`
+    const existing: any = await dbRun(sql`
         SELECT id FROM wishlist_votes
         WHERE item_id = ${id} AND user_id = ${userId}
         LIMIT 1
     `)
+    const existingRows = existing?.results || existing?.rows || []
     const hasVote = existingRows.length > 0
 
     if (hasVote) {
-        await db.run(sql`
+        await dbRun(sql`
             DELETE FROM wishlist_votes
             WHERE item_id = ${id} AND user_id = ${userId}
         `)
     } else {
-        await db.run(sql`
+        await dbRun(sql`
             INSERT OR IGNORE INTO wishlist_votes (item_id, user_id, created_at)
             VALUES (${id}, ${userId}, (unixepoch() * 1000))
         `)
     }
 
-    const countRows: any[] = await db.all(sql`
+    const countResult: any = await dbRun(sql`
         SELECT COUNT(*) AS count FROM wishlist_votes WHERE item_id = ${id}
     `)
+    const countRows = countResult?.results || countResult?.rows || []
     const count = Number(countRows[0]?.count || 0)
 
     revalidatePath("/")
@@ -168,7 +176,7 @@ export async function deleteWishlistItem(id: number) {
     const { checkAdmin } = await import("./admin")
     await checkAdmin()
 
-    await db.run(sql`
+    await dbRun(sql`
         DELETE FROM wishlist_items WHERE id = ${id}
     `)
 

@@ -42,6 +42,15 @@ export const cards = sqliteTable('cards', {
     createdAt: integer('created_at', { mode: 'timestamp_ms' }).$defaultFn(() => new Date()),
 });
 
+// Import receipts are committed atomically with stock to make API retries safe.
+export const inventoryImports = sqliteTable('inventory_imports', {
+    idempotencyKey: text('idempotency_key').primaryKey(),
+    productId: text('product_id').notNull().references(() => products.id, { onDelete: 'cascade' }),
+    payloadHash: text('payload_hash').notNull(),
+    importedCount: integer('imported_count').notNull(),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+});
+
 // Orders
 export const orders = sqliteTable('orders', {
     orderId: text('order_id').primaryKey(),

@@ -4,7 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const tracked = execFileSync('git', ['ls-files', '-z', '--', '_workers_next', '_docker'], {
+const tracked = execFileSync('git', ['ls-files', '--cached', '--others', '--exclude-standard', '-z', '--', '_workers_next', '_docker'], {
     cwd: root, encoding: 'utf8',
 }).split('\0').filter(Boolean);
 const read = (file) => readFileSync(path.join(root, file), 'utf8').replace(/\r\n/g, '\n');
@@ -62,7 +62,7 @@ const tableNames = (files) => new Map([...files.get('src/lib/db/schema.ts')
     .matchAll(/sqliteTable\('([^']+)'/g)].map((match) => [match[1], 'table']));
 const report = {
     sourceCommit: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim(),
-    method: 'Compare Git-tracked files by relative path after normalizing CRLF to LF; no other whitespace is ignored. Function and table inventories compare names only, not implementations.',
+    method: 'Compare tracked and non-ignored untracked files by relative path after normalizing CRLF to LF; no other whitespace is ignored. Function and table inventories compare names only, not implementations.',
     versions: {
         workers: { package: workersPackage.version, schema: schemaVersion(workers) },
         docker: { package: dockerPackage.version, schema: schemaVersion(docker) },

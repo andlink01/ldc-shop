@@ -2,10 +2,11 @@ import { headers } from "next/headers"
 import { auth } from "@/lib/auth"
 import { AdminPaymentCodeContent } from "@/components/admin/payment-code-content"
 import { md5 } from "@/lib/crypto"
+import { getAppBaseUrl } from "@/lib/url"
 
 async function resolveBaseUrl() {
-    if (process.env.APP_URL) return process.env.APP_URL
-    if (process.env.NEXT_PUBLIC_APP_URL) return process.env.NEXT_PUBLIC_APP_URL
+    const configured = getAppBaseUrl()
+    if (configured) return configured
 
     const headerList = await headers()
     const forwardedProto = headerList.get('x-forwarded-proto')

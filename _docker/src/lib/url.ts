@@ -1,22 +1,28 @@
-/**
- * Get the correct base URL from request headers, falling back to APP_URL.
- *
- * In Docker, HOSTNAME=0.0.0.0 causes request.url to have the wrong origin.
- * This helper reads the reverse proxy headers to determine the real origin.
- */
-export function getRequestBaseUrl(request: Request): string {
-    const headers = new Headers(request.headers)
-
-    const forwardedProto = headers.get("x-forwarded-proto") || "https"
-    const forwardedHost = headers.get("x-forwarded-host") || headers.get("host")
-
-    if (forwardedHost) {
-        const proto = forwardedProto.split(",")[0].trim()
-        return `${proto}://${forwardedHost}`
+export function getAppBaseUrl(): string {
+    const configured = process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL || ''
+    if (!configured) return ''
+    try {
+        const url = new URL(configured)
+        return ['http:', 'https:'].includes(url.protocol) ? url.origin : ''
+    } catch {
+        return ''
     }
+}
 
-    if (process.env.APP_URL) return process.env.APP_URL
-    if (process.env.NEXT_PUBLIC_APP_URL) return process.env.NEXT_PUBLIC_APP_URL
+export function getRequestBaseUrl(request: Request): string {
+    const configured = getAppBaseUrl()
+    if (configured) return configured
 
+    // Proxy headers are used only when the deployment explicitly trusts its proxy.
+    if (process.env.AUTH_TRUST_HOST === 'true') {
+        const host = (request.headers.get('x-forwarded-host') || request.headers.get('host') || '').split(',')[0].trim()
+        const protocol = (request.headers.get('x-forwarded-proto') || 'https').split(',')[0].trim()
+        if (host && ['http', 'https'].includes(protocol)) {
+            try {
+                const url = new URL(`${protocol}://${host}`)
+                if (!url.username && !url.password && url.host === host) return url.origin
+            } catch { /* use the request origin */ }
+        }
+    }
     return new URL(request.url).origin
 }

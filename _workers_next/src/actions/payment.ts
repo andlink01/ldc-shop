@@ -1,4 +1,5 @@
 'use server'
+import { getAppBaseUrl } from "@/lib/url"
 
 import { auth } from "@/lib/auth"
 import { db } from "@/lib/db"
@@ -59,7 +60,7 @@ export async function createPaymentOrder(amountInput: number | string, payeeInpu
     const cookieStore = await cookies()
     cookieStore.set('ldc_pending_order', orderId, { secure: true, path: '/', sameSite: 'lax' })
 
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000')
+    const baseUrl = getAppBaseUrl() || 'http://localhost:3000'
     const payParams: Record<string, any> = {
         pid: process.env.MERCHANT_ID!,
         type: 'epay',

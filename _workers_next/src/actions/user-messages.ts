@@ -1,6 +1,6 @@
 "use server"
 
-import { db } from "@/lib/db"
+import { db, dbRun } from "@/lib/db"
 import { userMessages, loginUsers } from "@/lib/db/schema"
 import { eq, sql } from "drizzle-orm"
 import { auth } from "@/lib/auth"
@@ -9,7 +9,7 @@ import { revalidatePath } from "next/cache"
 import { notifyAdminUserMessage } from "@/lib/notifications"
 
 async function ensureUserMessagesTable() {
-    await db.run(sql`
+    await dbRun(sql`
         CREATE TABLE IF NOT EXISTS user_messages(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id TEXT NOT NULL REFERENCES login_users(user_id) ON DELETE CASCADE,

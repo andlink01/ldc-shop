@@ -1,7 +1,7 @@
 import NextAuth from "next-auth"
 import GitHub from "next-auth/providers/github"
 import { sql } from "drizzle-orm"
-import { db } from "@/lib/db"
+import { db, dbRun } from "@/lib/db"
 import { loginUsers } from "@/lib/db/schema"
 
 const githubClientId = process.env.GITHUB_ID || process.env.AUTH_GITHUB_ID
@@ -136,7 +136,7 @@ function asTimestampMs(value: Date | number | string | null | undefined): number
 
 async function runAuthMigrationStep(statement: any) {
     try {
-        await db.run(statement)
+        await dbRun(statement)
     } catch {
         // best effort in auth callback
     }

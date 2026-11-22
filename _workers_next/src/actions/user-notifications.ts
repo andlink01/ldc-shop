@@ -3,7 +3,7 @@
 import { auth } from "@/lib/auth"
 import { clearUserNotifications, getSetting, getUserNotifications, getUserUnreadNotificationCount, markAllUserNotificationsRead, markUserNotificationRead, setSetting } from "@/lib/db/queries"
 import { broadcastMessages, broadcastReads } from "@/lib/db/schema"
-import { db } from "@/lib/db"
+import { db, dbRun } from "@/lib/db"
 import { and, desc, eq, gte, sql } from "drizzle-orm"
 
 const BROADCAST_LIMIT = 10
@@ -11,7 +11,7 @@ const BROADCAST_LIMIT = 10
 const broadcastClearKey = (userId: string) => `broadcast_cleared_at:${userId}`
 
 async function ensureBroadcastTables() {
-    await db.run(sql`
+    await dbRun(sql`
         CREATE TABLE IF NOT EXISTS broadcast_messages(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             title TEXT NOT NULL,
@@ -20,7 +20,7 @@ async function ensureBroadcastTables() {
             created_at INTEGER DEFAULT (unixepoch() * 1000)
         )
     `)
-    await db.run(sql`
+    await dbRun(sql`
         CREATE TABLE IF NOT EXISTS broadcast_reads(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             message_id INTEGER NOT NULL REFERENCES broadcast_messages(id) ON DELETE CASCADE,
@@ -61,7 +61,7 @@ export async function markAllNotificationsRead() {
     try {
         await ensureBroadcastTables()
         const now = Date.now()
-        await db.run(sql`
+        await dbRun(sql`
             INSERT OR IGNORE INTO broadcast_reads (message_id, user_id, created_at)
             SELECT m.id, ${userId}, ${now}
             FROM broadcast_messages m
@@ -212,7 +212,7 @@ export async function markNotificationRead(id: number) {
                 .limit(1)
             if (exists.length > 0) {
                 const now = Date.now()
-                await db.run(sql`
+                await dbRun(sql`
                     INSERT OR IGNORE INTO broadcast_reads (message_id, user_id, created_at)
                     VALUES (${messageId}, ${userId}, ${now})
                 `)
@@ -236,7 +236,7 @@ export async function clearMyNotifications() {
     try {
         await ensureBroadcastTables()
         const now = Date.now()
-        await db.run(sql`
+        await dbRun(sql`
             INSERT OR IGNORE INTO broadcast_reads (message_id, user_id, created_at)
             SELECT m.id, ${userId}, ${now}
             FROM broadcast_messages m

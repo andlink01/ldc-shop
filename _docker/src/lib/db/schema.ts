@@ -10,6 +10,7 @@ export const products = sqliteTable('products', {
     maxPointsDiscount: text('max_points_discount'),
     category: text('category'),
     image: text('image'),
+    productImages: text('product_images'),
     isHot: integer('is_hot', { mode: 'boolean' }).default(false),
     isActive: integer('is_active', { mode: 'boolean' }).default(true),
     isShared: integer('is_shared', { mode: 'boolean' }).default(false),
@@ -23,6 +24,9 @@ export const products = sqliteTable('products', {
     rating: integer('rating', { mode: 'number' }).default(0), // Average rating (stored as integer/real but using number mode for safety with existing code if it was float. Actually sqliteTable 'integer' is usually int. Better use 'real' for average, but Drizzle sqlite-core uses 'real' or 'numeric'. Let's check imports.)
     reviewCount: integer('review_count').default(0),
     createdAt: integer('created_at', { mode: 'timestamp_ms' }).$defaultFn(() => new Date()), // Use integer timestamp (ms)
+    variantGroupId: text('variant_group_id'),
+    variantLabel: text('variant_label'),
+    purchaseQuestions: text('purchase_questions'),
 });
 
 // Cards (Stock)
@@ -36,6 +40,15 @@ export const cards = sqliteTable('cards', {
     expiresAt: integer('expires_at', { mode: 'timestamp_ms' }),
     usedAt: integer('used_at', { mode: 'timestamp_ms' }),
     createdAt: integer('created_at', { mode: 'timestamp_ms' }).$defaultFn(() => new Date()),
+});
+
+// Import receipts are committed atomically with stock to make API retries safe.
+export const inventoryImports = sqliteTable('inventory_imports', {
+    idempotencyKey: text('idempotency_key').primaryKey(),
+    productId: text('product_id').notNull().references(() => products.id, { onDelete: 'cascade' }),
+    payloadHash: text('payload_hash').notNull(),
+    importedCount: integer('imported_count').notNull(),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
 });
 
 // Orders
@@ -104,6 +117,15 @@ export const reviews = sqliteTable('reviews', {
     username: text('username').notNull(),
     rating: integer('rating').notNull(), // 1-5 stars
     comment: text('comment'),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' }).$defaultFn(() => new Date()),
+});
+
+export const reviewReplies = sqliteTable('review_replies', {
+    id: integer('id', { mode: 'number' }).primaryKey({ autoIncrement: true }),
+    reviewId: integer('review_id', { mode: 'number' }).notNull().references(() => reviews.id, { onDelete: 'cascade' }),
+    userId: text('user_id').notNull(),
+    username: text('username').notNull(),
+    comment: text('comment').notNull(),
     createdAt: integer('created_at', { mode: 'timestamp_ms' }).$defaultFn(() => new Date()),
 });
 

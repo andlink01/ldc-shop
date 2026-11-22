@@ -31,6 +31,9 @@ services:
       # Admin users (comma separated usernames)
       - ADMIN_USERS=admin
 
+      # Optional stable inventory API (generate a separate random secret)
+      # - INVENTORY_API_KEY=replace_with_a_random_secret_of_at_least_32_characters
+
       # SQLite database path (inside container)
       - DATABASE_PATH=/app/data/ldc-shop.sqlite
 

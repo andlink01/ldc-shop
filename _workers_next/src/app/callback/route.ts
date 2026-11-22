@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { cookies } from "next/headers"
+import { getRequestBaseUrl } from "@/lib/url"
 
 function normalizeOrderId(input: string | null): string | null {
   if (!input) return null
@@ -26,5 +27,5 @@ export async function GET(request: Request) {
   }
 
   const destination = orderId ? `/order/${orderId}` : "/orders"
-  return NextResponse.redirect(new URL(destination, url))
+  return NextResponse.redirect(new URL(destination, getRequestBaseUrl(request)))
 }

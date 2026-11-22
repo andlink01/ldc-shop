@@ -1,4 +1,5 @@
 'use server'
+import { getAppBaseUrl } from "@/lib/url"
 
 import { auth } from "@/lib/auth"
 import { db } from "@/lib/db"
@@ -20,6 +21,8 @@ function normalizeAmount(input: number | string) {
 export async function createPaymentOrder(amountInput: number | string, payeeInput?: string | null) {
     const session = await auth()
     const user = session?.user
+
+    if (!user?.id) return { success: false, error: 'common.loginRequired' }
 
     const normalized = normalizeAmount(amountInput)
     if (!normalized) {
@@ -45,7 +48,7 @@ export async function createPaymentOrder(amountInput: number | string, payeeInpu
             productName: PAYMENT_PRODUCT_NAME,
             amount,
             email: user?.email || null,
-            userId: user?.id || null,
+            userId: user.id,
             username: user?.username || null,
             payee,
             status: 'pending',
@@ -57,7 +60,7 @@ export async function createPaymentOrder(amountInput: number | string, payeeInpu
     const cookieStore = await cookies()
     cookieStore.set('ldc_pending_order', orderId, { secure: true, path: '/', sameSite: 'lax' })
 
-    const baseUrl = process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+    const baseUrl = getAppBaseUrl() || 'http://localhost:3000'
     const payParams: Record<string, any> = {
         pid: process.env.MERCHANT_ID!,
         type: 'epay',

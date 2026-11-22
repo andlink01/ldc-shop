@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label"
 import { Loader2, Coins } from "lucide-react"
 import { toast } from "sonner"
 import { useI18n } from "@/lib/i18n/context"
+import { cn } from "@/lib/utils"
 
 interface BuyButtonProps {
     productId: string
@@ -17,8 +18,10 @@ interface BuyButtonProps {
     productName: string
     disabled?: boolean
     quantity?: number
-    autoOpen?: boolean // Auto-open dialog when mounted (for after warning confirmation)
+    autoOpen?: boolean
     emailConfigured?: boolean
+    answers?: string[]
+    className?: string
     maxPointsDiscount?: string | number | null
 }
 
@@ -41,7 +44,7 @@ function getMaxPointDeduction(totalAmount: number, quantity: number, maxPointsDi
     return Math.floor(Math.max(0, cappedAmount))
 }
 
-export function BuyButton({ productId, price, productName, disabled, quantity = 1, autoOpen = false, emailConfigured = false, maxPointsDiscount }: BuyButtonProps) {
+export function BuyButton({ productId, price, productName, disabled, quantity = 1, autoOpen = false, emailConfigured = false, answers, className, maxPointsDiscount }: BuyButtonProps) {
     const [loading, setLoading] = useState(false)
     const [open, setOpen] = useState(false)
     const [points, setPoints] = useState(0)
@@ -61,8 +64,10 @@ export function BuyButton({ productId, price, productName, disabled, quantity = 
         try {
             const p = await getUserPoints()
             setPoints(p)
+            setUsePoints(p > 0)
         } catch (e) {
             console.error(e)
+            setUsePoints(false)
         } finally {
             setPointsLoading(false)
         }
@@ -85,11 +90,15 @@ export function BuyButton({ productId, price, productName, disabled, quantity = 
 
         try {
             setLoading(true)
-            const result = await createOrder(productId, quantity, email, usePoints)
+            const result = await createOrder(productId, quantity, email, usePoints, answers)
 
             if (!result?.success) {
                 const message = result?.error ? t(result.error) : t('common.error')
                 toast.error(message)
+                if (result?.error === 'common.loginRequired') {
+                    window.location.href = `/login?callbackUrl=${encodeURIComponent(window.location.pathname + window.location.search)}`
+                    return
+                }
                 if (!isNavigatingRef.current) setLoading(false)
                 return
             }
@@ -149,7 +158,10 @@ export function BuyButton({ productId, price, productName, disabled, quantity = 
         <>
             <Button
                 size="lg"
-                className="w-full md:w-auto bg-primary text-primary-foreground hover:bg-primary/90 cursor-pointer"
+                className={cn(
+                    "h-12 w-full rounded-xl bg-primary px-6 font-medium text-primary-foreground shadow-lg shadow-primary/20 transition-all hover:bg-primary/90 hover:shadow-xl hover:shadow-primary/25 active:scale-[0.99] disabled:opacity-50",
+                    className
+                )}
                 onClick={handleInitialClick}
                 disabled={disabled}
             >
@@ -157,7 +169,7 @@ export function BuyButton({ productId, price, productName, disabled, quantity = 
             </Button>
 
             <Dialog open={open} onOpenChange={(v) => !isNavigatingRef.current && setOpen(v)}>
-                <DialogContent>
+                <DialogContent className="rounded-2xl sm:max-w-md">
                     <DialogHeader>
                         <DialogTitle>{t('common.buyNow')}</DialogTitle>
                         <DialogDescription>{productName} {quantity > 1 ? `x ${quantity}` : ''}</DialogDescription>
@@ -208,11 +220,11 @@ export function BuyButton({ productId, price, productName, disabled, quantity = 
                         </div>
                     </div>
 
-                    <DialogFooter>
-                        <Button variant="outline" onClick={() => setOpen(false)} disabled={loading}>
+                    <DialogFooter className="gap-2 sm:gap-0">
+                        <Button variant="outline" className="rounded-xl" onClick={() => setOpen(false)} disabled={loading}>
                             {t('common.cancel')}
                         </Button>
-                        <Button onClick={handleBuy} disabled={loading} className="bg-primary text-primary-foreground hover:bg-primary/90">
+                        <Button onClick={handleBuy} disabled={loading} className="rounded-xl bg-primary font-medium text-primary-foreground hover:bg-primary/90">
                             {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                             {finalPrice === 0 ? t('buy.modal.payWithPoints') : t('buy.modal.proceedPayment')}
                         </Button>

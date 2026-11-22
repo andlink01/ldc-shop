@@ -2,6 +2,7 @@ import { db } from "./db"
 import { settings } from "./db/schema"
 import { inArray } from "drizzle-orm"
 import { resolveEffectiveShopLogo } from "@/lib/shop-logo"
+import { getAppBaseUrl } from "@/lib/url"
 
 async function getSettingsUncached(keys: string[]): Promise<Record<string, string>> {
     try {
@@ -20,17 +21,6 @@ async function getSettingsUncached(keys: string[]): Promise<Record<string, strin
             return {}
         }
         throw error
-    }
-}
-
-function getAppBaseUrl() {
-    const raw = process.env.NEXT_PUBLIC_APP_URL
-        || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "")
-    if (!raw) return ""
-    try {
-        return new URL(raw).origin
-    } catch {
-        return ""
     }
 }
 

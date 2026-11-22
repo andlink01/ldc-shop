@@ -13,7 +13,7 @@ function loadModule(path, mocks) {
     const exports = {}
     vm.runInNewContext(outputText, {
         exports,
-        require: (name) => mocks[name] || {},
+        require: (name) => mocks[name] || (name === '@/lib/url' ? loadModule('lib/url.ts', {}) : {}),
         process: { env: { NEXT_PUBLIC_APP_URL: 'https://shop.example', MERCHANT_ID: 'test', MERCHANT_KEY: 'test' } },
         URL, URLSearchParams, console,
     }, { filename: path })

@@ -1,4 +1,4 @@
-import { db } from "./index";
+import { db, dbRun, dbExecRaw } from "./index";
 import { products, cards, orders, settings, reviews, reviewReplies, loginUsers, categories, userNotifications, wishlistItems, wishlistVotes } from "./schema";
 import { INFINITE_STOCK, RESERVATION_TTL_MS } from "@/lib/constants";
 import { eq, sql, desc, and, asc, gte, or, inArray, lte, lt, isNull } from "drizzle-orm";
@@ -9,7 +9,7 @@ import { cache } from "react";
 let dbInitialized = false;
 let loginUsersSchemaReady = false;
 let wishlistTablesReady = false;
-const CURRENT_SCHEMA_VERSION = 21;
+const CURRENT_SCHEMA_VERSION = 22;
 type ColumnEnsureKey = 'products' | 'orders' | 'cards' | 'loginUsers';
 const columnEnsureState: Record<ColumnEnsureKey, { ready: boolean; pending: Promise<void> | null }> = {
     products: { ready: false, pending: null },
@@ -40,7 +40,7 @@ async function ensureColumnsOnce(key: ColumnEnsureKey, task: () => Promise<void>
 
 async function ensureCardKeyDuplicatesAllowed() {
     try {
-        await db.run(sql`DROP INDEX IF EXISTS cards_product_id_card_key_uq;`);
+        await dbRun(sql`DROP INDEX IF EXISTS cards_product_id_card_key_uq;`);
     } catch {
         // best effort
     }
@@ -48,7 +48,7 @@ async function ensureCardKeyDuplicatesAllowed() {
 
 async function safeAddColumn(table: string, column: string, definition: string) {
     try {
-        await db.run(sql.raw(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`));
+        await dbRun(sql.raw(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`));
     } catch (e: any) {
         // Ignore "duplicate column" errors in SQLite
         // Use JSON.stringify AND String(e) to be safe across different environments
@@ -89,11 +89,11 @@ async function ensureIndexes() {
 
     // ... rest of ensureIndexes ...
     try {
-        await db.run(sql`
-            DELETE FROM broadcast_reads 
+        await dbRun(sql`
+            DELETE FROM broadcast_reads
             WHERE id NOT IN (
-                SELECT MIN(id) 
-                FROM broadcast_reads 
+                SELECT MIN(id)
+                FROM broadcast_reads
                 GROUP BY message_id, user_id
             )
         `);
@@ -102,7 +102,7 @@ async function ensureIndexes() {
 
     for (const statement of indexStatements) {
         try {
-            await db.run(sql.raw(statement));
+            await dbRun(sql.raw(statement));
         } catch (e: any) {
             const errorString = (JSON.stringify(e) + String(e) + (e?.message || '')).toLowerCase();
             if (errorString.includes('no such table') || errorString.includes('does not exist')) {
@@ -125,7 +125,7 @@ async function ensureReviewRepliesTable() {
 
     const pending = (async () => {
         try {
-            await db.run(sql`
+            await dbRun(sql`
                 CREATE TABLE IF NOT EXISTS review_replies (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     review_id INTEGER NOT NULL REFERENCES reviews(id) ON DELETE CASCADE,
@@ -150,7 +150,7 @@ async function ensureReviewRepliesTable() {
 }
 
 // Auto-initialize database on first query
-async function ensureDatabaseInitialized() {
+export async function ensureDatabaseInitialized() {
     if (dbInitialized) return;
 
     try {
@@ -165,8 +165,9 @@ async function ensureDatabaseInitialized() {
                 dbInitialized = true;
                 return;
             }
-            if (CURRENT_SCHEMA_VERSION === 21 && parsedVersion === 20) {
+            if (parsedVersion === 20 || parsedVersion === 21) {
                 await ensureProductsColumns();
+                await ensureInventoryImportsTable();
                 await setSetting('schema_version', String(CURRENT_SCHEMA_VERSION));
                 dbInitialized = true;
                 return;
@@ -176,7 +177,7 @@ async function ensureDatabaseInitialized() {
         }
 
         // Quick check if products table exists
-        await db.run(sql`SELECT 1 FROM products LIMIT 1`);
+        await dbRun(sql`SELECT 1 FROM products LIMIT 1`);
 
         // IMPORTANT: Even if table exists, ensure columns exist!
         await ensureProductsColumns();
@@ -191,6 +192,8 @@ async function ensureDatabaseInitialized() {
         await ensureUserMessagesTable();
         await ensureBroadcastTables();
         await ensureWishlistTables();
+        await ensureReviewRepliesTable();
+        await ensureInventoryImportsTable();
         await migrateTimestampColumnsToMs();
         await migrateMalformedGitHubUserIds();
         await migrateGitHubUsersDedupAndCanonicalize();
@@ -210,7 +213,7 @@ async function ensureDatabaseInitialized() {
 
     console.log("First run detected, initializing database...");
 
-    await db.run(sql`
+    await dbExecRaw(`
         -- Products table
         CREATE TABLE IF NOT EXISTS products (
             id TEXT PRIMARY KEY,
@@ -236,7 +239,7 @@ async function ensureDatabaseInitialized() {
             variant_group_id TEXT,
             variant_label TEXT
         );
-        
+
         -- Cards (stock) table
         CREATE TABLE IF NOT EXISTS cards (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -249,7 +252,7 @@ async function ensureDatabaseInitialized() {
             used_at INTEGER,
             created_at INTEGER DEFAULT (unixepoch() * 1000)
         );
-        
+
         -- Orders table
         CREATE TABLE IF NOT EXISTS orders (
             order_id TEXT PRIMARY KEY,
@@ -271,7 +274,7 @@ async function ensureDatabaseInitialized() {
             current_payment_id TEXT,
             created_at INTEGER DEFAULT (unixepoch() * 1000)
         );
-        
+
         -- Login users table
         CREATE TABLE IF NOT EXISTS login_users (
             user_id TEXT PRIMARY KEY,
@@ -282,21 +285,21 @@ async function ensureDatabaseInitialized() {
             created_at INTEGER DEFAULT (unixepoch() * 1000),
             last_login_at INTEGER DEFAULT (unixepoch() * 1000)
         );
-        
+
         -- Daily checkins table
         CREATE TABLE IF NOT EXISTS daily_checkins_v2 (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id TEXT NOT NULL REFERENCES login_users(user_id) ON DELETE CASCADE,
             created_at INTEGER DEFAULT (unixepoch() * 1000)
         );
-        
+
         -- Settings table
         CREATE TABLE IF NOT EXISTS settings (
             key TEXT PRIMARY KEY,
             value TEXT,
             updated_at INTEGER DEFAULT (unixepoch() * 1000)
         );
-        
+
         -- Categories table
         CREATE TABLE IF NOT EXISTS categories (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -307,7 +310,7 @@ async function ensureDatabaseInitialized() {
             updated_at INTEGER DEFAULT (unixepoch() * 1000)
         );
         CREATE UNIQUE INDEX IF NOT EXISTS categories_name_uq ON categories(name);
-        
+
         -- Reviews table
         CREATE TABLE IF NOT EXISTS reviews (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -328,7 +331,7 @@ async function ensureDatabaseInitialized() {
             comment TEXT NOT NULL,
             created_at INTEGER DEFAULT (unixepoch() * 1000)
         );
-        
+
         -- Refund requests table
         CREATE TABLE IF NOT EXISTS refund_requests (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -423,6 +426,7 @@ async function ensureDatabaseInitialized() {
     await backfillProductAggregates();
 
     // Set initial schema version
+    await ensureInventoryImportsTable();
     try {
         await setSetting('schema_version', String(CURRENT_SCHEMA_VERSION));
     } catch {
@@ -433,6 +437,18 @@ async function ensureDatabaseInitialized() {
 
     dbInitialized = true;
     console.log("Database initialized successfully");
+}
+
+async function ensureInventoryImportsTable() {
+    await dbExecRaw(`
+        CREATE TABLE IF NOT EXISTS inventory_imports (
+            idempotency_key TEXT PRIMARY KEY,
+            product_id TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+            payload_hash TEXT NOT NULL,
+            imported_count INTEGER NOT NULL,
+            created_at INTEGER NOT NULL
+        );
+    `);
 }
 
 async function ensureProductsColumns() {
@@ -752,7 +768,7 @@ export async function recalcProductAggregatesForMany(productIds: string[]) {
             sql` `
         );
 
-        await db.run(sql`
+        await dbRun(sql`
             UPDATE products
             SET
                 stock_count = CASE ${products.id} ${stockCases} ELSE ${products.stockCount} END,
@@ -785,23 +801,27 @@ export async function getLiveCardStats(productIds: string[]): Promise<Map<string
     const fiveMinutesAgo = nowMs - RESERVATION_TTL_MS;
 
     try {
-        const rows = await db.select({
-            productId: cards.productId,
-            unused: sql<number>`COALESCE(SUM(CASE WHEN COALESCE(${cards.isUsed}, 0) = 0 AND (${cards.expiresAt} IS NULL OR ${cards.expiresAt} > ${nowMs}) THEN 1 ELSE 0 END), 0)`,
-            available: sql<number>`COALESCE(SUM(CASE WHEN COALESCE(${cards.isUsed}, 0) = 0 AND (${cards.expiresAt} IS NULL OR ${cards.expiresAt} > ${nowMs}) AND (${cards.reservedAt} IS NULL OR ${cards.reservedAt} < ${fiveMinutesAgo}) THEN 1 ELSE 0 END), 0)`,
-            locked: sql<number>`COALESCE(SUM(CASE WHEN COALESCE(${cards.isUsed}, 0) = 0 AND (${cards.expiresAt} IS NULL OR ${cards.expiresAt} > ${nowMs}) AND ${cards.reservedAt} IS NOT NULL AND ${cards.reservedAt} >= ${fiveMinutesAgo} THEN 1 ELSE 0 END), 0)`
-        })
-            .from(cards)
-            .where(inArray(cards.productId, ids))
-            .groupBy(cards.productId);
+        // Leave room for the timestamp bindings within D1's 100-parameter limit.
+        for (let offset = 0; offset < ids.length; offset += 50) {
+            const batch = ids.slice(offset, offset + 50);
+            const rows = await db.select({
+                productId: cards.productId,
+                unused: sql<number>`COALESCE(SUM(CASE WHEN COALESCE(${cards.isUsed}, 0) = 0 AND (${cards.expiresAt} IS NULL OR ${cards.expiresAt} > ${nowMs}) THEN 1 ELSE 0 END), 0)`,
+                available: sql<number>`COALESCE(SUM(CASE WHEN COALESCE(${cards.isUsed}, 0) = 0 AND (${cards.expiresAt} IS NULL OR ${cards.expiresAt} > ${nowMs}) AND (${cards.reservedAt} IS NULL OR ${cards.reservedAt} < ${fiveMinutesAgo}) THEN 1 ELSE 0 END), 0)`,
+                locked: sql<number>`COALESCE(SUM(CASE WHEN COALESCE(${cards.isUsed}, 0) = 0 AND (${cards.expiresAt} IS NULL OR ${cards.expiresAt} > ${nowMs}) AND ${cards.reservedAt} IS NOT NULL AND ${cards.reservedAt} >= ${fiveMinutesAgo} THEN 1 ELSE 0 END), 0)`
+            })
+                .from(cards)
+                .where(inArray(cards.productId, batch))
+                .groupBy(cards.productId);
 
-        for (const row of rows) {
-            if (!row.productId) continue;
-            stats.set(row.productId, {
-                unused: Number(row.unused || 0),
-                available: Number(row.available || 0),
-                locked: Number(row.locked || 0),
-            });
+            for (const row of rows) {
+                if (!row.productId) continue;
+                stats.set(row.productId, {
+                    unused: Number(row.unused || 0),
+                    available: Number(row.available || 0),
+                    locked: Number(row.locked || 0),
+                });
+            }
         }
     } catch (error: any) {
         if (!isMissingTableOrColumn(error)) throw error;
@@ -999,7 +1019,7 @@ export async function getWishlistItems(userId: string | null, limit = 10) {
     await ensureDatabaseInitialized();
 
     try {
-        const result: any = await db.run(sql`
+        const result: any = await dbRun(sql`
             SELECT
                 wi.id AS id,
                 wi.title AS title,
@@ -1030,7 +1050,7 @@ export async function getWishlistItems(userId: string | null, limit = 10) {
             await ensureWishlistTables();
             // Retry once
             try {
-                const result: any = await db.run(sql`
+                const result: any = await dbRun(sql`
                     SELECT
                         wi.id AS id,
                         wi.title AS title,
@@ -1304,7 +1324,7 @@ export async function setSetting(key: string, value: string): Promise<void> {
 
 // Categories (best-effort; table created on demand)
 async function ensureCategoriesTable() {
-    await db.run(sql`
+    await dbExecRaw(`
         CREATE TABLE IF NOT EXISTS categories(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL,
@@ -1783,7 +1803,7 @@ async function migrateTimestampColumnsToMs() {
     for (const { table, columns } of tableColumns) {
         for (const column of columns) {
             try {
-                await db.run(sql.raw(
+                await dbRun(sql.raw(
                     `UPDATE ${table} SET ${column} = ${column} * 1000 WHERE ${column} IS NOT NULL AND ${column} < ${TIMESTAMP_MS_THRESHOLD}`
                 ));
             } catch (error: any) {
@@ -1794,7 +1814,7 @@ async function migrateTimestampColumnsToMs() {
 }
 
 async function ensureLoginUsersTable() {
-    await db.run(sql`
+    await dbRun(sql`
         CREATE TABLE IF NOT EXISTS login_users(
         user_id TEXT PRIMARY KEY,
         username TEXT,
@@ -1809,7 +1829,7 @@ async function ensureLoginUsersTable() {
 }
 
 async function ensureSettingsTable() {
-    await db.run(sql`
+    await dbRun(sql`
         CREATE TABLE IF NOT EXISTS settings(
             key TEXT PRIMARY KEY,
             value TEXT,
@@ -1819,7 +1839,7 @@ async function ensureSettingsTable() {
 }
 
 async function ensureUserNotificationsTable() {
-    await db.run(sql`
+    await dbRun(sql`
         CREATE TABLE IF NOT EXISTS user_notifications(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id TEXT NOT NULL REFERENCES login_users(user_id) ON DELETE CASCADE,
@@ -1834,7 +1854,7 @@ async function ensureUserNotificationsTable() {
 }
 
 async function ensureAdminMessagesTable() {
-    await db.run(sql`
+    await dbRun(sql`
         CREATE TABLE IF NOT EXISTS admin_messages(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             target_type TEXT NOT NULL,
@@ -1848,7 +1868,7 @@ async function ensureAdminMessagesTable() {
 }
 
 async function ensureUserMessagesTable() {
-    await db.run(sql`
+    await dbRun(sql`
         CREATE TABLE IF NOT EXISTS user_messages(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id TEXT NOT NULL REFERENCES login_users(user_id) ON DELETE CASCADE,
@@ -1862,7 +1882,7 @@ async function ensureUserMessagesTable() {
 }
 
 async function ensureBroadcastTables() {
-    await db.run(sql`
+    await dbExecRaw(`
         CREATE TABLE IF NOT EXISTS broadcast_messages(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             title TEXT NOT NULL,
@@ -1883,7 +1903,7 @@ async function ensureBroadcastTables() {
 
 async function ensureWishlistTables() {
     if (wishlistTablesReady) return;
-    await db.run(sql`
+    await dbExecRaw(`
         CREATE TABLE IF NOT EXISTS wishlist_items(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             title TEXT NOT NULL,
@@ -1999,7 +2019,7 @@ function mergeLoginUserRows(primary: GitHubLoginUserRow, secondary: GitHubLoginU
 
 async function runMigrationQuery(statement: any) {
     try {
-        await db.run(statement)
+        await dbRun(statement)
     } catch (error: any) {
         if (!isMissingTableOrColumn(error)) throw error
     }
@@ -2295,7 +2315,7 @@ async function backfillLoginUsersFromOrdersAndReviews() {
     await ensureLoginUsersTable();
 
     try {
-        await db.run(sql`
+        await dbRun(sql`
             INSERT INTO login_users(user_id, username, created_at, last_login_at)
             SELECT user_id, MAX(username) AS username, (unixepoch() * 1000), (unixepoch() * 1000)
             FROM (
@@ -2340,7 +2360,7 @@ export async function recordLoginUser(userId: string, username?: string | null, 
         }
         if (email) {
             try {
-                await db.run(sql`UPDATE login_users SET email = ${email} WHERE user_id = ${userId} AND (email IS NULL OR email = '')`);
+                await dbRun(sql`UPDATE login_users SET email = ${email} WHERE user_id = ${userId} AND (email IS NULL OR email = '')`);
             } catch {
                 // best effort
             }
@@ -2367,7 +2387,7 @@ export async function recordLoginUser(userId: string, username?: string | null, 
             }
             if (email) {
                 try {
-                    await db.run(sql`UPDATE login_users SET email = ${email} WHERE user_id = ${userId} AND (email IS NULL OR email = '')`);
+                    await dbRun(sql`UPDATE login_users SET email = ${email} WHERE user_id = ${userId} AND (email IS NULL OR email = '')`);
                 } catch {
                     // best effort
                 }
@@ -2480,7 +2500,7 @@ export async function cleanupExpiredCardsIfNeeded(throttleMs: number = 10 * 60 *
     }
 
     try {
-        await db.run(sql`DELETE FROM cards WHERE expires_at IS NOT NULL AND expires_at < ${now}`);
+        await dbRun(sql`DELETE FROM cards WHERE expires_at IS NOT NULL AND expires_at < ${now}`);
     } catch (error: any) {
         if (!isMissingTableOrColumn(error)) throw error;
     }
@@ -2667,7 +2687,7 @@ export async function toggleUserBlock(userId: string, isBlocked: boolean) {
     await ensureLoginUsersTable();
     // Ensure column exists
     try {
-        await db.run(sql.raw(`ALTER TABLE login_users ADD COLUMN is_blocked INTEGER DEFAULT 0`));
+        await dbRun(sql.raw(`ALTER TABLE login_users ADD COLUMN is_blocked INTEGER DEFAULT 0`));
     } catch { /* duplicate column */ }
 
     await db.update(loginUsers)
