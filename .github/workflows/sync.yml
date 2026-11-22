@@ -46,9 +46,10 @@ jobs:
               await exec.exec('git', ['remote', 'add', 'upstream', 'https://github.com/chatgptuk/ldc-shop.git']);
               await exec.exec('git', ['fetch', 'upstream']);
 
-              // Hard Reset to Upstream Main
+              // Merge upstream updates while preserving this repository's changes.
+              // Conflicts fail the job before any push so they can be resolved manually.
               await exec.exec('git', ['checkout', 'main']);
-              await exec.exec('git', ['reset', '--hard', 'upstream/main']);
+              await exec.exec('git', ['merge', '--no-edit', 'upstream/main']);
               
               // Restore user's wrangler.json if it was backed up
               if (userWrangler) {
@@ -72,8 +73,8 @@ jobs:
                 }
               }
 
-              // Force Push
-              await exec.exec('git', ['push', 'origin', 'main', '--force']);
+              // A normal push also protects against concurrent remote updates.
+              await exec.exec('git', ['push', 'origin', 'main']);
               
             } catch (error) {
               core.setFailed(`Sync failed: ${error.message}`);
