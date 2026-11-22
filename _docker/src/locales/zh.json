@@ -842,14 +842,14 @@
     "update": {
         "available": "新版本可用",
         "title": "更新",
-        "description": "检查是否有新版本。",
+        "description": "检查上游仓库是否发布新版本；本站定制版本号可能高于上游。",
         "checkNow": "检查更新",
         "checking": "检查中...",
-        "upToDate": "已是最新版本",
+        "upToDate": "上游暂无更新版本",
         "checkFailed": "检查更新失败",
         "currentVersion": "当前版本：{{current}}",
         "viewRelease": "查看发布页",
-        "versionInfo": "当前: {{current}} → 最新: {{latest}}",
+        "versionInfo": "本站版本：{{current}} · 上游最新版本：{{latest}}",
         "syncNow": "去 GitHub 同步更新"
     },
     "registry": {

@@ -40,17 +40,17 @@ node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"
 
 `81000` 秒 = **22 小时 30 分钟**。从首次成功导入时计时，与后台填写小时、分钟的规则一致：到期后卡密不再计入可用库存，并按商城现有清理机制删除。它不会改变外部服务本身的账号或兑换码有效期。
 
-Windows PowerShell 示例（替换密钥）：
+Windows PowerShell 示例（将 `https://shop.example.com` 替换为实际商城域名，并替换密钥）：
 
 ```powershell
-curl.exe --request POST "https://shop.ounet.net/api/v1/products/invitationcode/cards" --header "Authorization: Bearer 替换为你的密钥" --header "Content-Type: application/json" --header "Idempotency-Key: invitationcode-batch-001" --data-binary "@cards.json"
+curl.exe --request POST "https://shop.example.com/api/v1/products/invitationcode/cards" --header "Authorization: Bearer 替换为你的密钥" --header "Content-Type: application/json" --header "Idempotency-Key: invitationcode-batch-001" --data-binary "@cards.json"
 ```
 
 Linux/macOS 使用同一命令，将 `curl.exe` 改为 `curl`。
 
 ```powershell
-curl.exe "https://shop.ounet.net/api/v1/products?limit=50" --header "Authorization: Bearer 替换为你的密钥"
-curl.exe "https://shop.ounet.net/api/v1/products/invitationcode/cards" --header "Authorization: Bearer 替换为你的密钥"
+curl.exe "https://shop.example.com/api/v1/products?limit=50" --header "Authorization: Bearer 替换为你的密钥"
+curl.exe "https://shop.example.com/api/v1/products/invitationcode/cards" --header "Authorization: Bearer 替换为你的密钥"
 ```
 
 每次允许 1–500 条非空字符串，每条最多 4096 字符，请求体最多 256 KiB。会去掉卡密首尾空白；保留内部换行。可直接导入已下架商品的库存。
