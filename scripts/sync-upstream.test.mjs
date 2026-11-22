@@ -142,3 +142,28 @@ test('a concurrent remote update is preserved when the sync push is rejected', a
     assert.equal(repo.remoteHead(), concurrent);
     assert.equal(git(repo.origin, 'show', 'main:concurrent.txt'), 'another contributor');
 });
+
+for (const withD1Config of [false, true]) {
+    test(`sync removes reintroduced Vercel files and retains both supported variants (D1 config: ${withD1Config})`, async (t) => {
+        const repo = fixture(t);
+        repo.publishCustom('AGENTS.md', 'Fork maintenance rules\n');
+        if (withD1Config) {
+            repo.publishCustom('_workers_next/wrangler.json', '{"d1_databases":[]}\n');
+        }
+        repo.publishUpstream('_workers_next/src/app/page.tsx', 'Workers app\n');
+        repo.publishUpstream('_docker/src/app/page.tsx', 'Docker app\n');
+        repo.publishUpstream('src/app/new/page.tsx', 'retired Vercel app\n');
+        repo.publishUpstream('vercel.json', '{}\n');
+        repo.publishUpstream('scripts/export-data.ts', 'retired export\n');
+
+        assert.deepEqual(await repo.run(), []);
+        const files = git(repo.origin, 'ls-tree', '-r', '--name-only', 'main').split('\n');
+        assert.ok(!files.some((file) => file.startsWith('src/')));
+        assert.ok(!files.includes('vercel.json'));
+        assert.ok(!files.includes('scripts/export-data.ts'));
+        assert.ok(files.includes('_workers_next/src/app/page.tsx'));
+        assert.ok(files.includes('_docker/src/app/page.tsx'));
+        assert.ok(files.includes('AGENTS.md'));
+        assert.equal(git(repo.work, 'status', '--porcelain'), '');
+    });
+}

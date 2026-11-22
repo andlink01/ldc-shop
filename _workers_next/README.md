@@ -6,9 +6,9 @@
 
 本版本采用 **Next.js on Workers** 的前沿技术路线，而非传统的单文件 Worker：
 
-*   **核心框架**: **Next.js 16 (App Router)** - 保持与 Vercel 版本一致的现代化开发体验。
+*   **核心框架**: **Next.js 16 (App Router)**。
 *   **适配器**: **OpenNext (Cloudflare Adapter)** - 目前最先进的 Next.js 到 Workers 的转换方案，支持大部分 Next.js 特性。
-*   **数据库**: **Cloudflare D1 (SQLite)** - 边缘原生关系型数据库，替代 Vercel Postgres。
+*   **数据库**: **Cloudflare D1 (SQLite)** - 边缘原生关系型数据库。
 *   **ORM**: **Drizzle ORM** - 完美适配 D1，提供类型安全的 SQL 操作。
 *   **部署**: **Wrangler** - 一键部署到全球边缘网络。
 

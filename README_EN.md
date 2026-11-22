@@ -1,26 +1,23 @@
-# LDC Shop (Next.js + Workers)
+# LDC Shop (Workers + Docker)
 
 [中文说明](./README.md)
 
 ---
 
-A serverless virtual goods shop built with **Next.js 16**, **Cloudflare Workers** (OpenNext), **D1 Database**, and **Shadcn UI**.
+A virtual goods shop built with **Next.js 16** and **Shadcn UI**, with separate Cloudflare Workers and Docker implementations.
 
 > [!IMPORTANT]
-> **⚠️ Vercel edition is no longer maintained. Use the Cloudflare Workers or Docker edition.**
+> The root Vercel application has been removed from this fork. Only `_workers_next/` and `_docker/` remain.
 > 
-> The Workers edition is the actively maintained version with all latest features. The Docker edition may lag behind.
 
 > 🚀 **Recommended: Cloudflare Workers or Docker self-hosted**
 > 
-> | Comparison | Cloudflare Workers | Docker self-hosted | Vercel |
-> |------------|-------------------|---------------------|--------|
-> | Maintenance | **✅ Active** | ✅ Synced | ⚠️ Stopped |
-> | Free requests | **100K/day** | Unlimited | Limited |
-> | Database | **D1 free 5GB** | SQLite unlimited | Postgres quota |
-> | Cold start | **Near zero** | None | Yes |
-> | Requirements | No server | VPS needed | No server |
-> | Global edge | ✅ Worldwide | Single node | Partial |
+> | Comparison | Cloudflare Workers | Docker self-hosted |
+> |------------|-------------------|---------------------|
+> | Directory | `_workers_next/` | `_docker/` |
+> | Database | Cloudflare D1 | Local SQLite (better-sqlite3) |
+> | Runtime | Workers + OpenNext | Node.js container |
+> | Scheduled tasks | Workers Cron Trigger | Container node-cron |
 > 
 > 👉 **[Full features & Workers deployment guide → `_workers_next/README.md`](./_workers_next/README.md)**
 > 
@@ -61,10 +58,6 @@ For VPS or your own server; local SQLite, no third-party DB.
 
 👉 **[Docker guide → _docker/README.md](./_docker/README.md)**
 
-### Alternative: Vercel (no longer maintained)
-
-The Vercel edition is no longer maintained; use Workers or Docker for new deployments. For Vercel upstream sync, see `.github/workflows/sync.yml` and enable Actions write permission.
-
 ## 💡 Custom domain
 
 For the best experience (instant payment status updates), we recommend binding a custom domain (e.g. `store.yourdomain.com`). Shared domains may be blocked by payment gateways or firewalls.
@@ -72,6 +65,8 @@ For the best experience (instant payment status updates), we recommend binding a
 ## ⚙️ Configuration & local development
 
 Environment variables, OIDC/EPay setup, and local dev steps for the Workers edition are in **[_workers_next/README.md](./_workers_next/README.md)**.
+
+The repository root no longer contains a runnable shop. Run application commands inside the corresponding edition directory.
 
 ## 📄 License
 

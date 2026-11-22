@@ -1,26 +1,23 @@
-# LDC Shop (Next.js + Workers)
+# LDC Shop (Workers + Docker)
 
 [English](./README_EN.md)
 
 ---
 
-基于 **Next.js 16**、**Cloudflare Workers**（OpenNext）、**D1 Database** 和 **Shadcn UI** 构建的无服务器虚拟商品商店。
+基于 **Next.js 16** 和 **Shadcn UI** 构建的虚拟商品商店，提供 Cloudflare Workers 与 Docker 两种部署实现。
 
 > [!IMPORTANT]
-> **⚠️ Vercel 版本已停止更新，请使用 Cloudflare Workers 版本或 Docker 版！**
+> 本仓库已移除根目录的 Vercel 版，仅保留 `_workers_next/` 和 `_docker/`。
 > 
-> Workers 版本是当前持续维护的版本，包含所有最新功能。Docker 版可能会滞后更新。
 
 > 🚀 **推荐部署方式：Cloudflare Workers 或 Docker 自托管**
 > 
-> | 对比项 | Cloudflare Workers | Docker 自托管 | Vercel |
-> |--------|-------------------|--------------|--------|
-> | 维护状态 | **✅ 持续更新** | ✅ 同步更新 | ⚠️ 停止更新 |
-> | 免费请求 | **10 万次/天** | 无限制 | 有限制 |
-> | 数据库 | **D1 免费 5GB** | SQLite 无限制 | Postgres 有限额 |
-> | 冷启动 | **几乎无延迟** | 无冷启动 | 有冷启动 |
-> | 部署要求 | 无需服务器 | 需要 VPS | 无需服务器 |
-> | 全球边缘 | ✅ 全球节点 | 单节点 | 部分地区 |
+> | 对比项 | Cloudflare Workers | Docker 自托管 |
+> |--------|-------------------|--------------|
+> | 代码目录 | `_workers_next/` | `_docker/` |
+> | 数据库 | Cloudflare D1 | 本地 SQLite（better-sqlite3） |
+> | 运行环境 | Workers + OpenNext | Node.js 容器 |
+> | 定时任务 | Workers Cron Trigger | 容器内 node-cron |
 > 
 > 👉 **[Workers 完整功能与部署指南 → `_workers_next/README.md`](./_workers_next/README.md)**
 > 
@@ -61,10 +58,6 @@
 
 👉 **[Docker 部署指南 → _docker/README.md](./_docker/README.md)**
 
-### 备选：Vercel 部署（已停止更新）
-
-Vercel 版本已停止维护，仅建议作为历史参考。新部署请使用 Workers 或 Docker。若需 Vercel 自动同步上游，可参考仓库内 `.github/workflows/sync.yml` 并开启 Actions 写入权限。
-
 ## 💡 建议：绑定自定义域名
 
 为获得最佳体验（即时支付状态更新），建议绑定自定义域名（如 `store.yourdomain.com`）。共享域名可能被支付平台或防火墙拦截，影响回调。
@@ -72,6 +65,8 @@ Vercel 版本已停止维护，仅建议作为历史参考。新部署请使用 
 ## ⚙️ 配置与本地开发
 
 Workers 版所需的环境变量、OIDC/EPay 配置及本地开发步骤，请直接查看：**[_workers_next/README.md](./_workers_next/README.md)**。
+
+根目录不再包含可运行的商城应用；构建和运行命令需要在对应版本目录执行。
 
 ## 📄 许可证
 MIT

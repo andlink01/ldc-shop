@@ -11,9 +11,9 @@ Serverless virtual goods store built with **Next.js 16**, **Cloudflare Workers**
 
 This version adopts the cutting-edge **Next.js on Workers** approach, rather than a traditional single-file Worker:
 
-*   **Core Framework**: **Next.js 16 (App Router)** - Maintains the same modern development experience as the Vercel version.
+*   **Core Framework**: **Next.js 16 (App Router)**.
 *   **Adapter**: **OpenNext (Cloudflare Adapter)** - The most advanced solution for deployed Next.js on Workers, supporting most Next.js features.
-*   **Database**: **Cloudflare D1 (SQLite)** - Edge-native relational database, replacing Vercel Postgres.
+*   **Database**: **Cloudflare D1 (SQLite)** - Edge-native relational database.
 *   **ORM**: **Drizzle ORM** - Perfectly adapted for D1, providing type-safe SQL operations.
 *   **Deployment**: **Wrangler** - One-click deployment to the global edge network.
 
