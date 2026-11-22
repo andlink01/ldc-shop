@@ -4,7 +4,7 @@
 
 本版本基于 `_workers_next`（Cloudflare Workers 版）改造，将数据库从 Cloudflare D1 替换为本地 SQLite（`better-sqlite3`），适用于 VPS / 自托管部署。
 
-本仓库当前两版业务版本均为 **1.4.2**，共享商品多规格、购买答题、多图、评价回复、登录校验和固定卡密管理 API。数据库驱动、Docker 数据卷及启动脚本分别保留。接口配置与批量导入示例见 [卡密管理 API](../docs/inventory-api.md)。
+本仓库当前两版业务版本均为 **1.4.3**，共享商品多规格、购买答题、多图、评价回复、登录校验和固定卡密管理 API。更新检查读取本仓库 `andlink01/ldc-shop` 的 `main` 分支中 Docker 目录的版本。数据库驱动、Docker 数据卷及启动脚本分别保留。接口配置与批量导入示例见 [卡密管理 API](../docs/inventory-api.md)。
 
 使用本仓库定制功能需要从本仓库自行构建；下文的上游预构建镜像不会自动包含本仓库的修改：
 

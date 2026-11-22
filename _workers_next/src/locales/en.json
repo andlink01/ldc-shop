@@ -842,15 +842,15 @@
     "update": {
         "available": "Update Available",
         "title": "Updates",
-        "description": "Check for upstream releases. This site's custom version may be ahead of upstream.",
+        "description": "Check the matching deployment edition on andlink01/ldc-shop's main branch.",
         "checkNow": "Check for updates",
         "checking": "Checking...",
-        "upToDate": "No newer upstream version",
+        "upToDate": "This site is up to date",
         "checkFailed": "Update check failed",
         "currentVersion": "Current version: {{current}}",
-        "viewRelease": "View release",
-        "versionInfo": "Site version: {{current}} · Latest upstream version: {{latest}}",
-        "syncNow": "Sync on GitHub"
+        "viewRelease": "View repository version",
+        "versionInfo": "Site version: {{current}} · Latest repository version: {{latest}}",
+        "syncNow": "View repository updates"
     },
     "registry": {
         "title": "LDC Navigator",
