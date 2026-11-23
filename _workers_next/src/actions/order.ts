@@ -5,6 +5,7 @@ import { getErrorMessage } from '@/lib/errors'
 import { cancelPendingOrder as cancelInventoryOrder } from '@/lib/order-transitions'
 import { fulfillPaidOrder } from '@/lib/fulfillment'
 import { scheduleInventoryEvents } from '@/lib/inventory-events'
+import { canAccessOrder } from '@/lib/order-access'
 import { auth } from "@/lib/auth"
 import { queryOrderStatus } from "@/lib/epay"
 import { processOrderFulfillment } from "@/lib/order-processing"
@@ -24,21 +25,14 @@ export async function checkOrderStatus(orderId: string) {
     const order = await withOrderColumnFallback(async () => {
         return await db.query.orders.findFirst({
             where: eq(orders.orderId, orderId),
-            columns: { userId: true, status: true, amount: true, currentPaymentId: true, productId: true, cardKey: true }
+            columns: { userId: true, username: true, status: true, amount: true, currentPaymentId: true, productId: true, cardKey: true }
         })
     })
 
     if (!order) return { success: false, error: 'Order not found' }
     const cookieStore = await cookies()
     const pending = cookieStore.get('ldc_pending_order')?.value
-    const hasPendingCookie = pending === orderId
-
-    // Allow checking if user owns it OR if they have the pending cookie
-    if (order.userId) {
-        if (order.userId !== session.user.id && !hasPendingCookie) {
-            return { success: false, error: 'Unauthorized' }
-        }
-    } else if (!hasPendingCookie) {
+    if (!canAccessOrder(session.user, order, orderId, pending)) {
         return { success: false, error: 'Unauthorized' }
     }
 
@@ -61,8 +55,12 @@ export async function checkOrderStatus(orderId: string) {
             // trade_no might be in result.data or result.trade_no?
             // queryOrderStatus returns { ..., data: fullResponse }
 
-            const tradeNo = result.data?.trade_no || result.data?.transaction_id || `MANUAL_CHECK_${Date.now()}`
-            const paidAmount = parseFloat(result.data?.money || order.amount)
+            const tradeNo = result.data?.trade_no || result.data?.transaction_id
+            const money = result.data?.money
+            const paidAmount = typeof money === 'number' || (typeof money === 'string' && money.trim()) ? Number(money) : NaN
+            if (typeof tradeNo !== 'string' || !tradeNo.trim() || !Number.isFinite(paidAmount)) {
+                return { success: false, error: 'order.paymentVerificationFailed' }
+            }
 
             await processOrderFulfillment(orderId, paidAmount, tradeNo)
 

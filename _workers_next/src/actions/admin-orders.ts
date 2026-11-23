@@ -2,15 +2,15 @@
 
 import { getErrorMessage } from '@/lib/errors'
 
-import { db, dbRun, dbBatchRaw } from "@/lib/db"
-import { cards, orders, refundRequests, loginUsers } from "@/lib/db/schema"
-import { and, eq, sql } from "drizzle-orm"
+import { db, dbBatchRaw } from "@/lib/db"
+import { orders } from "@/lib/db/schema"
+import { and, eq } from "drizzle-orm"
 import { revalidatePath, updateTag } from "next/cache"
 import { checkAdmin } from "@/actions/admin"
-import { recalcProductAggregates, recalcProductAggregatesForMany, ensureDatabaseInitialized } from "@/lib/db/queries"
+import { recalcProductAggregates, recalcProductAggregatesForMany, ensureDatabaseInitialized, getSetting } from "@/lib/db/queries"
 import { fulfillPaidOrder, queuePaymentNotification } from '@/lib/fulfillment'
 import { scheduleInventoryEvents } from '@/lib/inventory-events'
-import { cancelPendingOrder } from '@/lib/order-transitions'
+import { cancelPendingOrder, deleteOrderInventory, refundOrderInventory } from '@/lib/order-transitions'
 
 export async function markOrderPaid(orderId: string) {
   await checkAdmin()
@@ -110,35 +110,7 @@ export async function updateOrderEmail(orderId: string, email: string | null) {
 }
 
 async function deleteOneOrder(orderId: string) {
-  const order = await db.query.orders.findFirst({ where: eq(orders.orderId, orderId) })
-  if (!order) return
-
-  // Refund points if used
-  if (order.userId && order.pointsUsed && order.pointsUsed > 0) {
-    await db.update(loginUsers)
-      .set({ points: sql`${loginUsers.points} + ${order.pointsUsed}` })
-      .where(eq(loginUsers.userId, order.userId))
-  }
-
-  // Release reserved card if any
-  try {
-    await dbRun(sql.raw(`ALTER TABLE cards ADD COLUMN reserved_order_id TEXT`));
-  } catch { /* duplicate column */ }
-  try {
-    await dbRun(sql.raw(`ALTER TABLE cards ADD COLUMN reserved_at INTEGER`));
-  } catch { /* duplicate column */ }
-
-  await db.update(cards).set({ reservedOrderId: null, reservedAt: null })
-    .where(sql`${cards.reservedOrderId} = ${orderId} AND ${cards.isUsed} = false`)
-
-  // Delete related refund requests (best effort)
-  try {
-    await db.delete(refundRequests).where(eq(refundRequests.orderId, orderId))
-  } catch {
-    // table may not exist yet
-  }
-
-  await db.delete(orders).where(eq(orders.orderId, orderId))
+  await deleteOrderInventory(orderId)
 }
 
 export async function deleteOrder(orderId: string) {
@@ -203,7 +175,7 @@ export async function verifyOrderRefundStatus(orderId: string) {
       // status 0 = Refunded
       if (result.status === 0) {
         const order = await db.query.orders.findFirst({ where: eq(orders.orderId, orderId), columns: { productId: true } })
-        await db.update(orders).set({ status: 'refunded' }).where(eq(orders.orderId, orderId))
+        await refundOrderInventory(orderId, (await getSetting('refund_reclaim_cards')) !== 'false')
         revalidatePath('/admin/orders')
         if (order?.productId) {
           try {

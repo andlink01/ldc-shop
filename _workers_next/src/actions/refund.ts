@@ -7,6 +7,7 @@ import { eq } from "drizzle-orm";
 import { revalidatePath, updateTag } from "next/cache";
 import { getSetting, recalcProductAggregates } from "@/lib/db/queries";
 import { checkAdmin } from "@/actions/admin";
+import { getEpayApiUrl } from '@/lib/epay';
 
 export async function markOrderRefunded(orderId: string) {
     await checkAdmin()
@@ -43,11 +44,12 @@ export async function proxyRefund(orderId: string) {
 
     const pid = process.env.MERCHANT_ID
     const key = process.env.MERCHANT_KEY
-    if (!pid || !key) throw new Error("Missing merchant config")
+    if (!pid || !key) return { ok: false, processed: false, message: 'Missing merchant config' }
 
     const order = await db.query.orders.findFirst({ where: eq(orders.orderId, orderId) })
-    if (!order) throw new Error("Order not found")
-    if (!order.tradeNo) throw new Error("Missing trade_no")
+    if (!order) return { ok: false, processed: false, message: 'Order not found' }
+    if (order.status === 'refunded') return { ok: true, processed: true, message: 'Already refunded' }
+    if (!order.tradeNo || !['paid', 'delivered'].includes(order.status || '')) return { ok: false, processed: false, message: 'Order is not eligible for a payment refund' }
 
     const body = new URLSearchParams({
         pid,
@@ -57,30 +59,28 @@ export async function proxyRefund(orderId: string) {
         money: Number(order.amount).toFixed(2),
     })
 
-    const resp = await fetch('https://credit.linux.do/epay/api.php', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body
-    })
-
-    const text = await resp.text()
+    let text: string
+    try {
+        const resp = await fetch(`${getEpayApiUrl()}?act=refund`, {
+            method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body, redirect: 'manual', signal: AbortSignal.timeout(15_000), cache: 'no-store',
+        })
+        if (!resp.ok) return { ok: false, processed: false, message: `Refund HTTP ${resp.status}` }
+        text = await resp.text()
+    } catch { return { ok: false, processed: false, message: 'Refund request failed; verify the payment platform before retrying' } }
 
     let success = false
     try {
         const json = JSON.parse(text)
-        success = json?.code === 1 || json?.status === 'success' || json?.msg === 'success'
+        success = json?.code !== undefined ? (json.code === 1 || json.code === '1') : json?.status === 'success' || json?.msg === 'success'
     } catch {
-        success = /success/i.test(text)
-    }
-
-    if (!resp.ok) {
-        throw new Error(`Refund proxy failed (${resp.status})`)
+        success = text.trim().toLowerCase() === 'success'
     }
 
     if (success) {
         await markOrderRefunded(orderId)
-        return { ok: true, processed: true, message: text.slice(0, 500) }
+        return { ok: true, processed: true, message: 'Refund processed' }
     }
 
-    return { ok: true, processed: false, message: text.slice(0, 500) }
+    return { ok: true, processed: false, message: 'Payment server did not confirm the refund' }
 }

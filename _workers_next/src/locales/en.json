@@ -201,6 +201,7 @@
         "cannotCancel": "Cannot cancel this order",
         "notFound": "Order not found",
         "paymentSuccess": "Payment successful!",
+        "paymentVerificationFailed": "Payment details could not be verified. Try again later or contact the administrator.",
         "goReview": "Write a Review",
         "status": {
             "pending": "Pending",

@@ -29,3 +29,6 @@ jobs:
       - run: npm run test:card-config
       - run: npm run test:features
       - run: npm run test:runtime
+      - run: npm run build
+      - run: npx opennextjs-cloudflare build --skipNextBuild
+      - run: npm run test:production

@@ -1,24 +1,15 @@
-import { getErrorMessage } from '@/lib/errors';
+export function getEpayApiUrl() {
+    const endpoint = new URL(process.env.PAY_URL || 'https://credit.linux.do/epay/pay/submit.php')
+    if (!['http:', 'https:'].includes(endpoint.protocol) || endpoint.username || endpoint.password) throw new Error('Invalid payment server URL')
+    let pathname = endpoint.pathname.replace('/pay/submit.php', '/api.php').replace('/submit.php', '/api.php')
+    if (!pathname.endsWith('api.php')) pathname = '/epay/api.php'
+    return `${endpoint.origin}${pathname}`
+}
+
 export async function queryOrderStatus(orderId: string) {
     const merchantId = process.env.MERCHANT_ID
     const merchantKey = process.env.MERCHANT_KEY
-    if (!merchantId || !merchantKey) throw new Error("Missing merchant config")
-
-    // Use the API URL from pay url or default
-    const payUrl = process.env.PAY_URL || 'https://credit.linux.do/epay/pay/submit.php'
-
-    let apiUrl = 'https://credit.linux.do/epay/api.php' // Default fallback
-    try {
-        const urlObj = new URL(payUrl)
-        // If payUrl is .../pay/submit.php, api is usually .../api.php
-        // construct api url
-        apiUrl = `${urlObj.protocol}//${urlObj.host}${urlObj.pathname.replace('/pay/submit.php', '/api.php').replace('/submit.php', '/api.php')}`
-        if (!apiUrl.endsWith('api.php')) {
-            apiUrl = `${urlObj.protocol}//${urlObj.host}/epay/api.php`
-        }
-    } catch {
-        // ignore invalid pay url
-    }
+    if (!merchantId || !merchantKey) return { success: false as const, error: 'Missing merchant config' }
 
     const query = new URLSearchParams({
         act: 'order',
@@ -28,31 +19,19 @@ export async function queryOrderStatus(orderId: string) {
     })
 
     try {
-        const res = await fetch(`${apiUrl}?${query.toString()}`)
+        const res = await fetch(`${getEpayApiUrl()}?${query.toString()}`, { cache: 'no-store', redirect: 'manual', signal: AbortSignal.timeout(15_000) })
+        if (!res.ok) return { success: false as const, error: `Payment query HTTP ${res.status}` }
         const data = await res.json()
 
-        if (data.code === 1) {
-            // status 1 = Paid
-            // status 0 = Refunded (as per previous context, though EPay usually uses 1 for success)
-            // But user said status 0 is refunded. 
-            // Standard EPay: 1=Paid, 0=Unpaid/Fail? 
-            // Wait, previous context said:
-            // "If the API returns code: 1 and status: 0 (indicating a refunded payment)"
-            // "If status: 1 (paid)"
-            // So: 1 = Paid, 0 = Refunded (or Unpaid?)
-            // Actually usually 1=Paid, 0=Unpaid. Refunded might be a specific case or just handled as "not paid" if full refund?
-            // User said: "如果查询到退款成功 (status=0)" 
-            // So we stick to: 
-            // code=1, status=1 => Paid
-            // code=1, status=0 => Refunded (or Unpaid/Closed)? User calls it "Refunded".
-
-            return { success: true, status: data.status, msg: data.msg || 'Query success', data }
+        if (data && (data.code === 1 || data.code === '1')) {
+            const status = typeof data.status === 'number' ? data.status : typeof data.status === 'string' && /^\d+$/.test(data.status) ? Number(data.status) : NaN
+            if (!Number.isSafeInteger(status) || (data.out_trade_no !== undefined && data.out_trade_no !== orderId)) return { success: false as const, error: 'Invalid payment query response' }
+            return { success: true as const, status, msg: 'Query success', data }
         } else {
-            return { success: false, error: data.msg || 'Query failed' }
+            return { success: false as const, error: 'Payment server rejected the query' }
         }
 
-    } catch (e) {
-        console.error('Query order error', e)
-        return { success: false, error: getErrorMessage(e) }
+    } catch {
+        return { success: false as const, error: 'Payment query failed; try again later' }
     }
 }

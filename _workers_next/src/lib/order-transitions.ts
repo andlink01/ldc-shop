@@ -54,3 +54,17 @@ export async function refundOrderInventory(orderId: string, reclaim: boolean) {
             AND EXISTS (SELECT 1 FROM orders WHERE order_id = ? AND status = 'refunded')`, params: [now, now, orderId, orderId],
     }])
 }
+
+export async function deleteOrderInventory(orderId: string) {
+    await ensureDatabaseInitialized()
+    await dbBatchRaw([{
+        // Only pending orders still hold a point deduction. Completed, cancelled and refunded orders must not credit it again.
+        sql: `UPDATE login_users SET points = points + COALESCE((SELECT points_used FROM orders WHERE order_id = ? AND status = 'pending'), 0)
+            WHERE user_id = (SELECT user_id FROM orders WHERE order_id = ? AND status = 'pending')`,
+        params: [orderId, orderId],
+    }, {
+        sql: `UPDATE cards SET reserved_order_id = NULL, reserved_at = NULL WHERE reserved_order_id = ? AND COALESCE(is_used, 0) = 0`,
+        params: [orderId],
+    }, { sql: 'DELETE FROM refund_requests WHERE order_id = ?', params: [orderId] },
+    { sql: 'DELETE FROM orders WHERE order_id = ?', params: [orderId] }])
+}

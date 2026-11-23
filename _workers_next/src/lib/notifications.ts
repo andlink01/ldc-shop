@@ -128,15 +128,19 @@ export async function sendTelegramMessage(text: string) {
             if (response.status >= 300 && response.status < 400) {
                 return { success: false, error: `Telegram HTTP ${response.status}: server redirect was not followed` }
             }
-            const error = await response.text()
-            console.error('[Notification] Telegram API Error:', error)
-            return { success: false, error }
+            return { success: false, error: `Telegram HTTP ${response.status}` }
         }
-
+        let result: unknown
+        try { result = await response.json() }
+        catch { return { success: false, error: 'Telegram returned an invalid JSON response' } }
+        if (!result || typeof result !== 'object' || !('ok' in result) || result.ok !== true) {
+            return { success: false, error: 'Telegram rejected the message; check the bot token and chat ID' }
+        }
         return { success: true }
     } catch (e) {
-        console.error('[Notification] Send Error:', e)
-        return { success: false, error: getErrorMessage(e) }
+        console.error('[Notification] Telegram request failed')
+        const name = e !== null && typeof e === 'object' && 'name' in e ? e.name : undefined
+        return { success: false, error: name === 'TimeoutError' || name === 'AbortError' ? 'Telegram request timed out' : 'Telegram network error; try again later' }
     }
 }
 

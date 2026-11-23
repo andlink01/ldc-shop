@@ -201,6 +201,7 @@
         "cannotCancel": "无法取消此订单",
         "notFound": "订单不存在",
         "paymentSuccess": "支付成功！",
+        "paymentVerificationFailed": "付款信息暂时无法核实，请稍后重试或联系管理员。",
         "goReview": "去评价",
         "status": {
             "pending": "待支付",

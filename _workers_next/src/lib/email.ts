@@ -1,4 +1,4 @@
-import { getErrorMessage, getErrorText } from '@/lib/errors'
+import { getErrorText } from '@/lib/errors'
 import { db } from "./db"
 import { settings } from "./db/schema"
 import { inArray } from "drizzle-orm"
@@ -185,11 +185,12 @@ export async function sendOrderEmail(params: OrderEmailParams) {
         }
 
         const result = await response.json()
+        if (!result || typeof result.id !== 'string' || !result.id.trim()) return { success: false, error: 'Email provider did not confirm delivery acceptance' }
         console.log('[Email] Sent successfully:', result.id)
         return { success: true, id: result.id }
-    } catch (e) {
-        console.error('[Email] Send Error:', e)
-        return { success: false, error: getErrorMessage(e) }
+    } catch {
+        console.error('[Email] Send request failed')
+        return { success: false, error: 'Email request failed; check the configuration or try again later' }
     }
 }
 
@@ -222,12 +223,13 @@ export async function testResendEmail(to: string) {
         })
 
         if (!response.ok) {
-            const error = await response.text()
-            return { success: false, error }
+            return { success: false, error: `Email HTTP ${response.status}` }
         }
 
+        const result = await response.json()
+        if (!result || typeof result.id !== 'string' || !result.id.trim()) return { success: false, error: 'Email provider did not confirm delivery acceptance' }
         return { success: true }
-    } catch (e) {
-        return { success: false, error: getErrorMessage(e) }
+    } catch {
+        return { success: false, error: 'Email request failed; check the configuration or try again later' }
     }
 }

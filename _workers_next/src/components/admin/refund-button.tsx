@@ -28,7 +28,7 @@ export function RefundButton({ order }: { order: AdminOrderSummary }) {
             if (result.processed) {
                 toast.success(t('admin.orders.verifySuccessRefunded'))
             } else {
-                toast.error(t('admin.orders.refundProxyNotProcessed'), { duration: 8000 })
+                toast.error(result.message || t('admin.orders.refundProxyNotProcessed'), { duration: 8000 })
                 setShowMarkDone(true)
             }
         } catch (e) {
