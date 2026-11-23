@@ -14,6 +14,8 @@ import { toast } from 'sonner'
 import { ClientDate } from '@/components/client-date'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Badge } from '@/components/ui/badge'
+import { Copy, Eye, EyeOff, RefreshCw, Trash2 } from 'lucide-react'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 
 type KeyData = { id: string; name: string; prefix: string; productIds: string; canRead: boolean; canWrite: boolean; enabled: boolean; expiresAt: number | null; lastUsedAt: number | null; recoverable?: boolean }
 type LogData = { id: string; keyId: string | null; action: string; productId: string | null; status: number; addedCount: number; replayed: boolean; error: string | null; createdAt: number }
@@ -84,22 +86,24 @@ export function InventoryApiContent(props: Props) {
                 <Button disabled={busy}>{t('inventory.createKey')}</Button>
             </form>
         </CardContent></Card>
-        <Card><CardHeader><CardTitle>{t('inventory.keys')}</CardTitle></CardHeader><CardContent className="overflow-x-auto">
-            <table className="w-full text-sm"><thead><tr>{['keyName', 'scope', 'permissions', 'keyExpiry', 'lastUsed', 'state', 'action'].map(k => <th key={k} className="p-2 text-left">{t(`inventory.${k}`)}</th>)}</tr></thead><tbody>
-                {props.keysData.map(key => <tr key={key.id} className="border-t"><td className="p-2">{key.name}<div className="font-mono text-xs">{key.prefix}…</div></td>
-                    <td className="p-2 max-w-64 break-words">{key.productIds === '[]' ? t('inventory.allProducts') : (JSON.parse(key.productIds) as string[]).join(', ')}</td>
-                    <td className="p-2">{[key.canRead && t('inventory.read'), key.canWrite && t('inventory.write')].filter(Boolean).join(' / ')}</td>
-                    <td className="p-2">{date(key.expiresAt)}</td><td className="p-2">{date(key.lastUsedAt)}</td>
-                    <td className="p-2"><Badge variant={key.enabled ? 'default' : 'secondary'}>{t(key.enabled ? 'inventory.keyActive' : 'inventory.keyInactive')}</Badge></td>
-                    <td className="p-2"><div className="flex flex-wrap gap-2">
-                        <Button size="sm" variant="outline" disabled={busy} onClick={() => void revealToken(key, false)}>{t('inventory.viewKey')}</Button>
-                        <Button size="sm" variant="outline" disabled={busy} onClick={() => void revealToken(key, true)}>{t('common.copy')}</Button>
-                        <Button size="sm" variant="outline" disabled={busy} onClick={() => setResetKey(key)}>{t('inventory.resetKey')}</Button>
-                        <Button size="sm" variant="outline" disabled={busy} onClick={() => void perform(() => setInventoryKeyEnabled(key.id, !key.enabled))}>{t(key.enabled ? 'inventory.disable' : 'inventory.enable')}</Button>
-                        <Button size="sm" variant="destructive" disabled={busy} onClick={() => setDeleteKey(key)}>{t('common.delete')}</Button>
-                    </div>{!key.recoverable && <p className="mt-2 text-xs text-muted-foreground">{t('inventory.legacyKeyHint')}</p>}</td>
-                </tr>)}
-            </tbody></table>
+        <Card><CardHeader><CardTitle>{t('inventory.keys')}</CardTitle></CardHeader><CardContent>
+            <Table><TableHeader><TableRow>{['keyName', 'scope', 'permissions', 'keyExpiry', 'lastUsed', 'state', 'action'].map(k => <TableHead key={k} className={k === 'action' ? 'text-right' : undefined}>{t(`inventory.${k}`)}</TableHead>)}</TableRow></TableHeader><TableBody>
+                {props.keysData.map(key => <TableRow key={key.id}><TableCell>{key.name}<div className="font-mono text-xs">{key.prefix}…</div></TableCell>
+                    <TableCell className="max-w-64 whitespace-normal break-words">{key.productIds === '[]' ? t('inventory.allProducts') : (JSON.parse(key.productIds) as string[]).join(', ')}</TableCell>
+                    <TableCell>{[key.canRead && t('inventory.read'), key.canWrite && t('inventory.write')].filter(Boolean).join(' / ')}</TableCell>
+                    <TableCell>{date(key.expiresAt)}</TableCell><TableCell>{date(key.lastUsedAt)}</TableCell>
+                    <TableCell><Badge variant={key.enabled ? 'default' : 'secondary'}>{t(key.enabled ? 'inventory.keyActive' : 'inventory.keyInactive')}</Badge></TableCell>
+                    <TableCell><div className="flex items-center justify-end gap-2">
+                        <Button size="sm" variant="outline" disabled={busy} onClick={() => void revealToken(key, false)} title={t('inventory.viewKey')} aria-label={t('inventory.viewKey')}><Eye className="h-3.5 w-3.5" aria-hidden="true" /></Button>
+                        <Button size="sm" variant="outline" disabled={busy} onClick={() => void revealToken(key, true)} title={t('common.copy')} aria-label={t('common.copy')}><Copy className="h-3.5 w-3.5" aria-hidden="true" /></Button>
+                        <Button size="sm" variant="outline" disabled={busy} onClick={() => setResetKey(key)} title={t('inventory.resetKey')} aria-label={t('inventory.resetKey')}><RefreshCw className="h-3.5 w-3.5" aria-hidden="true" /></Button>
+                        <Button size="sm" variant="outline" disabled={busy} onClick={() => void perform(() => setInventoryKeyEnabled(key.id, !key.enabled))} title={t(key.enabled ? 'inventory.disable' : 'inventory.enable')} aria-label={t(key.enabled ? 'inventory.disable' : 'inventory.enable')}>
+                            {key.enabled ? <EyeOff className="h-3.5 w-3.5" aria-hidden="true" /> : <Eye className="h-3.5 w-3.5" aria-hidden="true" />}
+                        </Button>
+                        <Button size="sm" variant="destructive" disabled={busy} onClick={() => setDeleteKey(key)} title={t('common.delete')} aria-label={t('common.delete')}><Trash2 className="h-3.5 w-3.5" aria-hidden="true" /></Button>
+                    </div>{!key.recoverable && <p className="mt-2 max-w-[220px] whitespace-normal text-xs text-muted-foreground">{t('inventory.legacyKeyHint')}</p>}</TableCell>
+                </TableRow>)}
+            </TableBody></Table>
         </CardContent></Card>
         <Dialog open={Boolean(token)} onOpenChange={open => { if (!open) setToken('') }}>
             <DialogContent><DialogHeader><DialogTitle>{t('inventory.tokenLabel')}{tokenName ? `：${tokenName}` : ''}</DialogTitle><DialogDescription>{t('inventory.tokenOnce')}</DialogDescription></DialogHeader>

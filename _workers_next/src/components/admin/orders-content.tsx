@@ -252,7 +252,7 @@ export function AdminOrdersContent({
             </div>
 
             <div className="rounded-md border bg-card">
-                <Table>
+                <Table className="[&_code]:whitespace-nowrap">
                     <TableHeader>
                         <TableRow>
                             <TableHead className="w-[44px]">

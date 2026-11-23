@@ -12,7 +12,7 @@ import { toast } from "sonner"
 import { Loader2, ExternalLink, CheckCircle, RefreshCcw } from "lucide-react"
 import { useI18n } from "@/lib/i18n/context"
 
-export function RefundButton({ order }: { order: AdminOrderSummary }) {
+export function RefundButton({ order, compact = false }: { order: AdminOrderSummary; compact?: boolean }) {
     const [loading, setLoading] = useState(false)
     const [showMarkDone, setShowMarkDone] = useState(false)
     const lock = useRef(false)
@@ -93,16 +93,20 @@ export function RefundButton({ order }: { order: AdminOrderSummary }) {
     }
 
     return (
-        <div className="flex flex-wrap gap-2">
-            <Button variant="outline" size="sm" onClick={handleVerify} disabled={loading} title={t('admin.orders.checkStatus')}>
+        <div className={compact ? 'inline-flex shrink-0 items-center gap-1 sm:gap-2' : 'inline-flex shrink-0 items-center gap-2'}>
+            <Button variant="outline" size="sm" onClick={handleVerify} disabled={loading} title={t('admin.orders.checkStatus')} aria-label={t('admin.orders.checkStatus')}>
                 {loading ? <Loader2 className="h-3 w-3 animate-spin" /> : <><RefreshCcw className="h-3 w-3" /></>}
             </Button>
-            <Button variant="outline" size="sm" onClick={handleRefund} disabled={loading || showMarkDone}>
-                {loading ? <Loader2 className="h-3 w-3 animate-spin" /> : <><ExternalLink className="h-3 w-3 mr-1" />{t('admin.orders.refund')}</>}
+            <Button variant="outline" size="sm" onClick={handleRefund} disabled={loading || showMarkDone}
+                title={t('admin.orders.refund')} aria-label={t('admin.orders.refund')}>
+                {loading ? <Loader2 className="h-3 w-3 animate-spin" /> : <ExternalLink className={compact ? 'h-3 w-3' : 'h-3 w-3 mr-1'} />}
+                {!compact && !loading && t('admin.orders.refund')}
             </Button>
             {showMarkDone && (
-                <Button variant="default" size="sm" onClick={handleMarkDone} disabled={loading}>
-                    {loading ? <Loader2 className="h-3 w-3 animate-spin" /> : <><CheckCircle className="h-3 w-3 mr-1" />{t('admin.orders.markRefunded')}</>}
+                <Button variant="default" size="sm" onClick={handleMarkDone} disabled={loading}
+                    title={t('admin.orders.markRefunded')} aria-label={t('admin.orders.markRefunded')}>
+                    {loading ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle className={compact ? 'h-3 w-3' : 'h-3 w-3 mr-1'} />}
+                    {!compact && !loading && t('admin.orders.markRefunded')}
                 </Button>
             )}
         </div>

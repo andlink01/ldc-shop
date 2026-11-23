@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { useTransition, type FormEvent } from 'react'
 import { useRouter } from 'next/navigation'
-import { AlertCircle, PackageCheck, RefreshCw, Search } from 'lucide-react'
+import { AlertCircle, Package, PackageCheck, RefreshCw, Search } from 'lucide-react'
 import { useI18n } from '@/lib/i18n/context'
 import { AdminOrderActions } from '@/components/admin/order-actions'
 import { SupplierRecoveryButton } from '@/components/admin/supplier-recovery-button'
@@ -24,7 +24,7 @@ function buildUrl(query: string, page = 1) {
     return `/admin/fulfillment${params.size ? `?${params}` : ''}`
 }
 
-function DeliveryStatus({ order }: { order: PendingDeliveryOrder }) {
+function DeliveryStatus({ order, compact = false }: { order: PendingDeliveryOrder; compact?: boolean }) {
     const { t } = useI18n()
     const issue = getDeliveryIssue(order.supplierError, Boolean(order.onDemand))
     return <div className="space-y-2">
@@ -32,10 +32,11 @@ function DeliveryStatus({ order }: { order: PendingDeliveryOrder }) {
             <Badge variant="secondary">{t('order.status.paid')}</Badge>
             <Badge variant={issue.severity === 'attention' ? 'destructive' : 'outline'}>{t(`inventory.deliveryState.${issue.severity}`)}</Badge>
         </div>
-        <p className="text-xs leading-relaxed text-muted-foreground">{t(`inventory.deliveryIssue.${issue.key}`, { status: issue.status ?? '' })}</p>
-        {issue.code && <details className="text-xs text-muted-foreground">
-            <summary className="cursor-pointer">{t('inventory.errorDetails')}</summary>
-            <code className="mt-1 block break-all">{issue.code}</code>
+        {!compact && <p className="text-xs leading-relaxed text-muted-foreground">{t(`inventory.deliveryIssue.${issue.key}`, { status: issue.status ?? '' })}</p>}
+        {(compact || issue.code) && <details className="text-xs text-muted-foreground">
+            <summary className="cursor-pointer">{t(compact ? 'inventory.deliveryDetails' : 'inventory.errorDetails')}</summary>
+            {compact && <p className="mt-1 whitespace-normal leading-relaxed">{t(`inventory.deliveryIssue.${issue.key}`, { status: issue.status ?? '' })}</p>}
+            {issue.code && <code className="mt-1 block break-all">{issue.code}</code>}
         </details>}
     </div>
 }
@@ -49,11 +50,13 @@ function Buyer({ order }: { order: PendingDeliveryOrder }) {
 
 function DeliveryActions({ order }: { order: PendingDeliveryOrder }) {
     const { t } = useI18n()
-    return <div className="flex flex-wrap items-center justify-end gap-2">
-        <Button asChild variant="outline" size="sm"><Link href={`/admin/cards/${order.productId}`}>{t('inventory.manageCards')}</Link></Button>
+    return <div className="ml-auto flex w-max items-center justify-end gap-1 sm:gap-2 [&_[data-slot=button]]:px-2 sm:[&_[data-slot=button]]:px-2.5">
+        <Button asChild variant="outline" size="sm" title={t('inventory.manageCards')} aria-label={t('inventory.manageCards')}>
+            <Link href={`/admin/cards/${order.productId}`}><Package className="h-3.5 w-3.5" aria-hidden="true" /></Link>
+        </Button>
         <AdminOrderActions order={order} />
         {order.supplierError === 'supplier_endpoint_changed' && <SupplierRecoveryButton orderId={order.orderId} />}
-        <RefundButton order={order} />
+        <RefundButton order={order} compact />
     </div>
 }
 
@@ -105,14 +108,15 @@ export function PendingDeliveryContent({ orders, total, page, pageSize, query }:
                     </TableRow></TableHeader>
                     <TableBody>{orders.map(order => <TableRow key={order.orderId}>
                         <TableCell className="font-mono text-xs"><Link href={`/admin/orders/${order.orderId}`} className="hover:underline">{order.orderId}</Link></TableCell>
-                        <TableCell className="max-w-[240px] whitespace-normal break-words">
-                            <p className="font-medium">{order.productName}</p>
-                            <p className="mt-1 text-xs text-muted-foreground">{order.variantLabel && `${order.variantLabel} · `}{t('inventory.quantity')}: {order.quantity}</p>
+                        <TableCell>
+                            <span className="font-medium">{order.productName}</span>
+                            {order.variantLabel && <span className="ml-1.5 text-muted-foreground">· {order.variantLabel}</span>}
+                            <span className="ml-1.5 text-xs text-muted-foreground">× {order.quantity}</span>
                         </TableCell>
                         <TableCell className="max-w-[140px] whitespace-normal"><Buyer order={order} /></TableCell>
                         <TableCell>{Number(order.amount)}</TableCell>
                         <TableCell className="text-xs text-muted-foreground"><ClientDate value={order.paidAt} format="dateTime" placeholder="—" /></TableCell>
-                        <TableCell className="min-w-[220px] max-w-[320px] whitespace-normal"><DeliveryStatus order={order} /></TableCell>
+                        <TableCell className="min-w-[140px] max-w-[280px] whitespace-normal"><DeliveryStatus order={order} compact /></TableCell>
                         <TableCell><DeliveryActions order={order} /></TableCell>
                     </TableRow>)}</TableBody>
                 </Table>
@@ -131,7 +135,7 @@ export function PendingDeliveryContent({ orders, total, page, pageSize, query }:
                         <dd><ClientDate value={order.paidAt} format="dateTime" placeholder="—" /></dd></div>
                 </dl>
                 <div className="border-t pt-3"><DeliveryStatus order={order} /></div>
-                <DeliveryActions order={order} />
+                <div className="overflow-x-auto"><DeliveryActions order={order} /></div>
             </article>)}</div>
         </>}
         <div className="flex flex-wrap items-center justify-between gap-3">

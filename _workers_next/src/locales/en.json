@@ -1032,6 +1032,7 @@
         "refresh": "Refresh",
         "manageCards": "Manage cards",
         "errorDetails": "View error code",
+        "deliveryDetails": "View reason",
         "deliverySearch": "Search order, product, buyer or email",
         "noDeliveryMatch": "No awaiting orders match your search",
         "deliveryState": {

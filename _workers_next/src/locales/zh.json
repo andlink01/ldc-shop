@@ -1032,6 +1032,7 @@
         "refresh": "刷新",
         "manageCards": "管理卡密",
         "errorDetails": "查看错误代码",
+        "deliveryDetails": "查看原因",
         "deliverySearch": "搜索订单号、商品、买家或邮箱",
         "noDeliveryMatch": "没有符合搜索条件的待补发订单",
         "deliveryState": {

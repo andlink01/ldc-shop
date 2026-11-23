@@ -46,6 +46,10 @@ function setup(t, mocks = {}, globals = {}) {
     return { ...f, values, storage, window, document, pushed }
 }
 
+function buttonName(node) {
+    return node.props['aria-label'] || node.props.title || node.children.filter(child => typeof child === 'string').join('')
+}
+
 async function mount(t, element) {
     let renderer
     await act(async () => { renderer = create(element) })
@@ -271,7 +275,7 @@ test('supplier form keeps drafts disabled, reports missing URLs locally and prev
         productId: 'product', productName: 'Product', snapshotAt: Date.now(), unusedCards: [],
         apiConfig: { enabled: false, url: '', token: '', mode: 'on_demand' },
     }))
-    const button = label => view.root.findAllByType('button').find(node => node.children.join('') === label)
+    const button = label => view.root.findAllByType('button').find(node => buttonName(node) === label)
     await act(async () => button('Save').props.onClick())
     assert.equal(calls.length, 1)
     assert.equal(calls[0][4], false)
@@ -300,7 +304,7 @@ test('supplier form shows server validation errors without marking the feature e
         productId: 'product', productName: 'Product', snapshotAt: Date.now(), unusedCards: [],
         apiConfig: { enabled: false, url: 'https://supplier.example/cards', token: '', mode: 'on_demand' },
     }))
-    const button = () => view.root.findAllByType('button').find(node => node.children.join('') === 'Enable')
+    const button = () => view.root.findAllByType('button').find(node => buttonName(node) === 'Enable')
     await act(async () => button().props.onClick())
     assert.ok(button())
     assert.match(view.root.findByProps({ role: 'alert' }).children.join(''), /Shared-card/)
@@ -320,7 +324,7 @@ test('key list supports view, clipboard fallback and reset without deleting its 
         keysData: [{ id: 'key', name: 'Tool', prefix: 'ldc_inv_test', productIds: '[]', canRead: true, canWrite: true, enabled: true, expiresAt: null, lastUsedAt: null, recoverable: true }],
         products: [], logs: [], page: 1, hasNext: false, keyFilter: '', statusFilter: '', alertMinutes: 60,
     }))
-    const button = label => view.root.findAllByType('button').find(node => node.children.join('') === label)
+    const button = label => view.root.findAllByType('button').find(node => buttonName(node) === label)
     const field = () => view.root.findByProps({ 'aria-label': 'Restock key', readOnly: true })
     await act(async () => button('View').props.onClick())
     assert.equal(field().props.value, 'VISIBLE-TEST-KEY')
@@ -351,9 +355,9 @@ test('key deletion requires confirmation, shows failures and blocks duplicate cl
         keysData: [{ id: 'key', name: 'Tool', prefix: 'ldc_inv_test', productIds: '[]', canRead: true, canWrite: true, enabled: true, expiresAt: null, lastUsedAt: null, recoverable: true }],
         products: [], logs: [], page: 3, hasNext: false, keyFilter: 'key', statusFilter: 'error', alertMinutes: 60,
     }))
-    const open = () => view.root.findAllByType('button').find(node => node.children.join('') === 'Delete').props.onClick()
+    const open = () => view.root.findAllByType('button').find(node => buttonName(node) === 'Delete').props.onClick()
     const active = () => view.root.findAllByType('dialog').find(node => node.props.open)
-    const button = label => active().findAllByType('button').find(node => node.children.join('') === label)
+    const button = label => active().findAllByType('button').find(node => buttonName(node) === label)
     await act(async () => open())
     assert.deepEqual(deleted, [])
     await act(async () => button('Cancel').props.onClick())
@@ -389,7 +393,7 @@ test('manual restocking shows provider failure messages without a success toast'
         productId: 'product', productName: 'Product', snapshotAt: Date.now(), unusedCards: [],
         apiConfig: { enabled: true, url: 'https://supplier.example/cards', token: '', mode: 'stock' },
     }))
-    await act(async () => view.root.findAllByType('button').find(node => node.children.join('') === 'Pull 1 Card').props.onClick())
+    await act(async () => view.root.findAllByType('button').find(node => buttonName(node) === 'Pull 1 Card').props.onClick())
     assert.match(errors.at(-1), /HTTP 520/)
 })
 
@@ -404,7 +408,7 @@ test('delivery retries display the actual supplier result, refresh the list and 
     })
     const { AdminOrderActions } = f.load('components/admin/order-actions')
     const view = await mount(t, React.createElement(AdminOrderActions, { order: { orderId: 'retry', productId: 'product', status: 'paid', cardKey: null } }))
-    const button = () => view.root.findAllByType('button').find(node => node.children.join('') === 'Retry delivery')
+    const button = () => view.root.findAllByType('button').find(node => buttonName(node) === 'Retry delivery')
     for (const error of ['supplier_http_401', 'supplier_http_521', 'supplier_processing', null]) {
         await act(async () => { button().props.onClick() })
         assert.equal(button().props.disabled, true)
@@ -439,7 +443,7 @@ test('supplier URL recovery requires confirmation, preserves the reviewed URL an
     })
     const { SupplierRecoveryButton } = f.load('components/admin/supplier-recovery-button')
     const view = await mount(t, React.createElement(SupplierRecoveryButton, { orderId: 'order' }))
-    const button = label => view.root.findAllByType('button').find(node => node.children.join('') === label)
+    const button = label => view.root.findAllByType('button').find(node => buttonName(node) === label)
     await act(async () => button('Update supplier URL').props.onClick())
     assert.equal(button('Update and retry').props.disabled, true)
     await act(async () => { button('Update and retry').props.onClick() })
@@ -471,7 +475,7 @@ test('order detail retries show the actual failure and refund success refreshes 
     const order = { orderId: 'paid-order', productId: 'product', productName: 'Product', amount: '3', status: 'paid', cardKey: null, tradeNo: 'test-trade', username: 'buyer' }
     const { AdminOrderDetailContent } = f.load('components/admin/order-detail-content')
     const view = await mount(t, React.createElement(AdminOrderDetailContent, { order }))
-    await act(async () => view.root.findAllByType('button').find(node => node.children.join('') === 'Retry delivery').props.onClick())
+    await act(async () => view.root.findAllByType('button').find(node => buttonName(node) === 'Retry delivery').props.onClick())
     assert.match(errors[0], /HTTP 401/)
     assert.equal(refreshes, 1)
     const { RefundButton } = f.load('components/admin/refund-button')

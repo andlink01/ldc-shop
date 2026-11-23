@@ -11,6 +11,7 @@ import { getErrorMessage } from '@/lib/errors'
 import { getDeliveryIssue } from '@/lib/delivery-issue'
 import type { SupplierRecoveryInfo } from '@/lib/supplier-recovery'
 import { toast } from 'sonner'
+import { Settings } from 'lucide-react'
 
 export function SupplierRecoveryButton({ orderId }: { orderId: string }) {
     const { t } = useI18n()
@@ -56,7 +57,10 @@ export function SupplierRecoveryButton({ orderId }: { orderId: string }) {
         finally { lock.current = false; setBusy(false); router.refresh() }
     }
     return <>
-        <Button variant="outline" size="sm" disabled={busy} onClick={load}>{t('inventory.recovery.open')}</Button>
+        <Button variant="outline" size="sm" disabled={busy} onClick={load}
+            title={t('inventory.recovery.open')} aria-label={t('inventory.recovery.open')}>
+            <Settings className="h-3.5 w-3.5" aria-hidden="true" />
+        </Button>
         <Dialog open={open} onOpenChange={value => { if (!lock.current) setOpen(value) }}>
             <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
                 <DialogHeader>

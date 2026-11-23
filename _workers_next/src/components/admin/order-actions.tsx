@@ -69,26 +69,29 @@ export function AdminOrderActions({ order }: { order: AdminOrderSummary }) {
 
   return (
     <>
-      <Button asChild variant="outline" size="sm" title={t('admin.orders.view')}>
+      <Button asChild variant="outline" size="sm" title={t('admin.orders.view')} aria-label={t('admin.orders.view')}>
         <Link href={`/admin/orders/${order.orderId}`}>
           <ExternalLink className="h-3.5 w-3.5" />
         </Link>
       </Button>
       {status === 'paid' && !order.cardKey && order.productId !== 'payment_link' && (
-        <Button variant="outline" size="sm" onClick={() => handle('retry')} disabled={loading}>{t('inventory.retryDelivery')}</Button>
+        <Button variant="outline" size="sm" onClick={() => handle('retry')} disabled={loading}
+          title={t('inventory.retryDelivery')} aria-label={t('inventory.retryDelivery')}>
+          <Truck className="h-3.5 w-3.5" aria-hidden="true" />
+        </Button>
       )}
       {canMarkPaid && (
-        <Button variant="outline" size="sm" onClick={() => handle('paid')} title={t('admin.orders.markPaid')} disabled={loading}>
+        <Button variant="outline" size="sm" onClick={() => handle('paid')} title={t('admin.orders.markPaid')} aria-label={t('admin.orders.markPaid')} disabled={loading}>
           <CheckCircle className="h-3.5 w-3.5" />
         </Button>
       )}
       {canMarkDelivered && (
-        <Button variant="outline" size="sm" onClick={() => handle('delivered')} title={t('admin.orders.markDelivered')} disabled={loading}>
+        <Button variant="outline" size="sm" onClick={() => handle('delivered')} title={t('admin.orders.markDelivered')} aria-label={t('admin.orders.markDelivered')} disabled={loading}>
           <Truck className="h-3.5 w-3.5" />
         </Button>
       )}
       {canCancel && (
-        <Button variant="destructive" size="sm" onClick={() => handle('cancel')} title={t('admin.orders.cancel')} disabled={loading}>
+        <Button variant="destructive" size="sm" onClick={() => handle('cancel')} title={t('admin.orders.cancel')} aria-label={t('admin.orders.cancel')} disabled={loading}>
           <XCircle className="h-3.5 w-3.5" />
         </Button>
       )}
