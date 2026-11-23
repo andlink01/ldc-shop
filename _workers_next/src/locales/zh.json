@@ -1012,7 +1012,7 @@
         "retryDelivery": "重试发货",
         "waitingStock": "有效库存不足或供应商未返回卡密，订单仍待补发",
         "pendingDelivery": "订单补发",
-        "pendingHint": "这里显示已付款但尚未发货的订单。补充卡密或等待第三方返回卡密后，系统会自动继续发货，也可以点击“重试发货”。",
+        "pendingHint": "这里显示已付款、尚未发货的订单。补充卡密或第三方取卡成功后会自动发货；也可以手动重试。",
         "noPending": "没有待补发订单",
         "order": "订单号",
         "quantity": "数量",
@@ -1028,6 +1028,32 @@
         "previous": "上一页",
         "next": "下一页",
         "close": "关闭",
-        "search": "查询"
+        "search": "查询",
+        "refresh": "刷新",
+        "manageCards": "管理卡密",
+        "errorDetails": "查看错误代码",
+        "deliverySearch": "搜索订单号、商品、买家或邮箱",
+        "noDeliveryMatch": "没有符合搜索条件的待补发订单",
+        "deliveryState": {
+            "waiting": "等待发货",
+            "processing": "取卡中",
+            "attention": "需要处理"
+        },
+        "deliveryIssue": {
+            "stock": "等待有效卡密。请补充库存，然后重试发货。",
+            "processing": "第三方正在处理取卡请求，请稍后刷新查看结果。",
+            "waiting": "卡密尚未收齐，系统会继续获取，收齐后整单发货。",
+            "disabled": "付款后采购未启用或缺少接口地址。请检查该商品的卡密配置，再重试发货。",
+            "url": "取卡接口地址无效，请在卡密管理中修正地址。",
+            "endpointChanged": "取卡接口地址已更换。请先与第三方核对原采购编号的结果，避免重复采购。",
+            "invalidResponse": "第三方返回的卡密、采购编号或有效期不符合要求。请联系第三方检查返回结果。",
+            "duplicateCard": "第三方返回了已有卡密。请让第三方检查采购编号对应的卡密，再重试。",
+            "requestFailed": "取卡请求或卡密保存未成功。请检查第三方服务和接口返回；仍失败时查看 Workers 日志。",
+            "unauthorized": "第三方拒绝授权（HTTP {{status}}），请检查接口 Token 或访问权限。",
+            "rateLimited": "第三方请求过于频繁（HTTP {{status}}），请稍后重试。",
+            "unavailable": "第三方取卡服务异常（HTTP {{status}}），请检查服务是否运行及接口地址。",
+            "redirect": "第三方接口返回跳转（HTTP {{status}}），请填写实际取卡地址。",
+            "http": "第三方取卡接口返回 HTTP {{status}}，请联系第三方检查请求。"
+        }
     }
 }

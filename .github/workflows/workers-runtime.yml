@@ -26,8 +26,11 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npx tsc --noEmit
+      - run: npm run test:auth
+      - run: npm run test:client
       - run: npm run test:card-config
       - run: npm run test:features
+      - run: npm run test:storefront
       - run: npm run test:runtime
       - run: npm run build
       - run: npx opennextjs-cloudflare build --skipNextBuild

@@ -1012,7 +1012,7 @@
         "retryDelivery": "Retry delivery",
         "waitingStock": "Insufficient valid stock; order still awaits delivery",
         "pendingDelivery": "Retry delivery",
-        "pendingHint": "Paid orders awaiting delivery. Once cards are restocked or received from the supplier, delivery resumes automatically. You can also click Retry delivery.",
+        "pendingHint": "Paid orders awaiting delivery. Delivery resumes after restocking or a successful supplier request. You can also retry manually.",
         "noPending": "No orders await delivery",
         "order": "Order",
         "quantity": "Quantity",
@@ -1028,6 +1028,32 @@
         "previous": "Previous",
         "next": "Next",
         "close": "Close",
-        "search": "Search"
+        "search": "Search",
+        "refresh": "Refresh",
+        "manageCards": "Manage cards",
+        "errorDetails": "View error code",
+        "deliverySearch": "Search order, product, buyer or email",
+        "noDeliveryMatch": "No awaiting orders match your search",
+        "deliveryState": {
+            "waiting": "Awaiting delivery",
+            "processing": "Fetching cards",
+            "attention": "Needs attention"
+        },
+        "deliveryIssue": {
+            "stock": "Waiting for valid cards. Restock and retry delivery.",
+            "processing": "The supplier is processing the request. Refresh later to check the result.",
+            "waiting": "Some cards are still missing. The system will continue fetching and deliver the complete order.",
+            "disabled": "On-demand procurement is disabled or its URL is missing. Check the product card settings and retry.",
+            "url": "The supplier URL is invalid. Correct it in card management.",
+            "endpointChanged": "The supplier URL has changed. Confirm the original purchase result with the supplier before retrying.",
+            "invalidResponse": "The returned card, request ID or expiry is invalid. Ask the supplier to check the response.",
+            "duplicateCard": "The supplier returned an existing card. Ask them to check the card for this request ID.",
+            "requestFailed": "The request or card save failed. Check the supplier service and response; inspect Workers logs if it continues.",
+            "unauthorized": "The supplier denied authorization (HTTP {{status}}). Check the API token and permissions.",
+            "rateLimited": "The supplier rate limited requests (HTTP {{status}}). Retry later.",
+            "unavailable": "The supplier service failed (HTTP {{status}}). Check the service and API address.",
+            "redirect": "The supplier returned a redirect (HTTP {{status}}). Configure the final API address.",
+            "http": "The supplier returned HTTP {{status}}. Ask them to check the request."
+        }
     }
 }

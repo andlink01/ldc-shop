@@ -40,7 +40,21 @@ export async function productionFixture(t, { provider } = {}) {
             const url = new URL(request.url), headers = new Headers(request.headers);
             headers.set('host', url.host); headers.set('x-forwarded-host', url.host);
             headers.set('x-forwarded-proto', url.protocol.slice(0, -1));
-            return production.fetch(new Request(request, { headers }), env, ctx);
+            if (headers.get('x-audit-profile') !== '1') return production.fetch(new Request(request, { headers }), env, ctx);
+            // Test-only instrumentation: count statements without exposing SQL parameters or changing normal streaming responses.
+            const stats = { total: 0, settings: 0, liveStock: 0 };
+            const database = env.DB;
+            const traced = { prepare(sql) {
+                stats.total++;
+                if (/^select [^()]* from [\"\x60]?settings[\"\x60]?/i.test(sql)) stats.settings++;
+                if (/from [\"\x60]?cards[\"\x60]?/i.test(sql) && /sum.case when/i.test(sql) && /group by/i.test(sql)) stats.liveStock++;
+                return database.prepare(sql);
+            }, batch: database.batch.bind(database), exec: database.exec.bind(database), dump: database.dump.bind(database) };
+            const response = await production.fetch(new Request(request, { headers }), { ...env, DB: traced }, ctx);
+            const body = await response.arrayBuffer();
+            const resultHeaders = new Headers(response.headers);
+            resultHeaders.set('x-audit-queries', JSON.stringify(stats));
+            return new Response(body, { status: response.status, headers: resultHeaders });
         }};
     ` }, { path: path.join(root, 'worker-entry.mjs'), type: 'ESModule', contents: productionBundle() }]
     const calls = []
@@ -81,6 +95,11 @@ export async function productionFixture(t, { provider } = {}) {
         if (response.status !== 200) throw new Error('Production inventory initialization failed')
         await response.text()
     }
+    const profile = async (pathname, init) => {
+        const response = await request(pathname, { ...init, headers: { ...init?.headers, 'X-Audit-Profile': '1' } })
+        const html = await response.text()
+        return { status: response.status, html, bytes: Buffer.byteLength(html), queries: JSON.parse(response.headers.get('x-audit-queries')) }
+    }
     const actions = JSON.parse(readFileSync(path.join(root, '.next/server/server-reference-manifest.json'), 'utf8')).node
     const action = async (name, pathname, args, sessionCookie) => {
         const id = Object.entries(actions).find(([, item]) => item.exportedName === name)?.[0]
@@ -95,5 +114,5 @@ export async function productionFixture(t, { provider } = {}) {
         })
         return { status: response.status, body, result: objects.find(item => typeof item.success === 'boolean' || typeof item.processed === 'boolean') }
     }
-    return { worker, database, request, cookie, calls, initialize, action }
+    return { worker, database, request, cookie, calls, initialize, action, profile }
 }

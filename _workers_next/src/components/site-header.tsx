@@ -1,5 +1,5 @@
 
-import { auth } from "@/lib/auth";
+import { getStorefrontSession, getStorefrontSettings } from "@/lib/storefront";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -8,11 +8,13 @@ import { SignInButton } from "@/components/signin-button";
 import { SignOutButton } from "@/components/signout-button";
 import { HeaderLogo, HeaderNav, HeaderUserMenuItems, HeaderUnreadBadge, LanguageSwitcher } from "@/components/header-client-parts";
 import { ModeToggle } from "@/components/mode-toggle";
-import { getSetting, recordLoginUser, getUserUnreadNotificationCount, getLoginUserDesktopNotificationsEnabled } from "@/lib/db/queries";
+import { recordLoginUser, getUserUnreadNotificationCount, getLoginUserDesktopNotificationsEnabled } from "@/lib/db/queries";
 import { isRegistryEnabled } from "@/lib/registry";
 
 export async function SiteHeader() {
-    const session = await auth()
+    const [session, storefront] = await Promise.all([
+        getStorefrontSession(), getStorefrontSettings().catch(() => null),
+    ])
     const user = session?.user
     if (user?.id) {
         await recordLoginUser(user.id, user.username || user.name || null, user.email || null)
@@ -23,51 +25,25 @@ export async function SiteHeader() {
     const adminUsers = rawAdminUsers.map(u => u.toLowerCase())
     const isAdmin = user?.username && adminUsers.includes(user.username.toLowerCase()) || false
     const firstAdminName = rawAdminUsers[0]?.trim() // Get first admin name for branding
-    let shopNameOverride: string | null = null
-    let shopLogoVersion: string | null = null
-    try {
-        const [name, logoUpdatedAt] = await Promise.all([
-            getSetting('shop_name'),
-            getSetting('shop_logo_updated_at')
-        ])
-        shopNameOverride = name
-        shopLogoVersion = logoUpdatedAt
-    } catch {
-        shopNameOverride = null
-        shopLogoVersion = null
-    }
+    const shopNameOverride = storefront?.shop_name ?? null
+    const shopLogoVersion = storefront?.shop_logo_updated_at ?? null
 
     const registryEnabled = isRegistryEnabled()
     let registryOptIn = false
     let registryHideNav = false
     if (registryEnabled) {
-        try {
-            const [optIn, hideNav] = await Promise.all([
-                getSetting('registry_opt_in'),
-                getSetting('registry_hide_nav')
-            ])
-            registryOptIn = optIn === 'true'
-            registryHideNav = hideNav === 'true'
-        } catch {
-            registryOptIn = false
-            registryHideNav = false
-        }
+        registryOptIn = storefront?.registry_opt_in === 'true'
+        registryHideNav = storefront?.registry_hide_nav === 'true'
     }
     const showNavigator = registryEnabled && (registryOptIn || !registryHideNav)
 
     let unreadCount = 0
     let desktopNotificationsEnabled = false
     if (user?.id) {
-        try {
-            unreadCount = await getUserUnreadNotificationCount(user.id)
-        } catch {
-            unreadCount = 0
-        }
-        try {
-            desktopNotificationsEnabled = await getLoginUserDesktopNotificationsEnabled(user.id)
-        } catch {
-            desktopNotificationsEnabled = false
-        }
+        [unreadCount, desktopNotificationsEnabled] = await Promise.all([
+            getUserUnreadNotificationCount(user.id).catch(() => 0),
+            getLoginUserDesktopNotificationsEnabled(user.id).catch(() => false),
+        ])
     }
 
     return (

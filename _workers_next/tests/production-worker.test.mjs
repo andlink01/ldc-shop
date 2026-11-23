@@ -21,6 +21,88 @@ async function pay(f, id) {
     assert.equal(await response.text(), 'success')
 }
 
+test('storefront rendering batches public settings and stock reads without caching users, settings or inventory across requests', async t => {
+    const f = await setup(t)
+    for (let i = 0; i < 24; i++) await f.database.prepare('INSERT INTO products (id,name,price,description,product_images,variant_group_id,sort_order,created_at) VALUES (?,?,?,?,?,?,?,?)')
+        .bind('perf-' + i, 'Performance product ' + i, '3', '**Searchable detail** ' + 'description '.repeat(40),
+            JSON.stringify(Array.from({ length: 8 }, (_, n) => 'https://images.example/gallery-' + i + '-' + n + '.png')), i < 2 ? 'perf-group' : null, i, Date.now()).run()
+    await f.database.prepare('INSERT INTO settings (key,value) VALUES (?,?), (?,?)').bind('shop_name', 'First public name', 'product_card_api_token:perf-0', 'PRIVATE-SUPPLIER-TOKEN').run()
+    for (const pathname of ['/', '/buy/perf-0']) {
+        await (await f.request(pathname)).text()
+        const result = await f.profile(pathname)
+        assert.equal(result.status, 200)
+        assert.equal(result.queries.liveStock, 1)
+        assert.ok(result.queries.total <= (pathname === '/' ? 8 : 5), JSON.stringify(result.queries))
+        assert.ok(!result.html.includes('PRIVATE-SUPPLIER-TOKEN'))
+        if (pathname === '/') {
+            assert.ok(!result.html.includes('gallery-0-0.png'))
+            assert.ok(result.html.includes('Searchable detail'))
+        }
+        t.diagnostic(JSON.stringify({ page: pathname, bytes: result.bytes, queries: result.queries }))
+    }
+    await f.database.prepare('UPDATE settings SET value = ? WHERE key = ?').bind('Changed public name', 'shop_name').run()
+    const updated = await f.profile('/')
+    assert.ok(updated.html.includes('Changed public name'))
+    assert.ok(!updated.html.includes('First public name'))
+    await f.database.prepare('INSERT INTO products (id,name,price,visibility_level) VALUES (?,?,?,?)').bind('private', 'PRIVATE-TRUST-PRODUCT', '3', 2).run()
+    await f.database.prepare('INSERT INTO orders (order_id, product_id, product_name, amount, status, user_id, username, created_at) VALUES (?,?,?,?,?,?,?,?), (?,?,?,?,?,?,?,?)')
+        .bind('OWNER-PENDING', 'product', 'Owner pending', '3', 'pending', 'owner', 'audit-admin', Date.now(),
+            'OTHER-PENDING', 'product', 'Other pending', '3', 'pending', 'other', 'other-user', Date.now()).run()
+    const [owner, other, anonymous] = await Promise.all([
+        f.profile('/', { headers: { Cookie: f.sessionCookie } }),
+        f.profile('/', { headers: { Cookie: await f.cookie('other', 'other-user') } }), f.profile('/'),
+    ])
+    assert.ok(owner.html.includes('OWNER-PENDING') && !owner.html.includes('OTHER-PENDING'))
+    assert.ok(other.html.includes('OTHER-PENDING') && !other.html.includes('OWNER-PENDING'))
+    assert.ok(!anonymous.html.includes('OWNER-PENDING') && !anonymous.html.includes('OTHER-PENDING'))
+    assert.ok(owner.html.includes('PRIVATE-TRUST-PRODUCT'))
+    assert.ok(!anonymous.html.includes('PRIVATE-TRUST-PRODUCT'))
+    await f.database.prepare('INSERT INTO cards (product_id,card_key) VALUES (?,?)').bind('perf-0', 'LIVE-STOCK-CARD').run()
+    const refreshed = await f.request('/buy/perf-0', { headers: { RSC: '1' } })
+    assert.ok((await refreshed.text()).includes('"stockCount":1'))
+})
+
+test('pending delivery renders readable supplier failures and a real retry delivers once with the original request ID', async t => {
+    let healthy = false
+    const requested = []
+    const f = await setup(t, { provider: async request => {
+        if (new URL(request.url).hostname !== 'supplier.example') return undefined
+        const body = await request.json()
+        requested.push(body.requestId)
+        return healthy ? Response.json({ success: true, requestId: body.requestId, data: { cardKey: 'RETRY-PRODUCTION-CARD' } }) : new Response(null, { status: 521 })
+    } })
+    await f.database.prepare('INSERT INTO orders (order_id,product_id,product_name,amount,status,user_id,username,paid_at,created_at) VALUES (?,?,?,?,?,?,?,?,?)')
+        .bind('RETRY-ORDER', 'product', 'Purchased test product', '3', 'paid', 'owner', 'audit-admin', Date.now(), Date.now()).run()
+    const saved = await f.action('saveCardsApiConfig', '/admin/cards/product', ['product', 'https://supplier.example/cards', '', true, 'on_demand'], f.sessionCookie)
+    assert.equal(saved.result?.success, true)
+    await f.action('retryOrderDelivery', '/admin/fulfillment', ['RETRY-ORDER'], f.sessionCookie)
+    const response = await f.request('/admin/fulfillment', { headers: { Cookie: f.sessionCookie, 'Accept-Language': 'zh-CN' } })
+    const html = await response.text()
+    assert.equal(response.status, 200)
+    assert.ok(html.includes('HTTP 521'))
+    assert.ok(html.includes('需要处理'))
+    assert.ok(html.includes('查看错误代码'))
+    assert.ok(html.includes('lg:hidden') && html.includes('lg:block'))
+    assert.ok(html.includes('/admin/orders/RETRY-ORDER') && html.includes('/admin/cards/product'))
+    const denied = await f.request('/admin/fulfillment?q=RETRY', { headers: { Cookie: await f.cookie('other', 'other-user') } })
+    assert.ok(!(await denied.text()).includes('Purchased test product'))
+    const failedRequests = requested.length
+    assert.ok(failedRequests >= 1)
+    assert.equal((await f.database.prepare('SELECT status FROM orders WHERE order_id = ?').bind('RETRY-ORDER').all()).results[0].status, 'paid')
+    healthy = true
+    await f.action('retryOrderDelivery', '/admin/fulfillment', ['RETRY-ORDER'], f.sessionCookie)
+    // A failed manual attempt also schedules the existing background retry.
+    // Every attempt must reuse the purchase ID, and recovery fetches only one card.
+    assert.equal(requested.length, failedRequests + 1)
+    assert.ok(requested.every(id => id === requested[0]))
+    const row = (await f.database.prepare('SELECT status,card_key FROM orders WHERE order_id = ?').bind('RETRY-ORDER').all()).results[0]
+    assert.equal(row.status, 'delivered')
+    assert.equal(row.card_key, 'RETRY-PRODUCTION-CARD')
+    assert.equal((await f.database.prepare('SELECT count(*) AS count FROM order_deliveries WHERE order_id = ?').bind('RETRY-ORDER').all()).results[0].count, 1)
+    const done = await f.request('/admin/fulfillment', { headers: { Cookie: f.sessionCookie } })
+    assert.ok(!(await done.text()).includes('RETRY-ORDER'))
+})
+
 test('the production worker renders shop and admin pages with a real authenticated session', async t => {
     const f = await setup(t)
     const session = await f.request('/api/auth/session', { headers: { Cookie: f.sessionCookie } })

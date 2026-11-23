@@ -5,7 +5,7 @@ import { SiteFooter } from "@/components/site-footer";
 import { MobileNavWrapper } from "@/components/mobile-nav-wrapper";
 import { Providers } from "@/components/providers";
 import { cn } from "@/lib/utils";
-import { getSetting } from "@/lib/db/queries";
+import { getStorefrontSettings } from "@/lib/storefront";
 import { Suspense, type CSSProperties } from "react";
 import { detectServerLocale } from "@/lib/i18n/server";
 import type { Locale } from "@/lib/i18n/shared";
@@ -44,16 +44,11 @@ export async function generateMetadata(): Promise<Metadata> {
   let noIndex = false;
   let logoUpdatedAt: string | null = null;
   try {
-    const [name, desc, noIndexSetting, logoUpdatedAtSetting] = await Promise.all([
-      getSetting("shop_name"),
-      getSetting("shop_description"),
-      getSetting("noindex_enabled"),
-      getSetting("shop_logo_updated_at"),
-    ]);
-    shopName = name;
-    shopDescription = desc;
-    noIndex = noIndexSetting === 'true';
-    logoUpdatedAt = logoUpdatedAtSetting;
+    const storefront = await getStorefrontSettings();
+    shopName = storefront.shop_name ?? null;
+    shopDescription = storefront.shop_description ?? null;
+    noIndex = storefront.noindex_enabled === 'true';
+    logoUpdatedAt = storefront.shop_logo_updated_at ?? null;
   } catch {
     shopName = null;
     shopDescription = null;
@@ -95,15 +90,13 @@ async function RootLayoutContent({
   let currencyUnit: string | null = null;
   let initialLocale: Locale = "en";
   try {
-    const [resolvedThemeColor, resolvedThemeFont, resolvedCurrencyUnit, resolvedLocale] = await Promise.all([
-      getSetting("theme_color"),
-      getSetting("theme_font"),
-      getSetting("currency_unit"),
+    const [storefront, resolvedLocale] = await Promise.all([
+      getStorefrontSettings(),
       detectServerLocale(),
     ]);
-    themeColor = resolvedThemeColor;
-    themeFont = resolvedThemeFont;
-    currencyUnit = resolvedCurrencyUnit;
+    themeColor = storefront.theme_color ?? null;
+    themeFont = storefront.theme_font ?? null;
+    currencyUnit = storefront.currency_unit ?? null;
     initialLocale = resolvedLocale;
   } catch {
     themeColor = null;

@@ -21,7 +21,7 @@ import { INFINITE_STOCK } from "@/lib/constants";
 interface Product {
     id: string
     name: string
-    description: string | null
+    description?: string | null
     descriptionPlain?: string | null
     price: string
     compareAtPrice?: string | null

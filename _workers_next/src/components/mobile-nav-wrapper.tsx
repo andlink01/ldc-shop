@@ -1,10 +1,11 @@
-import { auth } from "@/lib/auth"
-import { getSetting } from "@/lib/db/queries"
+import { getStorefrontSession, getStorefrontSettings } from "@/lib/storefront"
 import { isRegistryEnabled } from "@/lib/registry"
 import { MobileNav } from "./mobile-nav"
 
 export async function MobileNavWrapper() {
-    const session = await auth()
+    const [session, storefront] = await Promise.all([
+        getStorefrontSession(), getStorefrontSettings().catch(() => null),
+    ])
     const user = session?.user
 
     // Check if admin (case-insensitive)
@@ -16,17 +17,8 @@ export async function MobileNavWrapper() {
     let registryOptIn = false
     let registryHideNav = false
     if (registryEnabled) {
-        try {
-            const [optIn, hideNav] = await Promise.all([
-                getSetting('registry_opt_in'),
-                getSetting('registry_hide_nav')
-            ])
-            registryOptIn = optIn === 'true'
-            registryHideNav = hideNav === 'true'
-        } catch {
-            registryOptIn = false
-            registryHideNav = false
-        }
+        registryOptIn = storefront?.registry_opt_in === 'true'
+        registryHideNav = storefront?.registry_hide_nav === 'true'
     }
     const showNav = registryEnabled && (registryOptIn || !registryHideNav)
 
