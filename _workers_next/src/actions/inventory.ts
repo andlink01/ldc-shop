@@ -9,6 +9,7 @@ import { InventoryTokenError } from '@/lib/inventory-token'
 import { invalidateInventory } from '@/lib/fulfillment'
 import { scheduleInventoryEvents } from '@/lib/inventory-events'
 import { retryPaidOrderDelivery } from '@/lib/retry-delivery'
+import { readSupplierRecovery, updateSupplierRecovery } from '@/lib/supplier-recovery'
 import { eq } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
 
@@ -88,4 +89,29 @@ export async function retryOrderDelivery(orderId: string) {
     revalidatePath(`/admin/orders/${orderId}`)
     revalidatePath(`/order/${orderId}`)
     return result
+}
+
+export async function getSupplierRecoveryInfo(orderId: string) {
+    await checkAdmin()
+    try { return await readSupplierRecovery(orderId) }
+    catch { return { success: false as const, error: 'inventory.recovery.readFailed' } }
+}
+
+export async function resumeSupplierOrder(orderId: string, expectedUrl: string, confirmed: boolean) {
+    await checkAdmin()
+    let updated: Awaited<ReturnType<typeof updateSupplierRecovery>>
+    try { updated = await updateSupplierRecovery(orderId, expectedUrl, confirmed) }
+    catch { return { success: false as const, error: 'inventory.recovery.saveFailed' } }
+    if (!updated.success) return updated
+    let result: Awaited<ReturnType<typeof retryPaidOrderDelivery>>
+    try { result = await retryPaidOrderDelivery(orderId) }
+    catch {
+        invalidateInventory('')
+        return { success: false as const, error: 'inventory.recovery.retryFailed' }
+    }
+    scheduleInventoryEvents()
+    invalidateInventory('')
+    revalidatePath(`/admin/orders/${orderId}`)
+    revalidatePath(`/order/${orderId}`)
+    return { success: true as const, ...result }
 }

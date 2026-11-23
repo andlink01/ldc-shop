@@ -1045,7 +1045,7 @@
             "waiting": "Some cards are still missing. The system will continue fetching and deliver the complete order.",
             "disabled": "On-demand procurement is disabled or its URL is missing. Check the product card settings and retry.",
             "url": "The supplier URL is invalid. Correct it in card management.",
-            "endpointChanged": "The supplier URL has changed. Confirm the original purchase result with the supplier before retrying.",
+            "endpointChanged": "The supplier URL changed. Verify the original result, then update the URL on the retry delivery page, restock cards or refund the order.",
             "invalidResponse": "The returned card, request ID or expiry is invalid. Ask the supplier to check the response.",
             "duplicateCard": "The supplier returned an existing card. Ask them to check the card for this request ID.",
             "requestFailed": "The request or card save failed. Check the supplier service and response; inspect Workers logs if it continues.",
@@ -1054,6 +1054,25 @@
             "unavailable": "The supplier service failed (HTTP {{status}}). Check the service and API address.",
             "redirect": "The supplier returned a redirect (HTTP {{status}}). Configure the final API address.",
             "http": "The supplier returned HTTP {{status}}. Ask them to check the request."
+        },
+        "recovery": {
+            "open": "Update supplier URL",
+            "title": "Resolve supplier URL change",
+            "hint": "Move this order's unfinished requests to the product's current URL, preserving the original purchase IDs.",
+            "oldUrl": "Original supplier URL",
+            "newUrl": "Current product supplier URL",
+            "requestIds": "Purchase IDs to preserve",
+            "warning": "Verify the old endpoint's result first. Moving to another supplier can generate or charge twice.",
+            "confirm": "I confirmed no card was issued, or both endpoints share purchase-ID deduplication records.",
+            "resume": "Update and retry",
+            "confirmationRequired": "Confirm the original purchase result first.",
+            "configRequired": "Configure and enable a valid on-demand supplier in the product's card settings first.",
+            "noChange": "No purchase request needs a URL update. Refresh the list or retry delivery directly.",
+            "busy": "This order has an active supplier request. Wait for it to finish before changing the URL.",
+            "stateChanged": "The order, requests or product settings changed. Refresh and confirm again.",
+            "readFailed": "Could not load the purchase status. Try again later.",
+            "saveFailed": "The update was not confirmed. Refresh to check before trying again. Purchase IDs will not be regenerated.",
+            "retryFailed": "The URL was updated. Refresh to check delivery and retry if the order is still waiting."
         }
     }
 }

@@ -2,6 +2,7 @@
 
 import type { AdminOrderDetail } from '@/lib/admin-types'
 import { getErrorMessage } from '@/lib/errors'
+import { getDeliveryIssue } from '@/lib/delivery-issue'
 
 import Link from "next/link"
 import { useRef, useState } from "react"
@@ -52,7 +53,12 @@ export function AdminOrderDetailContent({ order }: { order: AdminOrderDetail }) 
       if (action === 'retry') {
         const result = await retryOrderDelivery(order.orderId)
         if (result.delivered) toast.success(t('common.success'))
-        else toast.info(t('inventory.waitingStock'))
+        else {
+          const issue = getDeliveryIssue(result.supplierError)
+          const message = t(`inventory.deliveryIssue.${issue.key}`, { status: issue.status ?? '' })
+          if (issue.severity === 'attention') toast.error(message)
+          else toast.info(message)
+        }
         return
       }
       if (action === 'paid') {

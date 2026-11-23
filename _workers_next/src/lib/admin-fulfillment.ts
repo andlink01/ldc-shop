@@ -26,12 +26,15 @@ export async function getPendingDeliveryOrders(params: Record<string, string | s
         variantLabel: products.variantLabel, quantity: orders.quantity,
         onDemand: sql<number>`CASE WHEN ${onDemandProductCondition()} THEN 1 ELSE 0 END`,
         username: orders.username, userId: orders.userId, amount: orders.amount,
+        tradeNo: orders.tradeNo,
         paidAt: orders.paidAt, createdAt: orders.createdAt, status: orders.status, cardKey: orders.cardKey,
         // Prefer active work, including task errors before an individual request exists.
         supplierError: sql<string | null>`CASE WHEN EXISTS (SELECT 1 FROM inventory_events
             WHERE order_id = ${orders.orderId} AND kind = 'supplier' AND completed_at IS NULL AND lease_until > ${now})
             OR EXISTS (SELECT 1 FROM supplier_requests WHERE order_id = ${orders.orderId} AND state = 'pending' AND lease_until > ${now})
-            THEN 'supplier_request_in_progress' ELSE COALESCE(
+            THEN 'supplier_request_in_progress'
+            WHEN NOT EXISTS (SELECT 1 FROM settings WHERE key = 'cards_api_mode_' || ${orders.productId} AND value = 'on_demand')
+            THEN NULL ELSE COALESCE(
                 (SELECT error FROM inventory_events WHERE order_id = ${orders.orderId} AND kind = 'supplier'
                     AND completed_at IS NULL ORDER BY created_at DESC LIMIT 1),
                 (SELECT error FROM supplier_requests WHERE order_id = ${orders.orderId} AND state = 'pending'

@@ -6,7 +6,8 @@ import { getErrorMessage } from '@/lib/errors'
 import { Button } from "@/components/ui/button"
 import { markOrderRefunded, proxyRefund } from "@/actions/refund"
 import { verifyOrderRefundStatus } from "@/actions/admin-orders"
-import { useState } from "react"
+import { useRef, useState } from "react"
+import { useRouter } from 'next/navigation'
 import { toast } from "sonner"
 import { Loader2, ExternalLink, CheckCircle, RefreshCcw } from "lucide-react"
 import { useI18n } from "@/lib/i18n/context"
@@ -14,6 +15,8 @@ import { useI18n } from "@/lib/i18n/context"
 export function RefundButton({ order }: { order: AdminOrderSummary }) {
     const [loading, setLoading] = useState(false)
     const [showMarkDone, setShowMarkDone] = useState(false)
+    const lock = useRef(false)
+    const router = useRouter()
     const { t } = useI18n()
 
     if (order.status !== 'delivered' && order.status !== 'paid') return null
@@ -21,7 +24,9 @@ export function RefundButton({ order }: { order: AdminOrderSummary }) {
     if (Number(order.amount) <= 0) return null // No refund for orders paid entirely with points
 
     const handleRefund = async () => {
+        if (lock.current) return
         if (!confirm(t('admin.orders.refundProxyConfirm'))) return
+        lock.current = true
         setLoading(true)
         try {
             const result = await proxyRefund(order.orderId)
@@ -35,13 +40,17 @@ export function RefundButton({ order }: { order: AdminOrderSummary }) {
             toast.error(getErrorMessage(e) || "Refund failed", { duration: 8000 })
             setShowMarkDone(true)
         } finally {
+            router.refresh()
+            lock.current = false
             setLoading(false)
         }
     }
 
     const handleMarkDone = async () => {
+        if (lock.current) return
         if (!confirm(t('admin.orders.refundVerifyPlatform'))) return
 
+        lock.current = true
         setLoading(true)
         try {
             await markOrderRefunded(order.orderId)
@@ -50,11 +59,15 @@ export function RefundButton({ order }: { order: AdminOrderSummary }) {
         } catch (e) {
             toast.error(getErrorMessage(e))
         } finally {
+            router.refresh()
+            lock.current = false
             setLoading(false)
         }
     }
 
     const handleVerify = async () => {
+        if (lock.current) return
+        lock.current = true
         setLoading(true)
         try {
             const result = await verifyOrderRefundStatus(order.orderId)
@@ -73,12 +86,14 @@ export function RefundButton({ order }: { order: AdminOrderSummary }) {
         } catch (e) {
             toast.error(getErrorMessage(e))
         } finally {
+            router.refresh()
+            lock.current = false
             setLoading(false)
         }
     }
 
     return (
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
             <Button variant="outline" size="sm" onClick={handleVerify} disabled={loading} title={t('admin.orders.checkStatus')}>
                 {loading ? <Loader2 className="h-3 w-3 animate-spin" /> : <><RefreshCcw className="h-3 w-3" /></>}
             </Button>

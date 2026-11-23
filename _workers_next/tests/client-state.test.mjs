@@ -424,3 +424,61 @@ test('delivery retries display the actual supplier result, refresh the list and 
     assert.equal(successes.length, 1)
     assert.equal(refreshes, 5)
 })
+
+test('supplier URL recovery requires confirmation, preserves the reviewed URL and blocks duplicate submissions', async t => {
+    const calls = [], successes = [], errors = []
+    let release, refreshes = 0
+    const info = { orderId: 'order', currentUrl: 'https://new.example/cards', previousUrls: ['https://old.example/cards'], requestIds: ['preserved-id'] }
+    const f = setup(t, {
+        '@/actions/inventory': {
+            getSupplierRecoveryInfo: async () => ({ success: true, info }),
+            resumeSupplierOrder: async (...args) => { calls.push(args); return new Promise(resolve => { release = resolve }) },
+        },
+        'next/navigation': { useRouter: () => ({ refresh() { refreshes++ } }) },
+        sonner: { toast: { success: message => successes.push(message), error: message => errors.push(message), info() {} } },
+    })
+    const { SupplierRecoveryButton } = f.load('components/admin/supplier-recovery-button')
+    const view = await mount(t, React.createElement(SupplierRecoveryButton, { orderId: 'order' }))
+    const button = label => view.root.findAllByType('button').find(node => node.children.join('') === label)
+    await act(async () => button('Update supplier URL').props.onClick())
+    assert.equal(button('Update and retry').props.disabled, true)
+    await act(async () => { button('Update and retry').props.onClick() })
+    assert.deepEqual(calls, [])
+    await act(async () => view.root.findByType('input').props.onCheckedChange(true))
+    await act(async () => { button('Update and retry').props.onClick() })
+    assert.equal(button('Update and retry').props.disabled, true)
+    await act(async () => { button('Update and retry').props.onClick() })
+    assert.deepEqual(calls, [['order', info.currentUrl, true]])
+    await act(async () => release({ success: true, delivered: true }))
+    assert.equal(successes.length, 1)
+    assert.equal(errors.length, 0)
+    assert.equal(refreshes, 1)
+    assert.equal(view.root.findByType('dialog').props.open, false)
+})
+
+test('order detail retries show the actual failure and refund success refreshes the pending list', async t => {
+    const errors = []
+    let refreshes = 0, refunds = 0, release
+    const f = setup(t, {
+        '@/actions/inventory': { retryOrderDelivery: async () => ({ delivered: false, supplierError: 'supplier_http_401' }) },
+        '@/actions/admin-orders': {},
+        '@/actions/refund': { proxyRefund: async () => { refunds++; return new Promise(resolve => { release = resolve }) } },
+        '@/components/copy-button': { CopyButton: () => null },
+        '@/components/client-date': { ClientDate: () => null },
+        'next/navigation': { useRouter: () => ({ refresh() { refreshes++ } }) },
+        sonner: { toast: { success() {}, error: value => errors.push(value), info() {} } },
+    }, { confirm: () => true })
+    const order = { orderId: 'paid-order', productId: 'product', productName: 'Product', amount: '3', status: 'paid', cardKey: null, tradeNo: 'test-trade', username: 'buyer' }
+    const { AdminOrderDetailContent } = f.load('components/admin/order-detail-content')
+    const view = await mount(t, React.createElement(AdminOrderDetailContent, { order }))
+    await act(async () => view.root.findAllByType('button').find(node => node.children.join('') === 'Retry delivery').props.onClick())
+    assert.match(errors[0], /HTTP 401/)
+    assert.equal(refreshes, 1)
+    const { RefundButton } = f.load('components/admin/refund-button')
+    const button = () => view.root.findByType(RefundButton).findAllByType('button')[1]
+    await act(async () => { button().props.onClick() })
+    await act(async () => { button().props.onClick() })
+    assert.equal(refunds, 1)
+    await act(async () => release({ processed: true }))
+    assert.equal(refreshes, 2)
+})

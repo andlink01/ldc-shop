@@ -199,3 +199,15 @@ test('products keep independent supplier addresses, tokens, modes and enabled st
         { url: 'https://second.example/cards', token: 'Bearer ISOLATED-SECOND', productId: 'second' },
     ])
 })
+
+test('switching a waiting order back to stock mode hides obsolete supplier errors', async t => {
+    const f = await setup(t)
+    const { eq } = await import('drizzle-orm')
+    await f.db.insert(f.schema.orders).values({ orderId: 'switch', productId: 'product', productName: 'A', amount: '3', status: 'paid' })
+    const api = f.load('lib/card-api')
+    await api.saveProductCardApiConfig('product', { mode: 'on_demand', enabled: true, url: 'https://supplier.example/cards', token: '' })
+    await f.db.update(f.schema.inventoryEvents).set({ error: 'supplier_http_401' }).where(eq(f.schema.inventoryEvents.eventId, 'supplier:switch'))
+    await api.saveProductCardApiConfig('product', { mode: 'stock', enabled: false, url: '', token: '' })
+    assert.equal((await f.read()).orders[0].supplierError, null)
+    assert.equal((await f.load('lib/retry-delivery').retryPaidOrderDelivery('switch')).supplierError, null)
+})

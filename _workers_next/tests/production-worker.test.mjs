@@ -112,6 +112,60 @@ test('pending delivery renders readable supplier failures and a real retry deliv
     assert.ok(!(await done.text()).includes('RETRY-ORDER'))
 })
 
+test('a blocked supplier URL change can be confirmed through production actions and delivers with its original purchase ID', async t => {
+    let purchases = 0
+    const f = await setup(t, { provider: async request => {
+        if (new URL(request.url).hostname !== 'new-supplier.example') return undefined
+        purchases++
+        const body = await request.json()
+        assert.equal(body.requestId, 'preserved-production-id')
+        return Response.json({ success: true, requestId: body.requestId, data: { cardKey: 'RECOVERED-PRODUCTION-CARD' } })
+    } })
+    await f.database.prepare('INSERT INTO orders (order_id,product_id,product_name,amount,status,user_id,username) VALUES (?,?,?,?,?,?,?)')
+        .bind('ADDRESS-ORDER', 'product', 'Address recovery product', '3', 'paid', 'owner', 'audit-admin').run()
+    await f.database.prepare('INSERT INTO supplier_requests (request_id,order_id,item_index,server_url,created_at,error) VALUES (?,?,?,?,?,?)')
+        .bind('preserved-production-id', 'ADDRESS-ORDER', 0, 'https://old-supplier.example/cards', Date.now(), 'supplier_http_401').run()
+    const saved = await f.action('saveCardsApiConfig', '/admin/cards/product', ['product', 'https://new-supplier.example/cards', '', true, 'on_demand'], f.sessionCookie)
+    assert.equal(saved.result?.success, true)
+    const info = await f.action('getSupplierRecoveryInfo', '/admin/fulfillment', ['ADDRESS-ORDER'], f.sessionCookie)
+    assert.equal(info.result?.success, true)
+    assert.deepEqual(info.result.info.requestIds, ['preserved-production-id'])
+    const denied = await f.action('getSupplierRecoveryInfo', '/admin/fulfillment', ['ADDRESS-ORDER'], await f.cookie('other', 'other-user'))
+    assert.ok(!denied.body.includes('https://old-supplier.example/cards'))
+    const rejected = await f.action('resumeSupplierOrder', '/admin/fulfillment', ['ADDRESS-ORDER', info.result.info.currentUrl, false], f.sessionCookie)
+    assert.equal(rejected.result?.success, false)
+    assert.equal(purchases, 0)
+    const page = await f.request('/admin/fulfillment', { headers: { Cookie: f.sessionCookie, 'Accept-Language': 'zh-CN' } })
+    assert.ok((await page.text()).includes('更新取卡地址'))
+    const resumed = await f.action('resumeSupplierOrder', '/admin/fulfillment', ['ADDRESS-ORDER', info.result.info.currentUrl, true], f.sessionCookie)
+    assert.equal(resumed.result?.delivered, true, resumed.body)
+    assert.equal(purchases, 1)
+    const audit = await f.database.prepare("SELECT data FROM inventory_events WHERE kind = 'supplier_recovery'").bind().all()
+    assert.equal(audit.results.length, 1)
+    assert.ok(audit.results[0].data.includes('https://old-supplier.example/cards'))
+    const done = await f.request('/admin/fulfillment', { headers: { Cookie: f.sessionCookie } })
+    assert.ok(!(await done.text()).includes('ADDRESS-ORDER'))
+})
+
+test('refunding a paid pending-delivery order removes it from the production recovery list', async t => {
+    let refunds = 0
+    const f = await setup(t, { provider: async request => {
+        if (new URL(request.url).hostname !== 'credit.linux.do') return undefined
+        assert.equal(new URL(request.url).searchParams.get('act'), 'refund')
+        refunds++
+        return Response.json({ code: 1 })
+    } })
+    await f.database.prepare('INSERT INTO orders (order_id,product_id,product_name,amount,status,user_id,username,trade_no) VALUES (?,?,?,?,?,?,?,?)')
+        .bind('PENDING-REFUND', 'product', 'Pending refund product', '3', 'paid', 'owner', 'audit-admin', 'refund-trade').run()
+    const page = await f.request('/admin/fulfillment', { headers: { Cookie: f.sessionCookie, 'Accept-Language': 'zh-CN' } })
+    assert.ok((await page.text()).includes('退款'))
+    const result = await f.action('proxyRefund', '/admin/fulfillment', ['PENDING-REFUND'], f.sessionCookie)
+    assert.equal(result.result?.processed, true)
+    assert.equal(refunds, 1)
+    const done = await f.request('/admin/fulfillment', { headers: { Cookie: f.sessionCookie } })
+    assert.ok(!(await done.text()).includes('PENDING-REFUND'))
+})
+
 test('the production worker renders shop and admin pages with a real authenticated session', async t => {
     const f = await setup(t)
     const session = await f.request('/api/auth/session', { headers: { Cookie: f.sessionCookie } })

@@ -6,6 +6,8 @@ import { useRouter } from 'next/navigation'
 import { AlertCircle, PackageCheck, RefreshCw, Search } from 'lucide-react'
 import { useI18n } from '@/lib/i18n/context'
 import { AdminOrderActions } from '@/components/admin/order-actions'
+import { SupplierRecoveryButton } from '@/components/admin/supplier-recovery-button'
+import { RefundButton } from '@/components/admin/refund-button'
 import { ClientDate } from '@/components/client-date'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -50,6 +52,8 @@ function DeliveryActions({ order }: { order: PendingDeliveryOrder }) {
     return <div className="flex flex-wrap items-center justify-end gap-2">
         <Button asChild variant="outline" size="sm"><Link href={`/admin/cards/${order.productId}`}>{t('inventory.manageCards')}</Link></Button>
         <AdminOrderActions order={order} />
+        {order.supplierError === 'supplier_endpoint_changed' && <SupplierRecoveryButton orderId={order.orderId} />}
+        <RefundButton order={order} />
     </div>
 }
 
