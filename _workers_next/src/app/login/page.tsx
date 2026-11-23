@@ -1,41 +1,10 @@
-"use client"
+import { LoginContent } from '@/components/login-content'
 
-import { signIn } from "next-auth/react"
-import { useSearchParams } from "next/navigation"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
-import { Github, LogIn } from "lucide-react"
+export const dynamic = 'force-dynamic'
 
 export default function LoginPage() {
-  const searchParams = useSearchParams()
-  const callbackUrl = searchParams.get("callbackUrl") || "/"
-
-  return (
-    <main className="container py-16 max-w-md">
-      <Card className="tech-card overflow-hidden">
-        <CardHeader className="space-y-2">
-          <CardTitle className="text-2xl">登录</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <Button
-            size="lg"
-            variant="outline"
-            className="w-full"
-            onClick={() => signIn("github", { callbackUrl })}
-          >
-            <Github className="mr-2 h-4 w-4" />
-            使用 GitHub 登录
-          </Button>
-          <Button
-            size="lg"
-            className="w-full bg-foreground text-background hover:bg-foreground/90"
-            onClick={() => signIn("linuxdo", { callbackUrl })}
-          >
-            <LogIn className="mr-2 h-4 w-4" />
-            使用 Linux DO 登录
-          </Button>
-        </CardContent>
-      </Card>
-    </main>
-  )
+  return <LoginContent providers={{
+    linuxdo: Boolean(process.env.OAUTH_CLIENT_ID && process.env.OAUTH_CLIENT_SECRET),
+    github: Boolean((process.env.GITHUB_ID || process.env.AUTH_GITHUB_ID) && (process.env.GITHUB_SECRET || process.env.AUTH_GITHUB_SECRET)),
+  }} />
 }

@@ -47,7 +47,7 @@ export async function productionFixture(t, { provider } = {}) {
     const worker = new Miniflare({
         modules, modulesRoot: root, compatibilityDate: '2025-11-12', compatibilityFlags: ['nodejs_compat'],
         d1Databases: { DB: crypto.randomUUID() }, d1Persist: false,
-        bindings: { AUTH_SECRET: secret, OAUTH_CLIENT_SECRET: 'isolated-production-oauth', ADMIN_USERS: 'audit-admin', INVENTORY_API_KEY: inventoryKey,
+        bindings: { AUTH_SECRET: secret, OAUTH_CLIENT_ID: 'isolated-production-linuxdo-client', OAUTH_CLIENT_SECRET: 'isolated-production-oauth', ADMIN_USERS: 'audit-admin', INVENTORY_API_KEY: inventoryKey,
             NEXT_PUBLIC_APP_URL: 'https://shop.example', MERCHANT_ID: 'TEST-MERCHANT', MERCHANT_KEY: 'isolated-production-merchant-key' },
         serviceBindings: { ASSETS: () => new Response('Not found', { status: 404 }) },
         outboundService: async request => {

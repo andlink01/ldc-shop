@@ -63,6 +63,20 @@
         "themeDark": "深色",
         "themeSystem": "跟随系统"
     },
+    "login": {
+        "github": "使用 GitHub 登录",
+        "linuxdo": "使用 Linux DO 登录",
+        "connecting": "正在连接登录服务…",
+        "notConfigured": "店铺尚未配置登录方式，请联系店主。",
+        "requestFailed": "登录连接失败，请检查网络后重试。",
+        "timedOut": "登录请求超时，请稍后重试。",
+        "requestBlocked": "登录请求被拦截，请刷新页面完成验证后重试。",
+        "invalidResponse": "登录服务返回异常，请刷新页面重试。",
+        "sessionCheckFailed": "登录校验已失效，请刷新页面后重新登录。",
+        "authorizationFailed": "授权登录未完成，请重新登录；持续失败请联系店主。",
+        "configurationFailed": "登录服务配置异常，请联系店主检查登录配置。",
+        "accessDenied": "此次登录未获授权，请重试或联系店主。"
+    },
     "home": {
         "title": "欢迎来到 LDC 商店",
         "subtitle": "为 Linux DO 生态打造的虚拟商品商店",

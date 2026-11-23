@@ -68,6 +68,41 @@ test('search input follows navigation props while preserving typing until naviga
     assert.equal(new URL(f.pushed[0], 'https://shop.example').searchParams.get('q'), 'second')
 })
 
+test('login buttons lock during authorization, retain the product return address and allow retry after failure', async t => {
+    const calls = [], redirected = []
+    let release, fail = true
+    class LoginRequestError extends Error { constructor(code) { super(code); this.code = code } }
+    const f = setup(t, {
+        '@/lib/oauth-login': { LoginRequestError, loginErrorMessage: () => null, startOAuthLogin: async (...args) => {
+            calls.push(args)
+            if (fail) throw new LoginRequestError('login.requestFailed')
+            return new Promise(resolve => { release = resolve })
+        } },
+        'next/navigation': { useSearchParams: () => new URLSearchParams('callbackUrl=%2Fbuy%2Fproduct') },
+    })
+    f.window.location = { origin: 'https://shop.example', assign: url => redirected.push(url) }
+    const { LoginContent } = f.load('components/login-content')
+    const view = await mount(t, React.createElement(LoginContent, { providers: { linuxdo: true, github: false } }))
+    assert.equal(view.root.findAllByType('button').length, 1)
+    const button = () => view.root.findByType('button')
+    await act(async () => button().props.onClick())
+    assert.match(view.root.findByProps({ role: 'alert' }).children.join(''), /Check your network/)
+    assert.equal(button().props.disabled, false)
+    fail = false
+    await act(async () => button().props.onClick())
+    assert.equal(button().props.disabled, true)
+    await act(async () => button().props.onClick())
+    assert.equal(calls.length, 2)
+    assert.deepEqual(calls[1], ['linuxdo', '/buy/product', 'https://shop.example'])
+    await act(async () => release('https://connect.linux.do/oauth2/authorize?client_id=test'))
+    assert.deepEqual(redirected, ['https://connect.linux.do/oauth2/authorize?client_id=test'])
+    assert.equal(button().props.disabled, true)
+    const restored = new Event('pageshow')
+    Object.defineProperty(restored, 'persisted', { value: true })
+    await act(async () => f.window.dispatchEvent(restored))
+    assert.equal(button().props.disabled, false)
+})
+
 function localeProbe(f) {
     const { I18nProvider, useI18n } = f.load('lib/i18n/context')
     let current

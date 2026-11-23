@@ -63,6 +63,20 @@
         "themeDark": "Dark",
         "themeSystem": "System"
     },
+    "login": {
+        "github": "Sign in with GitHub",
+        "linuxdo": "Sign in with Linux DO",
+        "connecting": "Connecting to sign-in service…",
+        "notConfigured": "This shop has no sign-in provider configured. Contact the shop owner.",
+        "requestFailed": "Could not connect. Check your network and try again.",
+        "timedOut": "The sign-in request timed out. Please try again.",
+        "requestBlocked": "The sign-in request was blocked. Refresh the page, complete any verification and try again.",
+        "invalidResponse": "The sign-in service returned an unexpected response. Refresh the page and try again.",
+        "sessionCheckFailed": "Your sign-in verification has expired. Refresh the page and sign in again.",
+        "authorizationFailed": "Sign-in authorization did not complete. Try again or contact the shop owner.",
+        "configurationFailed": "The sign-in service is misconfigured. Contact the shop owner.",
+        "accessDenied": "This sign-in was not authorized. Try again or contact the shop owner."
+    },
     "home": {
         "title": "Welcome to LDC Shop",
         "subtitle": "A virtual goods shop for the Linux DO ecosystem",

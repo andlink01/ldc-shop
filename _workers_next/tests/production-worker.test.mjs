@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { createHash } from 'node:crypto'
 import { productionFixture } from './production-fixture.mjs'
+import { fixture as browserFixture } from './database-fixture.mjs'
 
 async function setup(t, options) {
     const f = await productionFixture(t, options)
@@ -30,6 +31,69 @@ test('the production worker renders shop and admin pages with a real authenticat
         const html = await response.text()
         assert.ok(!html.includes('NEXT_HTTP_ERROR_FALLBACK'), pathname)
     }
+})
+
+test('Linux DO OAuth preserves the product return URL and creates a session through real production auth routes', async t => {
+    let challenge, tokenCalls = 0, profileCalls = 0
+    const f = await setup(t, { provider: async request => {
+        const url = new URL(request.url)
+        if (url.hostname !== 'connect.linux.do') return undefined
+        if (url.pathname === '/oauth2/token') {
+            tokenCalls++
+            const body = new URLSearchParams(await request.text())
+            assert.equal(body.get('code'), 'isolated-linuxdo-code')
+            assert.equal(body.get('redirect_uri'), 'https://shop.example/api/auth/callback/linuxdo')
+            assert.equal(createHash('sha256').update(body.get('code_verifier')).digest('base64url'), challenge)
+            return Response.json({ access_token: 'isolated-linuxdo-access-token', token_type: 'Bearer', expires_in: 3600 })
+        }
+        if (url.pathname === '/api/user') {
+            profileCalls++
+            assert.equal(request.headers.get('authorization'), 'Bearer isolated-linuxdo-access-token')
+            return Response.json({ id: 789, username: 'linuxdo-test-user', name: 'Linux DO Test', trust_level: 2 })
+        }
+        assert.fail(`Unexpected OAuth request: ${url.pathname}`)
+    } })
+    const jar = new Map()
+    const remember = response => {
+        for (const value of response.headers.getSetCookie()) {
+            const pair = value.split(';')[0], index = pair.indexOf('=')
+            jar.set(pair.slice(0, index), pair.slice(index + 1))
+        }
+    }
+    const cookie = () => [...jar].map(([name, value]) => `${name}=${value}`).join('; ')
+    const page = await f.request('/login?callbackUrl=%2Fbuy%2Fproduct')
+    const buttonTexts = [...(await page.text()).matchAll(/<button\b[^>]*>([\s\S]*?)<\/button>/g)].map(match => match[1].replace(/<[^>]+>/g, ''))
+    assert.ok(buttonTexts.some(text => text.includes('Linux DO')))
+    assert.ok(!buttonTexts.some(text => text.includes('GitHub')))
+    let csrfRequests = 0, signinRequests = 0
+    const client = browserFixture(t, { initialize: false, globals: { AbortController }, fetch: async (path, init) => {
+        assert.notEqual(path, '/api/auth/providers')
+        if (path === '/api/auth/csrf' && ++csrfRequests === 1) return new Response(null, { status: 503 })
+        if (path === '/api/auth/signin/linuxdo') signinRequests++
+        const response = await f.request(path, { ...init, headers: { ...init.headers, Cookie: cookie() } })
+        remember(response)
+        return response
+    } }).load('lib/oauth-login')
+    const authorization = new URL(await client.startOAuthLogin('linuxdo', '/buy/product?from=login', 'https://shop.example'))
+    assert.equal(csrfRequests, 2)
+    assert.equal(signinRequests, 1)
+    assert.equal(authorization.origin, 'https://connect.linux.do')
+    assert.equal(authorization.pathname, '/oauth2/authorize')
+    assert.equal(authorization.searchParams.get('client_id'), 'isolated-production-linuxdo-client')
+    assert.equal(authorization.searchParams.get('redirect_uri'), 'https://shop.example/api/auth/callback/linuxdo')
+    assert.equal(authorization.searchParams.get('code_challenge_method'), 'S256')
+    challenge = authorization.searchParams.get('code_challenge')
+    const callback = await f.request('/api/auth/callback/linuxdo?code=isolated-linuxdo-code', { headers: { Cookie: cookie() }, redirect: 'manual' })
+    remember(callback)
+    await callback.text()
+    assert.equal(callback.status, 302)
+    assert.equal(callback.headers.get('location'), 'https://shop.example/buy/product?from=login')
+    const session = await (await f.request('/api/auth/session', { headers: { Cookie: cookie() } })).json()
+    assert.equal(session.user.id, '789')
+    assert.equal(session.user.username, 'linuxdo-test-user')
+    assert.equal(session.user.trustLevel, 2)
+    assert.equal(tokenCalls, 1)
+    assert.equal(profileCalls, 1)
 })
 
 test('actual production Server Actions validate supplier drafts and recover encrypted keys', async t => {
