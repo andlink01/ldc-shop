@@ -121,10 +121,13 @@ export async function sendTelegramMessage(text: string) {
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify(body), signal: AbortSignal.timeout(15_000), redirect: 'error',
+            body: JSON.stringify(body), signal: AbortSignal.timeout(15_000), redirect: 'manual',
         })
 
         if (!response.ok) {
+            if (response.status >= 300 && response.status < 400) {
+                return { success: false, error: `Telegram HTTP ${response.status}: server redirect was not followed` }
+            }
             const error = await response.text()
             console.error('[Notification] Telegram API Error:', error)
             return { success: false, error }
@@ -163,7 +166,9 @@ export async function sendBarkMessage(title: string, body: string, options?: { u
         const { barkEnabled, barkServerUrl, barkDeviceKey, barkIconUrl } = await getNotificationSettings()
         if (!barkEnabled) return { success: false, error: 'Bark disabled' }
         if (!barkDeviceKey) return { success: false, error: 'Missing Bark device key' }
-        const baseUrl = normalizeBarkServerUrl(barkServerUrl || 'https://api.day.app')
+        let baseUrl: string
+        try { baseUrl = normalizeBarkServerUrl(barkServerUrl || 'https://api.day.app') }
+        catch { return { success: false, error: 'Invalid Bark server address' } }
         const push = {
             device_key: barkDeviceKey,
             title: truncatePushText((title || 'LDC Shop').trim() || 'LDC Shop', 256),
@@ -182,20 +187,26 @@ export async function sendBarkMessage(title: string, body: string, options?: { u
             method: 'POST',
             headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
             body: JSON.stringify(push),
-            cache: 'no-store', signal: AbortSignal.timeout(15_000), redirect: 'error',
+            cache: 'no-store', signal: AbortSignal.timeout(15_000), redirect: 'manual',
         })
         if (!response.ok) {
             console.error('[Notification] Bark HTTP error:', response.status)
             return { success: false, error: `Bark HTTP ${response.status}${response.status >= 500 ? ' (服务暂时不可用，请稍后重试)' : ''}` }
         }
-        const payload: unknown = await response.json()
+        let payload: unknown
+        try { payload = await response.json() }
+        catch { return { success: false, error: 'Bark server returned an invalid JSON response' } }
         if (!payload || typeof payload !== 'object' || !('code' in payload) || payload.code !== 200) {
-            return { success: false, error: 'Bark rejected the push; check the device key and server address' }
+            const code = payload && typeof payload === 'object' && 'code' in payload && typeof payload.code === 'number' && Number.isSafeInteger(payload.code) ? ` (code ${payload.code})` : ''
+            return { success: false, error: `Bark rejected the push${code}; check the device key and server address` }
         }
         return { success: true }
-    } catch {
+    } catch (error) {
         // Never log the request URL, JSON body or device key.
         console.error('[Notification] Bark request failed')
+        const name = error !== null && typeof error === 'object' && 'name' in error ? error.name : undefined
+        if (name === 'TimeoutError' || name === 'AbortError') return { success: false, error: 'Bark request timed out after 15 seconds' }
+        if (getErrorMessage(error, '').includes('Invalid redirect value')) return { success: false, error: 'Bark request rejected by Workers: unsupported redirect mode' }
         return { success: false, error: 'Bark network error; check the server address and try again' }
     }
 }

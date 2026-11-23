@@ -177,7 +177,7 @@ export async function sendOrderEmail(params: OrderEmailParams) {
                 to: params.to,
                 subject: template.subject(params.orderId),
                 html: template.body({ ...params, productName: escapeEmailHtml(params.productName), orderId: escapeEmailHtml(params.orderId), cardKeys: escapeEmailHtml(params.cardKeys) })
-            }), signal: AbortSignal.timeout(15000), redirect: 'error',
+            }), signal: AbortSignal.timeout(15000), redirect: 'manual',
         })
 
         if (!response.ok) {
@@ -218,7 +218,7 @@ export async function testResendEmail(to: string) {
                         <p style="color: #666; font-size: 14px;">This is a test email from LDC Shop.</p>
                     </div>
                 `
-            }), signal: AbortSignal.timeout(15000), redirect: 'error',
+            }), signal: AbortSignal.timeout(15000), redirect: 'manual',
         })
 
         if (!response.ok) {

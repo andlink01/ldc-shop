@@ -149,7 +149,7 @@ export async function pullOneCardFromApi(productId: string): Promise<{
     const response = await fetch(requestUrl, {
         method: "GET",
         headers,
-        cache: "no-store", signal: AbortSignal.timeout(15000), redirect: "error",
+        cache: "no-store", signal: AbortSignal.timeout(15000), redirect: "manual",
     })
 
     if (!response.ok) {

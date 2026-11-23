@@ -39,7 +39,7 @@ export async function procureOrderCards(orderId: string, maxRequests = 3) {
             const response = await fetch(serverUrl, { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json',
                 'Idempotency-Key': pending.requestId, ...(config.token ? { Authorization: `Bearer ${config.token}` } : {}) },
                 body: JSON.stringify({ requestId: pending.requestId, orderId, productId: order.productId, quantity: 1, itemIndex: index }),
-                signal: AbortSignal.timeout(20_000), cache: 'no-store', redirect: 'error' })
+                signal: AbortSignal.timeout(20_000), cache: 'no-store', redirect: 'manual' })
             if (response.status === 202) failure = 'supplier_processing'
             else if (!response.ok) failure = `supplier_http_${response.status}`
             else {

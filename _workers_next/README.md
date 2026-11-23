@@ -152,12 +152,14 @@
 | `GITHUB_SECRET` | Secret | GitHub OAuth App Client Secret（可选，配置后启用 GitHub 登录） |
 | `MERCHANT_ID` | Secret | EPay 商户 ID |
 | `MERCHANT_KEY` | Secret | EPay 商户 Key |
-| `AUTH_SECRET` | Secret | 随机字符串 (可用 `openssl rand -base64 32` 生成) |
+| `AUTH_SECRET` | Secret | 登录会话加密密钥（原有配置，可用 `openssl rand -base64 32` 生成）；已有 `NEXTAUTH_SECRET` 或 `OAUTH_CLIENT_SECRET` 时可沿用回退值 |
 | `ADMIN_USERS` | Secret | 管理员用户名列表（支持 Linux DO 用户名和 GitHub 用户名 `gh_GitHub用户名`），逗号分隔。例如: `zhangsan,gh_octocat` |
 | `NEXT_PUBLIC_APP_URL` | **Text** | 你的 Workers 域名 (如 `https://ldc-shop.xxx.workers.dev`) |
 
 > ⚠️ **重要**: `NEXT_PUBLIC_APP_URL` **必须**设置为 Text 类型，不能用 Secret，否则支付签名会失败！
 > ⚠️ **重要**: 若 GitHub 用户需要管理员权限，`ADMIN_USERS` 中**必须**填写 `gh_GitHub用户名`（例如 `gh_octocat`），不能只写原始 GitHub 用户名。
+
+`AUTH_SECRET` 不是升级新增要求。当前登录依次读取 `AUTH_SECRET`、`NEXTAUTH_SECRET`、`OAUTH_CLIENT_SECRET`；至少需要其中一项有效密钥。仅使用 GitHub 且未配置 `OAUTH_CLIENT_SECRET` 时，应设置 `AUTH_SECRET` 或 `NEXTAUTH_SECRET`。建议使用独立且稳定的 `AUTH_SECRET`，无需每次部署重新生成。
 
 **回调地址配置：**
 

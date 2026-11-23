@@ -97,7 +97,10 @@ export function fixture(t, { env: overrides = {}, initialize = true, fetch: init
             },
             process: { env, cwd: () => root }, console: { log() {}, warn() {}, error() {} },
             crypto: globalThis.crypto, TextEncoder, TextDecoder, Request, Response, URL, Date,
-            fetch: (...args) => networkFetch(...args), AbortSignal,
+            fetch: (...args) => {
+                if (args[1]?.redirect === 'error') throw new TypeError('Workers fetch supports only follow or manual redirects');
+                return networkFetch(...args);
+            }, AbortSignal,
             setTimeout, clearTimeout, Buffer, URLSearchParams, ...globals,
         }, { filename: resolved });
         return loadedModule.exports;

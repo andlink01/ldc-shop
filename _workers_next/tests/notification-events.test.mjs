@@ -21,7 +21,7 @@ test('Bark uses POST JSON, avoids key/data-logo URLs and keeps escaped payloads 
     assert.equal((await f.sendBarkMessage('标题'.repeat(300), '😀"\n'.repeat(2000), { url: 'https://shop.example/order/' + 'a'.repeat(900), group: 'Orders' })).success, true)
     assert.equal(seen.url, 'https://api.day.app/push')
     assert.equal(seen.options.method, 'POST')
-    assert.equal(seen.options.redirect, 'error')
+    assert.equal(seen.options.redirect, 'manual')
     assert.equal(seen.body.device_key, 'TEST-DEVICE-KEY')
     assert.ok(!seen.body.icon.startsWith('data:'))
     assert.ok(new TextEncoder().encode(seen.options.body).length <= 3500)
@@ -49,6 +49,16 @@ test('Bark supports a custom server path and rejects credentials or unsafe URLs'
     await f.queries.setSetting('bark_server_url', 'https://user:password@bark.example')
     f.setFetch(() => assert.fail('Unsafe URL must not be fetched'))
     assert.equal((await f.sendBarkMessage('Title', 'Body')).success, false)
+})
+
+test('Bark distinguishes timeouts, invalid responses and runtime option failures from connection errors', async t => {
+    const f = await setup(t)
+    f.setFetch(async () => { throw Object.assign(new Error('Timeout'), { name: 'TimeoutError' }) })
+    assert.match((await f.sendBarkMessage('Title', 'Body')).error, /timed out/)
+    f.setFetch(async () => new Response('not json'))
+    assert.match((await f.sendBarkMessage('Title', 'Body')).error, /invalid JSON/)
+    f.setFetch(async () => { throw new TypeError('Invalid redirect value') })
+    assert.match((await f.sendBarkMessage('Title', 'Body')).error, /unsupported redirect/)
 })
 
 test('notification retries preserve successful channels and completed events stay completed', async t => {

@@ -67,11 +67,11 @@ async function processNotify(params: Record<string, string>) {
 
         if (order) {
             // Verify Amount (Prevent penny-dropping)
-            const notifyMoney = parseFloat(params.money);
-            const orderMoney = parseFloat(order.amount);
+            const notifyMoney = Number(params.money);
+            const orderMoney = Number(order.amount);
 
-            // Allow small float epsilon difference
-            if (Math.abs(notifyMoney - orderMoney) > 0.01) {
+            if (!params.money?.trim() || !Number.isFinite(notifyMoney) || !Number.isFinite(orderMoney)
+                || notifyMoney < 0 || Math.round(notifyMoney * 100) !== Math.round(orderMoney * 100)) {
                 console.error(`[Notify] Amount mismatch! Order: ${orderMoney}, Notify: ${notifyMoney}`);
                 return new Response('fail', { status: 400 });
             }
@@ -82,14 +82,13 @@ async function processNotify(params: Record<string, string>) {
                     await processOrderFulfillment(orderId, notifyMoney, tradeNo);
                 } catch (e) {
                     console.error("[Notify] Fulfillment error:", e);
-                    // Don't error the callback if it's already processed or internal error, 
-                    // otherwise payment gateway retries. 
-                    // Ideally we should differentiate idempotent errors vs hard errors.
-                    // But for now, if fulfillment fails, maybe log it.
-                    // If shared validation fails (amount mismatch), processOrderFulfillment throws.
-                    if (getErrorMessage(e).includes('Amount mismatch')) {
+                    const message = getErrorMessage(e).toLowerCase();
+                    if (message.includes('amount mismatch') || message.includes('invalid trade number')) {
                         return new Response('fail', { status: 400 });
                     }
+                    // Fulfillment defers delivery failures itself. An exception here means
+                    // confirmed payment was not safely saved, so the gateway must retry.
+                    return new Response('error', { status: 500 });
                 }
             }
         }

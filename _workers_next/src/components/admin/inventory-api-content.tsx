@@ -33,6 +33,12 @@ export function InventoryApiContent(props: Props) {
     return <div className="space-y-6">
         <h1 className="text-2xl font-bold">{t('inventory.apiTitle')}</h1>
         <p className="text-sm text-muted-foreground">{t('inventory.apiHint')}</p>
+        <ol className="list-decimal space-y-2 pl-5 text-sm text-muted-foreground">
+            <li>{t('inventory.apiStepCreate')}</li>
+            <li>{t('inventory.apiStepConnect')}</li>
+            <li>{t('inventory.apiStepCheck')}</li>
+        </ol>
+        <p className="text-sm text-muted-foreground">{t('inventory.apiProcurementHint')}</p>
         <Card><CardHeader><CardTitle>{t('inventory.createKey')}</CardTitle></CardHeader><CardContent>
             <form className="space-y-4" onSubmit={event => {
                 event.preventDefault()
@@ -45,7 +51,7 @@ export function InventoryApiContent(props: Props) {
                     setToken(result.token); form.reset(); setAllProducts(true)
                 })
             }}>
-                <label className="block text-sm">{t('inventory.keyName')}<Input name="name" required maxLength={80} disabled={busy} /></label>
+                <label className="block text-sm">{t('inventory.keyName')}<Input name="name" placeholder={t('inventory.keyNamePlaceholder')} required maxLength={80} disabled={busy} /></label>
                 <div className="flex flex-wrap gap-4">
                     <label><input type="checkbox" name="read" defaultChecked disabled={busy} /> {t('inventory.read')}</label>
                     <label><input type="checkbox" name="write" defaultChecked disabled={busy} /> {t('inventory.write')}</label>
