@@ -63,25 +63,31 @@ test('storefront rendering batches public settings and stock reads without cachi
 })
 
 test('pending delivery renders readable supplier failures and a real retry delivers once with the original request ID', async t => {
-    let healthy = false
+    let healthy = false, failureStatus = 401
     const requested = []
     const f = await setup(t, { provider: async request => {
         if (new URL(request.url).hostname !== 'supplier.example') return undefined
         const body = await request.json()
         requested.push(body.requestId)
-        return healthy ? Response.json({ success: true, requestId: body.requestId, data: { cardKey: 'RETRY-PRODUCTION-CARD' } }) : new Response(null, { status: 521 })
+        return healthy ? Response.json({ success: true, requestId: body.requestId, data: { cardKey: 'RETRY-PRODUCTION-CARD' } }) : new Response(null, { status: failureStatus })
     } })
     await f.database.prepare('INSERT INTO orders (order_id,product_id,product_name,amount,status,user_id,username,paid_at,created_at) VALUES (?,?,?,?,?,?,?,?,?)')
         .bind('RETRY-ORDER', 'product', 'Purchased test product', '3', 'paid', 'owner', 'audit-admin', Date.now(), Date.now()).run()
     const saved = await f.action('saveCardsApiConfig', '/admin/cards/product', ['product', 'https://supplier.example/cards', '', true, 'on_demand'], f.sessionCookie)
     assert.equal(saved.result?.success, true)
     await f.action('retryOrderDelivery', '/admin/fulfillment', ['RETRY-ORDER'], f.sessionCookie)
+    await f.database.prepare('UPDATE inventory_events SET error = ?, next_attempt_at = ? WHERE event_id = ?')
+        .bind('supplier_http_401', Date.now() + 3_600_000, 'supplier:RETRY-ORDER').run()
+    failureStatus = 521
+    const latest = await f.action('retryOrderDelivery', '/admin/fulfillment', ['RETRY-ORDER'], f.sessionCookie)
+    assert.ok(latest.body.includes('"supplierError":"supplier_http_521"'))
     const response = await f.request('/admin/fulfillment', { headers: { Cookie: f.sessionCookie, 'Accept-Language': 'zh-CN' } })
     const html = await response.text()
     assert.equal(response.status, 200)
     assert.ok(html.includes('HTTP 521'))
     assert.ok(html.includes('需要处理'))
     assert.ok(html.includes('查看错误代码'))
+    assert.ok(!html.includes('supplier_http_401'))
     assert.ok(html.includes('lg:hidden') && html.includes('lg:block'))
     assert.ok(html.includes('/admin/orders/RETRY-ORDER') && html.includes('/admin/cards/product'))
     const denied = await f.request('/admin/fulfillment?q=RETRY', { headers: { Cookie: await f.cookie('other', 'other-user') } })
@@ -98,6 +104,9 @@ test('pending delivery renders readable supplier failures and a real retry deliv
     const row = (await f.database.prepare('SELECT status,card_key FROM orders WHERE order_id = ?').bind('RETRY-ORDER').all()).results[0]
     assert.equal(row.status, 'delivered')
     assert.equal(row.card_key, 'RETRY-PRODUCTION-CARD')
+    assert.equal((await f.database.prepare('SELECT count(*) AS count FROM order_deliveries WHERE order_id = ?').bind('RETRY-ORDER').all()).results[0].count, 1)
+    await Promise.all(Array.from({ length: 3 }, () => f.action('retryOrderDelivery', '/admin/fulfillment', ['RETRY-ORDER'], f.sessionCookie)))
+    assert.equal(requested.length, failedRequests + 1)
     assert.equal((await f.database.prepare('SELECT count(*) AS count FROM order_deliveries WHERE order_id = ?').bind('RETRY-ORDER').all()).results[0].count, 1)
     const done = await f.request('/admin/fulfillment', { headers: { Cookie: f.sessionCookie } })
     assert.ok(!(await done.text()).includes('RETRY-ORDER'))

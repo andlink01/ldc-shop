@@ -88,3 +88,114 @@ test('delivery issue explanations distinguish HTTP, processing and data failures
         }
     }
 })
+
+test('manual retries replace old task errors immediately and clear them after delivery', async t => {
+    const f = await setup(t)
+    const { eq } = await import('drizzle-orm')
+    await f.db.insert(f.schema.orders).values({ orderId: 'retry', productId: 'product', productName: 'A', amount: '3', status: 'paid' })
+    await f.load('lib/card-api').saveProductCardApiConfig('product', { mode: 'on_demand', enabled: true, url: 'https://supplier.example/cards', token: 'ISOLATED-TOKEN' })
+    await f.db.update(f.schema.inventoryEvents).set({ error: 'supplier_http_401', nextAttemptAt: new Date(Date.now() + 3_600_000) })
+        .where(eq(f.schema.inventoryEvents.eventId, 'supplier:retry'))
+    const ids = []
+    let healthy = false
+    f.setFetch(async (_, options) => {
+        const body = JSON.parse(options.body)
+        ids.push(body.requestId)
+        return healthy ? Response.json({ success: true, requestId: body.requestId, data: { cardKey: 'RETRY-ONCE-CARD' } }) : new Response(null, { status: 521 })
+    })
+    const retry = f.load('lib/retry-delivery').retryPaidOrderDelivery
+    const failed = await retry('retry')
+    assert.equal(failed.supplierError, 'supplier_http_521')
+    assert.equal((await f.read()).orders[0].supplierError, 'supplier_http_521')
+    assert.equal(ids.length, 1)
+    healthy = true
+    const done = await retry('retry')
+    assert.equal(done.delivered, true)
+    assert.equal(done.supplierError, null)
+    assert.equal(ids.length, 2)
+    assert.equal(ids[0], ids[1])
+    assert.equal((await f.read()).total, 0)
+    const event = await f.db.query.inventoryEvents.findFirst({ where: eq(f.schema.inventoryEvents.eventId, 'supplier:retry') })
+    assert.equal(event.error, null)
+    assert.ok(event.completedAt)
+    const repeated = await Promise.all(Array.from({ length: 5 }, () => retry('retry')))
+    assert.ok(repeated.every(result => result.delivered))
+    assert.equal(ids.length, 2)
+    assert.equal((await f.db.select().from(f.schema.orderDeliveries)).length, 1)
+})
+
+test('manual retries leave active background work alone and report ordinary stock and disabled suppliers accurately', async t => {
+    const f = await setup(t)
+    const { eq } = await import('drizzle-orm')
+    await f.db.insert(f.schema.orders).values({ orderId: 'retry', productId: 'product', productName: 'A', amount: '3', status: 'paid' })
+    const retry = f.load('lib/retry-delivery').retryPaidOrderDelivery
+    assert.equal((await retry('retry')).supplierError, null)
+    await f.load('lib/card-api').saveProductCardApiConfig('product', { mode: 'on_demand', enabled: true, url: 'https://supplier.example/cards', token: '' })
+    await f.db.update(f.schema.inventoryEvents).set({ error: 'supplier_http_401', leaseToken: 'background-owner', leaseUntil: new Date(Date.now() + 60_000) })
+        .where(eq(f.schema.inventoryEvents.eventId, 'supplier:retry'))
+    f.setFetch(() => assert.fail('An active task must not be purchased again'))
+    assert.equal((await retry('retry')).supplierError, 'supplier_request_in_progress')
+    const owned = await f.db.query.inventoryEvents.findFirst({ where: eq(f.schema.inventoryEvents.eventId, 'supplier:retry') })
+    assert.equal(owned.leaseToken, 'background-owner')
+    assert.equal(owned.error, 'supplier_http_401')
+    await f.db.update(f.schema.inventoryEvents).set({ leaseToken: null, leaseUntil: null }).where(eq(f.schema.inventoryEvents.eventId, 'supplier:retry'))
+    await f.load('lib/card-api').saveProductCardApiConfig('product', { mode: 'on_demand', enabled: false, url: 'https://supplier.example/cards', token: '' })
+    assert.equal((await retry('retry')).supplierError, 'supplier_disabled')
+    assert.equal((await f.read()).orders[0].supplierError, 'supplier_disabled')
+})
+
+test('concurrent manual retries share one supplier request and one delivery receipt', async t => {
+    const f = await setup(t)
+    await f.db.insert(f.schema.orders).values({ orderId: 'concurrent', productId: 'product', productName: 'A', amount: '3', status: 'paid' })
+    await f.load('lib/card-api').saveProductCardApiConfig('product', { mode: 'on_demand', enabled: true, url: 'https://supplier.example/cards', token: '' })
+    let started, release, purchases = 0
+    const waiting = new Promise(resolve => { started = resolve })
+    f.setFetch(async (_, options) => {
+        purchases++
+        started()
+        await new Promise(resolve => { release = resolve })
+        return Response.json({ success: true, requestId: JSON.parse(options.body).requestId, data: { cardKey: 'ONE-CONCURRENT-CARD' } })
+    })
+    const retry = f.load('lib/retry-delivery').retryPaidOrderDelivery
+    const first = retry('concurrent')
+    await waiting
+    const others = await Promise.all(Array.from({ length: 5 }, () => retry('concurrent')))
+    assert.ok(others.every(result => !result.delivered && result.supplierError === 'supplier_request_in_progress'))
+    assert.equal(purchases, 1)
+    release()
+    assert.equal((await first).delivered, true)
+    assert.equal((await f.db.select().from(f.schema.orderDeliveries)).length, 1)
+    assert.equal(purchases, 1)
+})
+
+test('products keep independent supplier addresses, tokens, modes and enabled states during delivery', async t => {
+    const f = await setup(t)
+    await f.db.insert(f.schema.products).values({ id: 'second', name: 'Second', price: '4' })
+    await f.db.insert(f.schema.orders).values([
+        { orderId: 'first-order', productId: 'product', productName: 'First', amount: '3', status: 'paid' },
+        { orderId: 'second-order', productId: 'second', productName: 'Second', amount: '4', status: 'paid' },
+    ])
+    const cardApi = f.load('lib/card-api')
+    await cardApi.saveProductCardApiConfig('product', { enabled: true, mode: 'on_demand', url: 'https://first.example/cards', token: 'ISOLATED-FIRST' })
+    await cardApi.saveProductCardApiConfig('second', { enabled: false, mode: 'stock', url: 'https://second.example/cards', token: 'ISOLATED-SECOND' })
+    const firstConfig = await cardApi.getProductCardApiConfig('product')
+    assert.equal(firstConfig.enabled, true)
+    assert.equal(firstConfig.mode, 'on_demand')
+    assert.equal(firstConfig.token, 'ISOLATED-FIRST')
+    const calls = []
+    f.setFetch(async (url, options) => {
+        const body = JSON.parse(options.body)
+        calls.push({ url, token: options.headers.Authorization, productId: body.productId })
+        return Response.json({ success: true, requestId: body.requestId, data: { cardKey: `ISOLATED-CARD-${body.productId}` } })
+    })
+    const retry = f.load('lib/retry-delivery').retryPaidOrderDelivery
+    assert.equal((await retry('first-order')).delivered, true)
+    assert.equal((await retry('second-order')).delivered, false)
+    assert.equal(calls.length, 1)
+    await cardApi.saveProductCardApiConfig('second', { enabled: true, mode: 'on_demand', url: 'https://second.example/cards', token: 'ISOLATED-SECOND' })
+    assert.equal((await retry('second-order')).delivered, true)
+    assert.deepEqual(calls, [
+        { url: 'https://first.example/cards', token: 'Bearer ISOLATED-FIRST', productId: 'product' },
+        { url: 'https://second.example/cards', token: 'Bearer ISOLATED-SECOND', productId: 'second' },
+    ])
+})

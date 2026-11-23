@@ -6,9 +6,9 @@ import { inventoryApiKeys } from '@/lib/db/schema'
 import { ensureDatabaseInitialized, setSetting } from '@/lib/db/queries'
 import { createManagedInventoryKey, readManagedInventoryToken, resetManagedInventoryToken, deleteManagedInventoryKey, changeCardExpiry, type InventoryKeyInput } from '@/lib/inventory-management'
 import { InventoryTokenError } from '@/lib/inventory-token'
-import { fulfillPaidOrder, invalidateInventory } from '@/lib/fulfillment'
+import { invalidateInventory } from '@/lib/fulfillment'
 import { scheduleInventoryEvents } from '@/lib/inventory-events'
-import { procureOrderCards } from '@/lib/supplier-fulfillment'
+import { retryPaidOrderDelivery } from '@/lib/retry-delivery'
 import { eq } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
 
@@ -82,11 +82,7 @@ export async function saveExpiryAlertMinutes(minutes: number) {
 
 export async function retryOrderDelivery(orderId: string) {
     await checkAdmin()
-    let result = await fulfillPaidOrder(orderId)
-    if (!result.delivered) {
-        await procureOrderCards(orderId, 1)
-        result = await fulfillPaidOrder(orderId)
-    }
+    const result = await retryPaidOrderDelivery(orderId)
     scheduleInventoryEvents()
     invalidateInventory('')
     revalidatePath(`/admin/orders/${orderId}`)

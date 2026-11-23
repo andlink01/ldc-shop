@@ -392,3 +392,35 @@ test('manual restocking shows provider failure messages without a success toast'
     await act(async () => view.root.findAllByType('button').find(node => node.children.join('') === 'Pull 1 Card').props.onClick())
     assert.match(errors.at(-1), /HTTP 520/)
 })
+
+test('delivery retries display the actual supplier result, refresh the list and prevent duplicate clicks', async t => {
+    const errors = [], information = [], successes = []
+    let release, calls = 0, refreshes = 0
+    const f = setup(t, {
+        '@/actions/inventory': { retryOrderDelivery: async () => { calls++; return new Promise(resolve => { release = resolve }) } },
+        '@/actions/admin-orders': {},
+        'next/navigation': { useRouter: () => ({ refresh() { refreshes++ } }) },
+        sonner: { toast: { success: message => successes.push(message), error: message => errors.push(message), info: message => information.push(message) } },
+    })
+    const { AdminOrderActions } = f.load('components/admin/order-actions')
+    const view = await mount(t, React.createElement(AdminOrderActions, { order: { orderId: 'retry', productId: 'product', status: 'paid', cardKey: null } }))
+    const button = () => view.root.findAllByType('button').find(node => node.children.join('') === 'Retry delivery')
+    for (const error of ['supplier_http_401', 'supplier_http_521', 'supplier_processing', null]) {
+        await act(async () => { button().props.onClick() })
+        assert.equal(button().props.disabled, true)
+        await act(async () => { button().props.onClick() })
+        await act(async () => release({ delivered: false, supplierError: error }))
+        assert.equal(button().props.disabled, false)
+    }
+    assert.equal(calls, 4)
+    assert.equal(refreshes, 4)
+    assert.match(errors[0], /HTTP 401/)
+    assert.match(errors[1], /HTTP 521/)
+    assert.match(information[0], /processing/)
+    assert.match(information[1], /Restock/)
+    assert.deepEqual(successes, [])
+    await act(async () => { button().props.onClick() })
+    await act(async () => release({ delivered: true, supplierError: null }))
+    assert.equal(successes.length, 1)
+    assert.equal(refreshes, 5)
+})
