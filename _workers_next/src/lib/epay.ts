@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@/lib/errors';
 export async function queryOrderStatus(orderId: string) {
     const merchantId = process.env.MERCHANT_ID
     const merchantKey = process.env.MERCHANT_KEY
@@ -15,7 +16,7 @@ export async function queryOrderStatus(orderId: string) {
         if (!apiUrl.endsWith('api.php')) {
             apiUrl = `${urlObj.protocol}//${urlObj.host}/epay/api.php`
         }
-    } catch (e) {
+    } catch {
         // ignore invalid pay url
     }
 
@@ -50,8 +51,8 @@ export async function queryOrderStatus(orderId: string) {
             return { success: false, error: data.msg || 'Query failed' }
         }
 
-    } catch (e: any) {
+    } catch (e) {
         console.error('Query order error', e)
-        return { success: false, error: e.message }
+        return { success: false, error: getErrorMessage(e) }
     }
 }

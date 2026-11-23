@@ -1,3 +1,4 @@
+import type { D1Database, D1PreparedStatement } from '@cloudflare/workers-types';
 import { drizzle as drizzleD1 } from 'drizzle-orm/d1';
 // import { drizzle as drizzleSqlite } from 'drizzle-orm/better-sqlite3';
 import * as schema from './schema';
@@ -8,9 +9,9 @@ import type { RawResult, SqlStatement } from './contracts';
 
 // D1 Proxy to bridge async context with sync Drizzle setup
 class D1StatementProxy {
-    constructor(private query: string, private bindings: any[] = []) { }
+    constructor(readonly query: string, readonly bindings: unknown[] = []) { }
 
-    bind(...values: any[]) {
+    bind(...values: unknown[]) {
         return new D1StatementProxy(this.query, [...this.bindings, ...values]);
     }
 
@@ -21,7 +22,7 @@ class D1StatementProxy {
 
     async first(colName?: string) {
         const db = await getD1();
-        return db.prepare(this.query).bind(...this.bindings).first(colName);
+        return colName ? db.prepare(this.query).bind(...this.bindings).first(colName) : db.prepare(this.query).bind(...this.bindings).first();
     }
 
     async run() {
@@ -29,7 +30,7 @@ class D1StatementProxy {
         return db.prepare(this.query).bind(...this.bindings).run();
     }
 
-    async raw(options?: any) {
+    async raw(options?: Parameters<D1PreparedStatement['raw']>[0]) {
         const db = await getD1();
         return db.prepare(this.query).bind(...this.bindings).raw(options);
     }
@@ -45,10 +46,10 @@ class D1Proxy {
         return db.dump();
     }
 
-    async batch(statements: any[]) {
+    async batch(statements: D1StatementProxy[]) {
         const db = await getD1();
         // Re-construct real statements from proxies
-        const realStatements = statements.map((s: any) =>
+        const realStatements = statements.map((s) =>
             db.prepare(s.query).bind(...s.bindings)
         );
         return db.batch(realStatements);
@@ -60,7 +61,7 @@ class D1Proxy {
     }
 }
 
-async function getD1() {
+async function getD1(): Promise<D1Database> {
     const phase = process.env.NEXT_PHASE;
     if (phase === PHASE_PRODUCTION_BUILD || phase === PHASE_EXPORT) {
         // Build-time fallback to avoid hard failures when D1 bindings are unavailable.
@@ -77,15 +78,14 @@ async function getD1() {
             async batch() { return [] },
             async exec() { return { success: true } },
             async dump() { return new Uint8Array() },
-        } as any;
+        } as unknown as D1Database;
         return mock;
     }
     try {
         const ctx = await getCloudflareContext();
-        if ((ctx as any)?.env?.DB) {
-            return (ctx as any).env.DB;
-        }
-    } catch (e) {
+        const binding = (ctx.env as unknown as { DB?: D1Database }).DB;
+        if (binding) return binding;
+    } catch {
         // Ignore
     }
     throw new Error("D1 Database binding not found in Cloudflare context");
@@ -94,16 +94,13 @@ async function getD1() {
 const getDb = () => {
     // 1. Production / Cloudflare context: Use Proxy
     if (process.env.NODE_ENV === 'production' || process.env.NEXT_RUNTIME === 'edge') {
-        const d1Proxy = new D1Proxy() as any; // Cast to satisfy type check
+        const d1Proxy = new D1Proxy() as unknown as D1Database; // Cast to satisfy type check
         return drizzleD1(d1Proxy, { schema });
     }
 
     // 2. Local fallback (Sync)
     try {
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
         // const Database = require('better-sqlite3');
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
         // const { drizzle: drizzleSqlite } = require('drizzle-orm/better-sqlite3');
         // const sqlite = new Database(process.env.LOCAL_DB_PATH || 'local.sqlite');
         // return drizzleSqlite(sqlite, { schema });
@@ -111,7 +108,7 @@ const getDb = () => {
     } catch (e) {
         // Fallback to D1 proxy if better-sqlite3 fails (e.g. inside `next build` which might run in node mode but target edge)
         console.warn('Local SQLite failed, falling back to D1 Proxy', e);
-        const d1Proxy = new D1Proxy() as any;
+        const d1Proxy = new D1Proxy() as unknown as D1Database;
         return drizzleD1(d1Proxy, { schema });
     }
 };

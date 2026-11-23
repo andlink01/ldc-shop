@@ -2,7 +2,7 @@ import { searchActiveProducts, getCategories, getLiveCardStats } from "@/lib/db/
 import { SearchContent } from "@/components/search-content"
 import { unstable_noStore } from "next/cache"
 import { auth } from "@/lib/auth"
-import { INFINITE_STOCK } from "@/lib/constants"
+import { getCatalogStock } from "@/lib/catalog-stock"
 
 function firstParam(value: string | string[] | undefined): string | undefined {
   if (!value) return undefined
@@ -34,7 +34,7 @@ export default async function SearchPage(props: {
     getCategories(),
   ])
 
-  const allSearchIds = result.items.flatMap((p: any) => p.allVariantIds && p.allVariantIds.length > 1 ? p.allVariantIds : [p.id])
+  const allSearchIds = result.items.flatMap((p) => p.allVariantIds && (p.allVariantIds?.length || 0) > 1 ? p.allVariantIds : [p.id])
   const liveStats = await getLiveCardStats(allSearchIds).catch(() => new Map())
 
   return (
@@ -45,28 +45,8 @@ export default async function SearchPage(props: {
       page={result.page}
       pageSize={result.pageSize}
       total={result.total}
-      products={result.items.map((p: any) => {
-        const isGroup = p.allVariantIds && p.allVariantIds.length > 1
-        let stockCount: number
-        if (isGroup) {
-          let groupAvailable = 0
-          let groupLocked = 0
-          let hasInfinite = false
-          for (const vid of p.allVariantIds) {
-            const vStat = liveStats.get(vid) || { unused: 0, available: 0, locked: 0 }
-            if (vStat.available >= INFINITE_STOCK || (p.groupShared && vStat.unused > 0)) hasInfinite = true
-            groupAvailable += vStat.available
-            groupLocked += vStat.locked
-          }
-          stockCount = hasInfinite ? INFINITE_STOCK : (groupAvailable + groupLocked)
-        } else {
-          const stat = liveStats.get(p.id) || { unused: 0, available: 0, locked: 0 }
-          const available = p.isShared
-            ? (stat.unused > 0 ? INFINITE_STOCK : 0)
-            : stat.available
-          const locked = stat.locked
-          stockCount = available >= INFINITE_STOCK ? INFINITE_STOCK : (available + locked)
-        }
+      products={result.items.map((p) => {
+        const isGroup = p.allVariantIds && (p.allVariantIds?.length || 0) > 1
         return {
           id: p.id,
           name: p.name,
@@ -76,11 +56,12 @@ export default async function SearchPage(props: {
           image: p.image,
           category: p.category,
           isHot: isGroup ? (p.groupHot || false) : (p.isHot ?? false),
-          stockCount,
+          stockCount: getCatalogStock(p, liveStats),
+          onDemand: Boolean(p.isOnDemand || p.groupOnDemand),
           soldCount: isGroup ? (p.totalSold || 0) : (p.sold || 0)
         }
       })}
-      categories={categories.map((c: any) => ({ name: c.name, icon: c.icon, sortOrder: c.sortOrder }))}
+      categories={categories.map((c) => ({ name: c.name, icon: c.icon, sortOrder: c.sortOrder }))}
     />
   )
 }

@@ -1,13 +1,16 @@
-import NextAuth from "next-auth"
+import { getErrorMessage } from '@/lib/errors'
+import NextAuth, { type NextAuthConfig } from "next-auth"
 import GitHub from "next-auth/providers/github"
-import { sql } from "drizzle-orm"
+import { sql, type SQL } from "drizzle-orm"
 import { db, dbRun } from "@/lib/db"
 import { loginUsers } from "@/lib/db/schema"
 
 const githubClientId = process.env.GITHUB_ID || process.env.AUTH_GITHUB_ID
 const githubClientSecret = process.env.GITHUB_SECRET || process.env.AUTH_GITHUB_SECRET
 
-const providers: any[] = [
+type LinuxDoProfile = { id: string | number; username: string; name?: string; email?: string; avatar_url?: string; trust_level?: number }
+
+const providers: NextAuthConfig['providers'] = [
     {
         id: "linuxdo",
         name: "Linux DO",
@@ -44,7 +47,7 @@ const providers: any[] = [
         issuer: "https://connect.linux.do/",
         clientId: process.env.OAUTH_CLIENT_ID,
         clientSecret: process.env.OAUTH_CLIENT_SECRET,
-        profile(profile: any) {
+        profile(profile: LinuxDoProfile) {
             return {
                 id: String(profile.id),
                 name: profile.username || profile.name,
@@ -134,7 +137,7 @@ function asTimestampMs(value: Date | number | string | null | undefined): number
     return Number.isFinite(parsed) ? parsed : null
 }
 
-async function runAuthMigrationStep(statement: any) {
+async function runAuthMigrationStep(statement: SQL) {
     try {
         await dbRun(statement)
     } catch {
@@ -356,27 +359,27 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
 
                 if (account?.provider === "linuxdo") {
                     // Match legacy working behavior: Linux DO id must come from profile.id only.
-                    const rawLinuxDoId = (profile as any)?.id
+                    const rawLinuxDoId = profile?.id
                     const linuxDoId =
                         rawLinuxDoId === undefined || rawLinuxDoId === null
                             ? null
                             : String(rawLinuxDoId).trim()
                     if (!linuxDoId) {
                         console.error("[auth] linuxdo profile.id missing in jwt callback", {
-                            profileId: (profile as any)?.id ?? null,
-                            username: (profile as any)?.username ?? null,
+                            profileId: profile?.id ?? null,
+                            username: profile?.username ?? null,
                         })
                         throw new Error("LINUXDO_PROFILE_ID_MISSING")
                     }
 
                     resolvedId = linuxDoId
-                    if ((profile as any)?.username) {
-                        resolvedUsername = String((profile as any).username)
+                    if (profile?.username) {
+                        resolvedUsername = String(profile.username)
                     }
                 } else if (account?.provider === "github") {
                     resolvedUsername = normalizeGitHubUsername(
                         resolvedUsername,
-                        (profile as any)?.login ?? null,
+                        typeof profile?.login === 'string' ? profile.login : null,
                         account.providerAccountId ?? user.id
                     )
 
@@ -418,35 +421,32 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
             }
 
             if (profile && account?.provider === "linuxdo") {
-                const rawLinuxDoId = (profile as any)?.id
+                const rawLinuxDoId = profile?.id
                 const linuxDoId =
                     rawLinuxDoId === undefined || rawLinuxDoId === null
                         ? null
                         : String(rawLinuxDoId).trim()
                 if (!linuxDoId) {
                     console.error("[auth] linuxdo profile.id missing in profile callback", {
-                        profileId: (profile as any)?.id ?? null,
-                        username: (profile as any)?.username ?? null,
+                        profileId: profile?.id ?? null,
+                        username: profile?.username ?? null,
                     })
                     throw new Error("LINUXDO_PROFILE_ID_MISSING")
                 }
 
                 token.id = linuxDoId
-                token.username = (profile as any).username
-                token.trustLevel = (profile as any).trust_level
-                token.avatar_url = (profile as any).avatar_url
+                token.username = typeof profile.username === 'string' ? profile.username : undefined
+                token.trustLevel = typeof profile.trust_level === 'number' ? profile.trust_level : undefined
+                token.avatar_url = typeof profile.avatar_url === 'string' ? profile.avatar_url : undefined
             }
             return token
         },
         async session({ session, token }) {
             if (token) {
                 session.user.id = token.id as string
-                // @ts-ignore
-                session.user.username = token.username
-                // @ts-ignore
-                session.user.trustLevel = token.trustLevel
-                // @ts-ignore
-                session.user.avatar_url = token.avatar_url
+                session.user.username = typeof token.username === 'string' ? token.username : undefined
+                session.user.trustLevel = typeof token.trustLevel === 'number' ? token.trustLevel : undefined
+                session.user.avatar_url = typeof token.avatar_url === 'string' ? token.avatar_url : undefined
             }
             return session
         }
@@ -459,7 +459,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         error(error) {
             console.error("[auth-temp]", {
                 name: error.name,
-                message: error.message,
+                message: getErrorMessage(error),
                 // Auth.js puts provider details under error.cause when available.
                 cause: (error as Error & { cause?: unknown }).cause,
                 stack: error.stack,

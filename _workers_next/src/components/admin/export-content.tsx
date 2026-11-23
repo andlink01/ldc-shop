@@ -1,22 +1,24 @@
 'use client'
 
-import { useState } from "react"
-import { useI18n } from "@/lib/i18n/context"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Download, Upload, FileUp, AlertCircle, CheckCircle2 } from "lucide-react"
-import { importData, repairDataAction } from "@/actions/data"
-import { toast } from "sonner"
-import { cn } from "@/lib/utils"
+import { getErrorMessage } from '@/lib/errors';
+
+import { useState } from "react";
+import { useI18n } from "@/lib/i18n/context";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Download, Upload, FileUp, AlertCircle, CheckCircle2 } from "lucide-react";
+import { importData, repairDataAction } from "@/actions/data";
+import { toast } from "sonner";
+import { cn } from "@/lib/utils";
 
 function downloadUrl(params: Record<string, string>) {
   const search = new URLSearchParams(params)
   return `/admin/data/download?${search.toString()}`
 }
 
-export function AdminDataContent({ shopName }: { shopName: string | null }) {
+export function AdminDataContent() {
   const { t } = useI18n()
   const [activeTab, setActiveTab] = useState<'export' | 'import'>('export')
   const [importing, setImporting] = useState(false)
@@ -34,8 +36,8 @@ export function AdminDataContent({ shopName }: { shopName: string | null }) {
       } else {
         toast.error(result.error || t('common.error'))
       }
-    } catch (err: any) {
-      toast.error(err.message)
+    } catch (err) {
+      toast.error(getErrorMessage(err))
     } finally {
       setRepairing(false)
     }
@@ -66,8 +68,8 @@ export function AdminDataContent({ shopName }: { shopName: string | null }) {
       } else {
         toast.error(result.error || t('common.error'))
       }
-    } catch (err: any) {
-      toast.error(err.message)
+    } catch (err) {
+      toast.error(getErrorMessage(err))
     } finally {
       setImporting(false)
     }

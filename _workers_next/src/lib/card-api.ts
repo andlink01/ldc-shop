@@ -1,3 +1,4 @@
+import { getErrorMessage, getErrorText } from '@/lib/errors'
 import { recoverAfterRestock } from '@/lib/inventory-management'
 import { db, dbBatchRaw } from "@/lib/db"
 import { cards, settings, products } from "@/lib/db/schema"
@@ -21,7 +22,7 @@ function resolveApiUrl(rawUrl: string): string {
     return new URL(trimmed).toString()
 }
 
-function extractCardKey(payload: any): string {
+function extractCardKey(payload: unknown): string {
     if (!payload) return ""
     if (typeof payload === "string") return payload.trim()
 
@@ -34,15 +35,16 @@ function extractCardKey(payload: any): string {
     }
 
     if (typeof payload === "object") {
+        const record = payload as Record<string, unknown>
         const directKeys = ["cardKey", "card", "key", "code"]
         for (const k of directKeys) {
-            const v = payload?.[k]
+            const v = record[k]
             if (typeof v === "string" && v.trim()) return v.trim()
         }
 
         const nestedKeys = ["data", "result", "item"]
         for (const k of nestedKeys) {
-            const value = extractCardKey(payload?.[k])
+            const value = extractCardKey(record[k])
             if (value) return value
         }
     }
@@ -50,8 +52,8 @@ function extractCardKey(payload: any): string {
     return ""
 }
 
-function isUniqueConstraintError(error: any) {
-    const text = `${error?.message || ""}${JSON.stringify(error || {})}`.toLowerCase()
+function isUniqueConstraintError(error: unknown) {
+    const text = getErrorText(error).toLowerCase()
     return text.includes("unique") || text.includes("constraint failed")
 }
 
@@ -66,8 +68,8 @@ async function getSettingsUncached(keys: string[]): Promise<Record<string, strin
             map[row.key] = row.value || ""
         }
         return map
-    } catch (error: any) {
-        const text = `${error?.message || ""}${JSON.stringify(error || {})}`.toLowerCase()
+    } catch (error) {
+        const text = getErrorText(error).toLowerCase()
         if (text.includes("no such table") && text.includes("settings")) {
             return {}
         }
@@ -156,7 +158,7 @@ export async function pullOneCardFromApi(productId: string): Promise<{
 
     const contentType = (response.headers.get("content-type") || "").toLowerCase()
 
-    let payload: any
+    let payload: unknown
     if (contentType.includes("application/json")) {
         payload = await response.json()
     } else {
@@ -173,11 +175,11 @@ export async function pullOneCardFromApi(productId: string): Promise<{
             productId,
             cardKey,
         })
-    } catch (error: any) {
+    } catch (error) {
         if (isUniqueConstraintError(error)) {
             return { ok: false, error: "api_card_duplicate" }
         }
-        return { ok: false, error: error?.message || "api_insert_failed" }
+        return { ok: false, error: getErrorMessage(error) || "api_insert_failed" }
     }
 
     await recoverAfterRestock(productId)

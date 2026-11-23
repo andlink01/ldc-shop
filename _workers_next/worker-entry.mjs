@@ -36,7 +36,7 @@ async function runScheduledCleanup(env, ctx) {
     console.log(`[cron-cleanup] ok: ${payload}`);
 }
 
-export default {
+const workerEntrypoint = {
     async fetch(request, env, ctx) {
         return nextWorker.fetch(request, env, ctx);
     },
@@ -44,5 +44,7 @@ export default {
         ctx.waitUntil(runScheduledCleanup(env, ctx));
     },
 };
+
+export default workerEntrypoint;
 
 export * from "./.open-next/worker.js";

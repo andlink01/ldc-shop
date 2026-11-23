@@ -1,3 +1,4 @@
+import { getErrorCode } from '@/lib/errors'
 import { db, dbBatchRaw } from '@/lib/db'
 import { inventoryImports, inventoryApiKeys, inventoryApiRequests, products } from '@/lib/db/schema'
 import { ensureDatabaseInitialized, getLiveCardStats, onDemandProductCondition } from '@/lib/db/queries'
@@ -26,7 +27,7 @@ function json(data: unknown, status = 200): Response {
 }
 
 function errorResponse(error: unknown): Response {
-    if (error instanceof ApiError) return json({ success: false, error: error.code }, error.status)
+    if (error instanceof ApiError) return json({ success: false, error: getErrorCode(error) }, error.status)
     // Database errors can include card values, so do not log their raw payloads.
     console.error('[inventory-api] operation failed')
     return json({ success: false, error: 'internal_error' }, 500)

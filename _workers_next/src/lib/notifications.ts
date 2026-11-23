@@ -1,3 +1,4 @@
+import { getErrorMessage, getErrorText } from '@/lib/errors'
 import { db } from "./db"
 import { settings } from "./db/schema"
 import { inArray } from "drizzle-orm"
@@ -15,8 +16,8 @@ async function getSettingsUncached(keys: string[]): Promise<Record<string, strin
             map[row.key] = row.value || ""
         }
         return map
-    } catch (error: any) {
-        const text = `${error?.message || ""}${JSON.stringify(error || {})}`.toLowerCase()
+    } catch (error) {
+        const text = getErrorText(error).toLowerCase()
         if (text.includes("no such table") && text.includes("settings")) {
             return {}
         }
@@ -130,9 +131,9 @@ export async function sendTelegramMessage(text: string) {
         }
 
         return { success: true }
-    } catch (e: any) {
+    } catch (e) {
         console.error('[Notification] Send Error:', e)
-        return { success: false, error: e.message }
+        return { success: false, error: getErrorMessage(e) }
     }
 }
 

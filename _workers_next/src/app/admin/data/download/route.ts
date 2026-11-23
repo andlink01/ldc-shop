@@ -1,3 +1,5 @@
+import type { SQL } from 'drizzle-orm'
+import { getErrorCauseMessage, getErrorMessage } from '@/lib/errors'
 import { NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
 import { db } from "@/lib/db"
@@ -31,24 +33,24 @@ function requireAdminUsername(username?: string | null) {
   }
 }
 
-function isMissingTable(error: any) {
+function isMissingTable(error: unknown) {
   const errorString = JSON.stringify(error)
   return (
-    error?.message?.includes("does not exist") ||
-    error?.cause?.message?.includes("does not exist") ||
+    getErrorMessage(error)?.includes("does not exist") ||
+    getErrorCauseMessage(error)?.includes("does not exist") ||
     errorString.includes("42P01") ||
     (errorString.includes("relation") && errorString.includes("does not exist"))
   )
 }
 
-function csvEscape(value: any): string {
+function csvEscape(value: unknown): string {
   if (value === null || value === undefined) return ""
   const str = String(value)
   if (/[",\n]/.test(str)) return `"${str.replace(/"/g, '""')}"`
   return str
 }
 
-function toCsv(headers: string[], rows: Array<Record<string, any>>): string {
+function toCsv(headers: string[], rows: Array<Record<string, unknown>>): string {
   const lines: string[] = []
   lines.push(headers.map(csvEscape).join(","))
   for (const row of rows) {
@@ -70,7 +72,7 @@ function escapeString(val: string): string {
   return "'" + val.replace(/'/g, "''") + "'"
 }
 
-function formatSqlValue(val: any): string {
+function formatSqlValue(val: unknown): string {
   if (val === null || val === undefined) return "NULL"
   if (typeof val === "boolean") return val ? "1" : "0"
   if (val instanceof Date) {
@@ -83,7 +85,7 @@ function formatSqlValue(val: any): string {
   return escapeString(JSON.stringify(val))
 }
 
-function rowToInsertOrIgnore(table: string, row: Record<string, any>): string {
+function rowToInsertOrIgnore(table: string, row: Record<string, unknown>): string {
   const keys = Object.keys(row)
   const columns = keys.join(", ")
   const values = keys.map((k) => formatSqlValue(row[k])).join(", ")
@@ -104,7 +106,7 @@ export async function GET(req: Request) {
 
   try {
     if (type === "orders") {
-      const whereParts: any[] = []
+      const whereParts: Array<SQL | undefined> = []
       if (status !== 'all') whereParts.push(eq(orders.status, status))
       if (fulfillment === 'needsDelivery') whereParts.push(and(eq(orders.status, 'paid'), sql`${orders.cardKey} IS NULL`))
       if (q) {
@@ -123,7 +125,7 @@ export async function GET(req: Request) {
         where: whereExpr,
         orderBy: [desc(normalizeTimestampMs(orders.createdAt))],
       })
-      const mapped = orderRows.map((o: any) => ({
+      const mapped = orderRows.map((o) => ({
         orderId: o.orderId,
         username: o.username,
         email: includeSecrets ? o.email : null,
@@ -165,14 +167,14 @@ export async function GET(req: Request) {
           "deliveredAt",
           "userId",
         ]
-        const csv = toCsv(headers, mapped as any)
+        const csv = toCsv(headers, mapped)
         return csvResponse(csv, `orders${includeSecrets ? "-with-secrets" : ""}.csv`)
       }
     }
 
     if (type === "products") {
       const rows = await getProducts()
-      const mapped = rows.map((p: any) => ({
+      const mapped = rows.map((p) => ({
         id: p.id,
         name: p.name,
         description: p.description,
@@ -212,7 +214,7 @@ export async function GET(req: Request) {
           "stock",
           "sold",
         ]
-        const csv = toCsv(headers, mapped as any)
+        const csv = toCsv(headers, mapped)
         return csvResponse(csv, "products.csv")
       }
     }
@@ -221,7 +223,7 @@ export async function GET(req: Request) {
       const rows = await db.query.reviews.findMany({
         orderBy: [desc(reviews.createdAt)],
       })
-      const mapped = rows.map((r: any) => ({
+      const mapped = rows.map((r) => ({
         id: r.id,
         productId: r.productId,
         orderId: r.orderId,
@@ -251,7 +253,7 @@ export async function GET(req: Request) {
           "comment",
           "createdAt",
         ]
-        const csv = toCsv(headers, mapped as any)
+        const csv = toCsv(headers, mapped)
         return csvResponse(csv, "reviews.csv")
       }
     }
@@ -260,7 +262,7 @@ export async function GET(req: Request) {
       const rows = await db.query.settings.findMany({
         orderBy: [desc(settings.updatedAt)],
       })
-      const mapped = rows.map((s: any) => ({
+      const mapped = rows.map((s) => ({
         key: s.key,
         value: s.value,
         updatedAt: s.updatedAt,
@@ -274,8 +276,8 @@ export async function GET(req: Request) {
 
     if (type === "full") {
       await ensureDatabaseInitialized()
-      const full: Record<string, any[]> = {}
-      const tables: Array<[string, () => Promise<any[]>]> = [
+      const full: Record<string, Record<string, unknown>[]> = {}
+      const tables: Array<[string, () => Promise<Record<string, unknown>[]>]> = [
         ["categories", async () => db.select().from(categories).all()],
         ["products", async () => db.select().from(products).all()],
         ["cards", async () => db.select().from(cards).all()],
@@ -304,7 +306,7 @@ export async function GET(req: Request) {
       for (const [tableName, fetcher] of tables) {
         try {
           full[tableName] = await fetcher()
-        } catch (e: any) {
+        } catch (e) {
           if (isMissingTable(e)) full[tableName] = []
           else throw e
         }
@@ -426,7 +428,7 @@ export async function GET(req: Request) {
           if (!rows.length) continue
           for (const row of rows) {
             // Convert keys to snake_case
-            const sqlRow: Record<string, any> = {}
+            const sqlRow: Record<string, unknown> = {}
             for (const [key, val] of Object.entries(row)) {
               const sqlKey = columnMapping[key] || key
               sqlRow[sqlKey] = val
@@ -450,8 +452,8 @@ export async function GET(req: Request) {
     }
 
     return NextResponse.json({ error: "Bad Request" }, { status: 400 })
-  } catch (e: any) {
-    const message = e?.message || "Export failed"
+  } catch (e) {
+    const message = getErrorMessage(e) || "Export failed"
     return NextResponse.json({ error: message }, { status: message === "Unauthorized" ? 401 : 500 })
   }
 }

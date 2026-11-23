@@ -1,5 +1,7 @@
 'use server'
 
+import { getErrorMessage } from '@/lib/errors'
+
 import { cancelPendingOrder as cancelInventoryOrder } from '@/lib/order-transitions'
 import { fulfillPaidOrder } from '@/lib/fulfillment'
 import { scheduleInventoryEvents } from '@/lib/inventory-events'
@@ -70,9 +72,9 @@ export async function checkOrderStatus(orderId: string) {
 
         return { success: false, status: 'pending' }
 
-    } catch (e: any) {
+    } catch (e) {
         console.error("Check order status failed", e)
-        return { success: false, error: e.message }
+        return { success: false, error: getErrorMessage(e) }
     }
 }
 
@@ -111,7 +113,7 @@ export async function cancelPendingOrder(orderId: string) {
         }
         
         return { success: true }
-    } catch (e: any) {
+    } catch (e) {
         console.error("Cancel order failed", e)
         return { success: false, error: 'common.error' }
     }

@@ -1,5 +1,9 @@
 "use client"
 
+import type { AdminMessage, UserMessage } from '@/lib/admin-types'
+
+import { getErrorMessage } from '@/lib/errors'
+
 import { useMemo, useRef, useState } from "react"
 import { useI18n } from "@/lib/i18n/context"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -15,7 +19,7 @@ import { useRouter } from "next/navigation"
 
 type TargetType = "all" | "username" | "userId"
 
-export function AdminMessagesContent({ history, inbox }: { history: any[]; inbox: any[] }) {
+export function AdminMessagesContent({ history, inbox }: { history: AdminMessage[]; inbox: UserMessage[] }) {
     const { t } = useI18n()
     const router = useRouter()
     const [targetType, setTargetType] = useState<TargetType>("all")
@@ -34,14 +38,14 @@ export function AdminMessagesContent({ history, inbox }: { history: any[]; inbox
     const composeRef = useRef<HTMLDivElement>(null)
     const bodyRef = useRef<HTMLTextAreaElement>(null)
 
-    const handleReply = (row: any) => {
+    const handleReply = (row: UserMessage) => {
         setTargetType("username")
         setTargetValue(row.username || "")
         setTitle(row.title ? `Re: ${row.title.replace(/^Re:\s*/i, '')}` : "")
         setBody("")
         if (!row.isRead) {
             markUserMessageRead(row.id).then(() => {
-                setInboxItems((prev: any[]) =>
+                setInboxItems((prev: UserMessage[]) =>
                     prev.map((item) => item.id === row.id ? { ...item, isRead: true } : item)
                 )
                 if (typeof window !== "undefined") {
@@ -67,7 +71,7 @@ export function AdminMessagesContent({ history, inbox }: { history: any[]; inbox
         return t('admin.messages.allUsers')
     }, [targetType, t])
 
-    const formatTarget = (row: any) => {
+    const formatTarget = (row: AdminMessage) => {
         if (row.targetType === "all") return t('admin.messages.allUsers')
         if (row.targetType === "username") return `@${row.targetValue}`
         if (row.targetType === "userId") return `ID: ${row.targetValue}`
@@ -165,8 +169,8 @@ export function AdminMessagesContent({ history, inbox }: { history: any[]; inbox
                                     } else {
                                         toast.error(res?.error ? t(res.error) : t('common.error'))
                                     }
-                                } catch (e: any) {
-                                    toast.error(e.message || t('common.error'))
+                                } catch (e) {
+                                    toast.error(getErrorMessage(e) || t('common.error'))
                                 } finally {
                                     setSending(false)
                                 }
@@ -194,8 +198,8 @@ export function AdminMessagesContent({ history, inbox }: { history: any[]; inbox
                                     await clearAdminMessages()
                                     setHistoryItems([])
                                     toast.success(t('admin.messages.cleared'))
-                                } catch (e: any) {
-                                    toast.error(e.message || t('common.error'))
+                                } catch (e) {
+                                    toast.error(getErrorMessage(e) || t('common.error'))
                                 } finally {
                                     setClearingHistory(false)
                                 }
@@ -243,10 +247,10 @@ export function AdminMessagesContent({ history, inbox }: { history: any[]; inbox
                                                         setDeleting(row.id)
                                                         try {
                                                             await deleteAdminMessage(row.id)
-                                                            setHistoryItems((prev) => prev.filter((item: any) => item.id !== row.id))
+                                                            setHistoryItems((prev) => prev.filter((item) => item.id !== row.id))
                                                             toast.success(t('common.success'))
-                                                        } catch (e: any) {
-                                                            toast.error(e.message || t('common.error'))
+                                                        } catch (e) {
+                                                            toast.error(getErrorMessage(e) || t('common.error'))
                                                         } finally {
                                                             setDeleting(null)
                                                         }
@@ -283,8 +287,8 @@ export function AdminMessagesContent({ history, inbox }: { history: any[]; inbox
                                         window.dispatchEvent(new CustomEvent("ldc:user-messages-updated"))
                                     }
                                     toast.success(t('admin.messages.cleared'))
-                                } catch (e: any) {
-                                    toast.error(e.message || t('common.error'))
+                                } catch (e) {
+                                    toast.error(getErrorMessage(e) || t('common.error'))
                                 } finally {
                                     setClearingInbox(false)
                                 }
@@ -310,7 +314,7 @@ export function AdminMessagesContent({ history, inbox }: { history: any[]; inbox
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
-                                    {inboxItems.map((row: any) => {
+                                    {inboxItems.map((row) => {
                                         const expanded = expandedInboxIds.includes(row.id)
                                         return (
                                             <TableRow key={row.id} className={!row.isRead ? "bg-primary/5" : undefined}>
@@ -358,14 +362,14 @@ export function AdminMessagesContent({ history, inbox }: { history: any[]; inbox
                                                                     setInboxReading(row.id)
                                                                     try {
                                                                         await markUserMessageRead(row.id)
-                                                                        setInboxItems((prev: any[]) =>
+                                                                        setInboxItems((prev: UserMessage[]) =>
                                                                             prev.map((item) => item.id === row.id ? { ...item, isRead: true } : item)
                                                                         )
                                                                         if (typeof window !== "undefined") {
                                                                             window.dispatchEvent(new CustomEvent("ldc:user-messages-updated"))
                                                                         }
-                                                                    } catch (e: any) {
-                                                                        toast.error(e.message || t('common.error'))
+                                                                    } catch (e) {
+                                                                        toast.error(getErrorMessage(e) || t('common.error'))
                                                                     } finally {
                                                                         setInboxReading(null)
                                                                     }
@@ -383,12 +387,12 @@ export function AdminMessagesContent({ history, inbox }: { history: any[]; inbox
                                                                 setInboxDeleting(row.id)
                                                                 try {
                                                                     await deleteUserMessage(row.id)
-                                                                    setInboxItems((prev: any[]) => prev.filter((item) => item.id !== row.id))
+                                                                    setInboxItems((prev: UserMessage[]) => prev.filter((item) => item.id !== row.id))
                                                                     if (typeof window !== "undefined") {
                                                                         window.dispatchEvent(new CustomEvent("ldc:user-messages-updated"))
                                                                     }
-                                                                } catch (e: any) {
-                                                                    toast.error(e.message || t('common.error'))
+                                                                } catch (e) {
+                                                                    toast.error(getErrorMessage(e) || t('common.error'))
                                                                 } finally {
                                                                     setInboxDeleting(null)
                                                                 }

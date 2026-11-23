@@ -1,14 +1,16 @@
+import type { AdminMessage, UserMessage } from '@/lib/admin-types'
+import { getErrorCauseMessage, getErrorMessage } from '@/lib/errors'
 import { db } from "@/lib/db"
 import { adminMessages, userMessages } from "@/lib/db/schema"
 import { desc } from "drizzle-orm"
 import { AdminMessagesContent } from "@/components/admin/messages-content"
 import { unstable_noStore } from "next/cache"
 
-function isMissingTable(error: any) {
+function isMissingTable(error: unknown) {
   const errorString = JSON.stringify(error)
   return (
-    error?.message?.includes('does not exist') ||
-    error?.cause?.message?.includes('does not exist') ||
+    getErrorMessage(error)?.includes('does not exist') ||
+    getErrorCauseMessage(error)?.includes('does not exist') ||
     errorString.includes('42P01') ||
     (errorString.includes('relation') && errorString.includes('does not exist'))
   )
@@ -16,8 +18,8 @@ function isMissingTable(error: any) {
 
 export default async function AdminMessagesPage() {
   unstable_noStore()
-  let rows: any[] = []
-  let inbox: any[] = []
+  let rows: AdminMessage[] = []
+  let inbox: UserMessage[] = []
   try {
     rows = await db
       .select({
@@ -32,7 +34,7 @@ export default async function AdminMessagesPage() {
       .from(adminMessages)
       .orderBy(desc(adminMessages.createdAt))
       .limit(200)
-  } catch (e: any) {
+  } catch (e) {
     if (!isMissingTable(e)) throw e
     rows = []
   }
@@ -51,7 +53,7 @@ export default async function AdminMessagesPage() {
       .from(userMessages)
       .orderBy(desc(userMessages.createdAt))
       .limit(200)
-  } catch (e: any) {
+  } catch (e) {
     if (!isMissingTable(e)) throw e
     inbox = []
   }

@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@/lib/errors'
 import { APP_DIRECTORY } from '@/lib/version'
 
 export const SHOP_REPOSITORY = 'andlink01/ldc-shop'
@@ -67,7 +68,7 @@ export async function checkRepositoryForUpdates(currentVersion: string): Promise
     } catch (error: unknown) {
         return {
             hasUpdate: false, currentVersion, latestVersion: null, releaseUrl: null,
-            error: error instanceof Error ? error.message : 'update_check_failed',
+            error: error instanceof Error ? getErrorMessage(error) : 'update_check_failed',
         }
     }
 }

@@ -1,5 +1,8 @@
 'use client'
 
+import type { AdminOrderSummary } from '@/lib/admin-types'
+import { getErrorMessage } from '@/lib/errors'
+
 import { Button } from "@/components/ui/button"
 import { markOrderRefunded, proxyRefund } from "@/actions/refund"
 import { verifyOrderRefundStatus } from "@/actions/admin-orders"
@@ -8,7 +11,7 @@ import { toast } from "sonner"
 import { Loader2, ExternalLink, CheckCircle, RefreshCcw } from "lucide-react"
 import { useI18n } from "@/lib/i18n/context"
 
-export function RefundButton({ order }: { order: any }) {
+export function RefundButton({ order }: { order: AdminOrderSummary }) {
     const [loading, setLoading] = useState(false)
     const [showMarkDone, setShowMarkDone] = useState(false)
     const { t } = useI18n()
@@ -28,8 +31,8 @@ export function RefundButton({ order }: { order: any }) {
                 toast.error(t('admin.orders.refundProxyNotProcessed'), { duration: 8000 })
                 setShowMarkDone(true)
             }
-        } catch (e: any) {
-            toast.error(e.message || "Refund failed", { duration: 8000 })
+        } catch (e) {
+            toast.error(getErrorMessage(e) || "Refund failed", { duration: 8000 })
             setShowMarkDone(true)
         } finally {
             setLoading(false)
@@ -44,8 +47,8 @@ export function RefundButton({ order }: { order: any }) {
             await markOrderRefunded(order.orderId)
             toast.success(t('admin.orders.refundSuccess'))
             setShowMarkDone(false)
-        } catch (e: any) {
-            toast.error(e.message)
+        } catch (e) {
+            toast.error(getErrorMessage(e))
         } finally {
             setLoading(false)
         }
@@ -67,8 +70,8 @@ export function RefundButton({ order }: { order: any }) {
             } else {
                 toast.error(result.error || t('common.error'))
             }
-        } catch (e: any) {
-            toast.error(e.message)
+        } catch (e) {
+            toast.error(getErrorMessage(e))
         } finally {
             setLoading(false)
         }

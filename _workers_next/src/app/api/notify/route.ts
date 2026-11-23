@@ -1,12 +1,13 @@
+import { getErrorMessage } from '@/lib/errors';
 import { db } from "@/lib/db";
-import { orders, cards } from "@/lib/db/schema";
+import { orders } from "@/lib/db/schema";
 import { md5 } from "@/lib/crypto";
-import { eq, sql } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { withOrderColumnFallback } from "@/lib/db/queries";
 
 const LOG_NOTIFY_DETAILS = process.env.NODE_ENV !== 'production';
 
-function summarizeNotifyParams(params: Record<string, any>) {
+function summarizeNotifyParams(params: Record<string, string>) {
     return {
         out_trade_no: params.out_trade_no,
         trade_status: params.trade_status,
@@ -14,7 +15,7 @@ function summarizeNotifyParams(params: Record<string, any>) {
     }
 }
 
-async function processNotify(params: Record<string, any>) {
+async function processNotify(params: Record<string, string>) {
     if (LOG_NOTIFY_DETAILS) {
         console.log("[Notify] Processing params:", JSON.stringify(params));
     } else {
@@ -79,14 +80,14 @@ async function processNotify(params: Record<string, any>) {
                 try {
                     const { processOrderFulfillment } = await import("@/lib/order-processing");
                     await processOrderFulfillment(orderId, notifyMoney, tradeNo);
-                } catch (e: any) {
+                } catch (e) {
                     console.error("[Notify] Fulfillment error:", e);
                     // Don't error the callback if it's already processed or internal error, 
                     // otherwise payment gateway retries. 
                     // Ideally we should differentiate idempotent errors vs hard errors.
                     // But for now, if fulfillment fails, maybe log it.
                     // If shared validation fails (amount mismatch), processOrderFulfillment throws.
-                    if (e.message.includes('Amount mismatch')) {
+                    if (getErrorMessage(e).includes('Amount mismatch')) {
                         return new Response('fail', { status: 400 });
                     }
                 }
@@ -103,7 +104,7 @@ export async function GET(request: Request) {
 
     try {
         const url = new URL(request.url);
-        const params: Record<string, any> = {};
+        const params: Record<string, string> = {};
         url.searchParams.forEach((value, key) => {
             params[key] = value;
         });
@@ -121,10 +122,11 @@ export async function POST(request: Request) {
 
     try {
         const formData = await request.formData();
-        const params: Record<string, any> = {};
-        formData.forEach((value, key) => {
+        const params: Record<string, string> = {};
+        for (const [key, value] of formData.entries()) {
+            if (typeof value !== 'string') return new Response('fail', { status: 400 });
             params[key] = value;
-        });
+        }
 
         return await processNotify(params);
     } catch (e) {

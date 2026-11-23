@@ -17,11 +17,11 @@ export default async function AdminPage() {
         })(),
     ])
 
-    const liveStats = await getLiveCardStats(products.map((p: any) => p.id)).catch(() => new Map())
+    const liveStats = await getLiveCardStats(products.map((p) => p.id)).catch(() => new Map())
 
     return (
         <AdminProductsContent
-            products={products.map((p: any) => {
+            products={products.map((p) => {
                 const stat = liveStats.get(p.id) || { unused: 0, available: 0, locked: 0 }
                 const available = p.isShared
                     ? (stat.unused > 0 ? INFINITE_STOCK : 0)

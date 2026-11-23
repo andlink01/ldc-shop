@@ -1,16 +1,18 @@
 'use client'
 
-import { useMemo, useState } from "react"
-import { useI18n } from "@/lib/i18n/context"
-import Link from "next/link"
-import { Card } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
-import { CreditCard, Search, Star } from "lucide-react"
-import { ProductImagePlaceholder } from "@/components/product-image-placeholder"
-import { ClientDate } from "@/components/client-date"
-import { Input } from "@/components/ui/input"
-import { Button } from "@/components/ui/button"
-import { isPaymentOrder } from "@/lib/payment"
+import NextImage from 'next/image'
+
+import { useState } from "react";
+import { useI18n } from "@/lib/i18n/context";
+import Link from "next/link";
+import { Card } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { CreditCard, Search, Star } from "lucide-react";
+import { ProductImagePlaceholder } from "@/components/product-image-placeholder";
+import { ClientDate } from "@/components/client-date";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { isPaymentOrder } from "@/lib/payment";
 
 interface Order {
     orderId: string
@@ -56,7 +58,7 @@ export function OrdersContent({ orders, productVariantLabels = {}, productImages
         return variant ? `${base} · ${variant}` : base
     }
 
-    const filtered = useMemo(() => {
+    const filtered = (() => {
         const q = query.trim().toLowerCase()
         return orders.filter(o => {
             const st = o.status || 'pending'
@@ -67,7 +69,7 @@ export function OrdersContent({ orders, productVariantLabels = {}, productImages
             const hay = [o.orderId, o.productName, displayName].join(' ').toLowerCase()
             return hay.includes(q)
         })
-    }, [orders, query, status, productVariantLabels, t])
+    })()
 
     return (
         <main className="container py-12">
@@ -109,7 +111,7 @@ export function OrdersContent({ orders, productVariantLabels = {}, productImages
                                 <div className="flex flex-col gap-4 p-6 sm:flex-row sm:items-center">
                                     <div className="h-12 w-12 rounded-lg flex items-center justify-center shrink-0 overflow-hidden">
                                         {!isPaymentOrder(order.productId) && order.productId && productImages[order.productId] ? (
-                                            <img
+                                            <NextImage unoptimized width={48} height={48}
                                                 src={productImages[order.productId]!}
                                                 alt=""
                                                 className="h-full w-full object-cover"

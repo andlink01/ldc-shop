@@ -1,5 +1,7 @@
 'use server'
 
+import { getErrorMessage } from '@/lib/errors'
+
 import { db, dbRun, dbBatchRaw } from "@/lib/db"
 import { cards, orders, refundRequests, loginUsers } from "@/lib/db/schema"
 import { and, eq, sql } from "drizzle-orm"
@@ -225,8 +227,8 @@ export async function verifyOrderRefundStatus(orderId: string) {
       return { success: false, error: result.error }
     }
 
-  } catch (e: any) {
+  } catch (e) {
     console.error('Verify refund error', e)
-    return { success: false, error: e.message }
+    return { success: false, error: getErrorMessage(e) }
   }
 }

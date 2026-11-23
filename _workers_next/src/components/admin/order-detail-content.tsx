@@ -1,5 +1,8 @@
 'use client'
 
+import type { AdminOrderDetail } from '@/lib/admin-types'
+import { getErrorMessage } from '@/lib/errors'
+
 import Link from "next/link"
 import { useRef, useState } from "react"
 import { useRouter } from "next/navigation"
@@ -27,7 +30,7 @@ function statusVariant(status: string | null) {
   }
 }
 
-export function AdminOrderDetailContent({ order }: { order: any }) {
+export function AdminOrderDetailContent({ order }: { order: AdminOrderDetail }) {
   const { t } = useI18n()
   const router = useRouter()
   const [email, setEmail] = useState(order.email || '')
@@ -69,8 +72,8 @@ export function AdminOrderDetailContent({ order }: { order: any }) {
         await cancelOrder(order.orderId)
         toast.success(t('common.success'))
       }
-    } catch (e: any) {
-      toast.error(e.message)
+    } catch (e) {
+      toast.error(getErrorMessage(e))
     } finally {
       router.refresh()
       setActionLoading(false)
@@ -83,8 +86,8 @@ export function AdminOrderDetailContent({ order }: { order: any }) {
     try {
       await updateOrderEmail(order.orderId, email)
       toast.success(t('common.success'))
-    } catch (e: any) {
-      toast.error(e.message)
+    } catch (e) {
+      toast.error(getErrorMessage(e))
     } finally {
       setSavingEmail(false)
     }
@@ -133,8 +136,8 @@ export function AdminOrderDetailContent({ order }: { order: any }) {
                     await deleteOrder(order.orderId)
                     toast.success(t('common.success'))
                     router.push('/admin/orders')
-                  } catch (e: any) {
-                    toast.error(e.message)
+                  } catch (e) {
+                    toast.error(getErrorMessage(e))
                   } finally {
                     router.refresh()
       setActionLoading(false)

@@ -1,5 +1,7 @@
 'use client'
 
+import NextImage from 'next/image'
+
 import { useMemo } from "react"
 import { useI18n } from "@/lib/i18n/context"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -40,7 +42,7 @@ export function AdminPaymentCodeContent({ payLink, payee }: { payLink: string; p
                             </div>
                         )}
                         <div className="rounded-2xl border border-border/50 bg-muted/30 p-4">
-                            <img
+                            <NextImage unoptimized width={224} height={224}
                                 src={qrUrl}
                                 alt={t('payment.qrAlt')}
                                 className="h-56 w-56"

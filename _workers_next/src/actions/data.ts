@@ -1,11 +1,13 @@
 "use server"
 
-import { db, dbRun } from "@/lib/db"
-import { sql } from "drizzle-orm"
-import { revalidatePath, updateTag } from "next/cache"
-import { checkAdmin } from "@/actions/admin"
-import { recalcProductAggregatesForMany, ensureDatabaseInitialized } from "@/lib/db/queries"
-import { products } from "@/lib/db/schema"
+import { getErrorMessage } from '@/lib/errors';
+
+import { db, dbRun } from "@/lib/db";
+import { sql } from "drizzle-orm";
+import { revalidatePath, updateTag } from "next/cache";
+import { checkAdmin } from "@/actions/admin";
+import { recalcProductAggregatesForMany, ensureDatabaseInitialized } from "@/lib/db/queries";
+import { products } from "@/lib/db/schema";
 
 async function executeStatement(statement: string) {
     if (!statement.trim()) return
@@ -13,7 +15,7 @@ async function executeStatement(statement: string) {
         await dbRun(sql.raw(statement))
     } catch (e) {
         console.error('Import Error:', e)
-        throw new Error(`Failed to execute statement: ${statement.substring(0, 50)}... ${e instanceof Error ? e.message : String(e)}`)
+        throw new Error(`Failed to execute statement: ${statement.substring(0, 50)}... ${e instanceof Error ? getErrorMessage(e) : String(e)}`)
     }
 }
 
@@ -66,8 +68,8 @@ export async function repairDataAction() {
     try {
         await repairTimestamps()
         return { success: true }
-    } catch (e: any) {
-        return { success: false, error: e.message }
+    } catch (e) {
+        return { success: false, error: getErrorMessage(e) }
     }
 }
 
@@ -211,8 +213,8 @@ export async function importData(formData: FormData) {
                 try {
                     await executeStatement(newStatement)
                     successCount++
-                } catch (e: any) {
-                    const errorMsg = e?.message || String(e)
+                } catch (e) {
+                    const errorMsg = getErrorMessage(e) || String(e)
                     // Silently skip if table doesn't exist (Vercel export might have tables that Workers doesn't have)
                     if (errorMsg.includes('no such table') || errorMsg.includes('does not exist')) {
                         // Skip silently - this is expected for some tables
@@ -226,7 +228,7 @@ export async function importData(formData: FormData) {
                 try {
                     await executeStatement(trimmed)
                     successCount++
-                } catch (e) {
+                } catch {
                     errorCount++
                 }
             }
@@ -251,7 +253,7 @@ export async function importData(formData: FormData) {
         updateTag('home:product-categories')
         updateTag('home:visitors')
         return { success: true, count: successCount, errors: errorCount }
-    } catch (e: any) {
-        return { success: false, error: e.message }
+    } catch (e) {
+        return { success: false, error: getErrorMessage(e) }
     }
 }

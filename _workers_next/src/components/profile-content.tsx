@@ -1,23 +1,23 @@
 'use client'
 
-import Link from "next/link"
-import { useI18n } from "@/lib/i18n/context"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Badge } from "@/components/ui/badge"
-import { Coins, Package, Clock, CheckCircle, ChevronRight, User, LogOut, Bell, Mail, Send, MessageSquarePlus, Settings } from "lucide-react"
-import { signOut } from "next-auth/react"
-import { Input } from "@/components/ui/input"
-import { Textarea } from "@/components/ui/textarea"
-import { Label } from "@/components/ui/label"
-import { toast } from "sonner"
-import { updateDesktopNotifications, updateProfileEmail } from "@/actions/profile"
-import { useEffect, useRef, useState } from "react"
-import { CheckInButton } from "@/components/checkin-button"
-import { clearMyNotifications, getMyNotifications, markAllNotificationsRead, markNotificationRead } from "@/actions/user-notifications"
-import { sendUserMessage, clearMyMessages } from "@/actions/user-messages"
-import { cn } from "@/lib/utils"
+import Link from "next/link";
+import { useI18n } from "@/lib/i18n/context";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
+import { Coins, Package, Clock, CheckCircle, ChevronRight, User, LogOut, Bell, Send, MessageSquarePlus, Settings } from "lucide-react";
+import { signOut } from "next-auth/react";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import { toast } from "sonner";
+import { updateDesktopNotifications, updateProfileEmail } from "@/actions/profile";
+import { useEffect, useRef, useState } from "react";
+import { CheckInButton } from "@/components/checkin-button";
+import { clearMyNotifications, getMyNotifications, markAllNotificationsRead, markNotificationRead } from "@/actions/user-notifications";
+import { sendUserMessage, clearMyMessages } from "@/actions/user-messages";
+import { cn } from "@/lib/utils";
 
 interface ProfileContentProps {
     user: {

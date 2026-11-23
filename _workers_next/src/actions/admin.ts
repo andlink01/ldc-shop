@@ -1,26 +1,21 @@
 'use server'
 
-import { recoverAfterRestock, deleteUnconsumedCards } from '@/lib/inventory-management'
-import { auth } from "@/lib/auth"
-import { db, dbRun, dbExecRaw } from "@/lib/db"
-import { products, cards, reviews, reviewReplies, categories } from "@/lib/db/schema"
-import { eq, sql, inArray, and, or, isNull, lte } from "drizzle-orm"
-import { sendBarkMessage, sendTelegramMessage } from "@/lib/notifications"
-import { revalidatePath, updateTag } from "next/cache"
-import { setSetting, getSetting, recalcProductAggregates, recalcProductAggregatesForMany, getProductForAdmin } from "@/lib/db/queries"
-import { isAdminUsername } from "@/lib/admin-auth"
-import { getProductCardApiConfig, pullOneCardFromApi, saveProductCardApiConfig } from "@/lib/card-api"
-import { unstable_noStore } from "next/cache"
-import { isThemeFont } from "@/lib/theme-fonts"
-import { normalizeCurrencyUnit } from "@/lib/currency-unit"
-import {
-    PRODUCT_GALLERY_MAX_ITEMS,
-    PRODUCT_GALLERY_MAX_JSON_LENGTH,
-    normalizeProductImageRefs,
-    parseStoredProductImages,
-    splitProductImageGallery,
-    validateProductImageRef,
-} from "@/lib/product-images"
+import { getErrorCode, getErrorMessage, getErrorText } from '@/lib/errors';
+
+import { recoverAfterRestock, deleteUnconsumedCards } from '@/lib/inventory-management';
+import { auth } from "@/lib/auth";
+import { db, dbRun, dbExecRaw } from "@/lib/db";
+import { products, cards, reviews, reviewReplies, categories } from "@/lib/db/schema";
+import { eq, sql } from "drizzle-orm";
+import { sendBarkMessage, sendTelegramMessage } from "@/lib/notifications";
+import { revalidatePath, updateTag } from "next/cache";
+import { setSetting, getSetting, recalcProductAggregates, getProductForAdmin } from "@/lib/db/queries";
+import { isAdminUsername } from "@/lib/admin-auth";
+import { getProductCardApiConfig, pullOneCardFromApi, saveProductCardApiConfig } from "@/lib/card-api";
+import { unstable_noStore } from "next/cache";
+import { isThemeFont } from "@/lib/theme-fonts";
+import { normalizeCurrencyUnit } from "@/lib/currency-unit";
+import { PRODUCT_GALLERY_MAX_ITEMS, PRODUCT_GALLERY_MAX_JSON_LENGTH, normalizeProductImageRefs, parseStoredProductImages, splitProductImageGallery, validateProductImageRef } from "@/lib/product-images";
 
 export async function checkAdmin() {
     const session = await auth()
@@ -81,8 +76,8 @@ export async function saveProduct(formData: FormData) {
         try {
             const parsed = JSON.parse(purchaseQuestionsRaw)
             if (Array.isArray(parsed)) {
-                const valid = parsed.filter((item: any) => item && typeof item.q === 'string' && item.q.trim() && typeof item.a === 'string' && item.a.trim())
-                purchaseQuestions = valid.length > 0 ? JSON.stringify(valid.map((item: any) => ({ q: item.q.trim(), a: item.a.trim() }))) : null
+                const valid = parsed.filter((item) => item && typeof item.q === 'string' && item.q.trim() && typeof item.a === 'string' && item.a.trim())
+                purchaseQuestions = valid.length > 0 ? JSON.stringify(valid.map((item) => ({ q: item.q.trim(), a: item.a.trim() }))) : null
             }
         } catch {
             // ignore invalid JSON
@@ -189,8 +184,8 @@ export async function saveProduct(formData: FormData) {
 
     try {
         await doSave()
-    } catch (error: any) {
-        const errorString = JSON.stringify(error) + (error?.message || '')
+    } catch (error) {
+        const errorString = getErrorText(error)
         if (errorString.includes('42703') || errorString.includes('no such column') || errorString.includes('SQLITE_ERROR')) {
             await ensureColumns()
             await doSave()
@@ -499,11 +494,11 @@ export async function saveShopName(rawName: string) {
 
     try {
         await setSetting('shop_name', name)
-    } catch (error: any) {
+    } catch (error) {
         // If settings table doesn't exist, create it and retry
-        if (error.message?.includes('does not exist') ||
-            error.code === '42P01' ||
-            JSON.stringify(error).includes('42P01')) {
+        if (getErrorMessage(error)?.includes('does not exist') ||
+            getErrorCode(error) === '42P01' ||
+            getErrorText(error).includes('42P01')) {
             await dbRun(sql`
                 CREATE TABLE IF NOT EXISTS settings (
                     key TEXT PRIMARY KEY,

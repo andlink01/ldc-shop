@@ -19,8 +19,8 @@ export default async function OrdersPage() {
 
     // Get reviewed order IDs for delivered orders
     const deliveredOrderIds = userOrders
-        .filter((o: any) => o.status === 'delivered')
-        .map((o: any) => o.orderId)
+        .filter((o) => o.status === 'delivered')
+        .map((o) => o.orderId)
     
     let reviewedOrderIds: string[] = []
     if (deliveredOrderIds.length > 0) {
@@ -34,7 +34,7 @@ export default async function OrdersPage() {
         }
     }
 
-    const productIds = Array.from(new Set(userOrders.map((o: any) => o.productId).filter(Boolean)))
+    const productIds = Array.from(new Set(userOrders.map((o) => o.productId).filter(Boolean)))
     const productVariantLabels = productIds.length > 0 ? await getProductVariantLabels(productIds) : {}
 
     let productImages: Record<string, string | null> = {}
@@ -53,7 +53,7 @@ export default async function OrdersPage() {
 
     return (
         <OrdersContent
-            orders={userOrders.map((o: any) => ({
+            orders={userOrders.map((o) => ({
                 orderId: o.orderId,
                 productId: o.productId,
                 productName: o.productName,

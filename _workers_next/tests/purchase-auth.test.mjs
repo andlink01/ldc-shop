@@ -32,13 +32,13 @@ for (const [index, session] of anonymousSessions.entries()) {
         ['actions/payment.ts', 'createPaymentOrder', [1]],
     ]) {
         test(`${action} rejects missing identity ${index} before any side effects`, async () => {
-            const module = loadModule(file, {
+            const loaded = loadModule(file, {
                 '@/lib/auth': { auth: async () => session },
                 '@/lib/db': { db: forbiddenDb },
                 '@/lib/crypto': { generateOrderId: () => assert.fail('Must not allocate an order') },
                 'next/headers': { cookies: () => assert.fail('Must not set payment cookies') },
             })
-            const result = await module[action](...args)
+            const result = await loaded[action](...args)
             assert.equal(result.success, false)
             assert.equal(result.error, 'common.loginRequired')
         })

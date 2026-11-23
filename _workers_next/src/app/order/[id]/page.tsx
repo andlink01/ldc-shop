@@ -29,7 +29,7 @@ export default async function OrderPage({ params }: { params: Promise<{ id: stri
     if (pending?.value === id) canViewKey = true
 
     // Refund request status (best effort)
-    let refundRequest: any = null
+    let refundRequest: typeof refundRequests.$inferSelect | null | undefined = null
     if (user?.id) {
         try {
             refundRequest = await db.query.refundRequests.findFirst({

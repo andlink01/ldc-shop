@@ -1,15 +1,17 @@
 'use client'
 
-import Link from "next/link"
-import { useEffect, useMemo, useState } from "react"
-import { useRouter } from "next/navigation"
-import { useI18n } from "@/lib/i18n/context"
-import { Card, CardContent, CardFooter } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import ReactMarkdown from "react-markdown"
-import { cn } from "@/lib/utils"
+import Link from "next/link";
+import { usePropState } from '@/lib/client-hooks';
+import { useMemo } from "react";
+import { useRouter } from "next/navigation";
+import { useI18n } from "@/lib/i18n/context";
+import { Card, CardContent, CardFooter } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import ReactMarkdown from "react-markdown";
+import { cn } from "@/lib/utils";
+import { INFINITE_STOCK } from "@/lib/constants";
 
 type Category = { name: string; icon: string | null; sortOrder: number }
 type Product = {
@@ -22,6 +24,7 @@ type Product = {
   category: string | null
   isHot: boolean
   stockCount: number
+  onDemand?: boolean
   soldCount: number
 }
 
@@ -49,9 +52,8 @@ export function SearchContent(props: {
 }) {
   const { t } = useI18n()
   const router = useRouter()
-  const [q, setQ] = useState(props.q)
+  const [q, setQ] = usePropState(props.q)
 
-  useEffect(() => setQ(props.q), [props.q])
 
   const categories = useMemo(() => {
     const base = [{ name: 'all', icon: null, sortOrder: -1 } as Category]
@@ -173,7 +175,7 @@ export function SearchContent(props: {
                       variant={product.stockCount > 0 ? "secondary" : "destructive"}
                       className={cn("text-[10px] h-5 px-2 whitespace-nowrap min-w-max overflow-visible")}
                     >
-                      {product.stockCount > 0 ? `${t('common.stock')} ${product.stockCount}` : t('common.outOfStock')}
+                      {product.onDemand ? t('inventory.onDemandBuyerHint') : product.stockCount > 0 ? `${t('common.stock')} ${product.stockCount >= INFINITE_STOCK ? '∞' : product.stockCount}` : t('common.outOfStock')}
                     </Badge>
                   </div>
                   <Link href={`/buy/${product.id}`} className="w-full">

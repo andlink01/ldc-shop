@@ -22,7 +22,7 @@ async function ReviewsContent() {
     .orderBy(desc(reviews.createdAt))
     .limit(100)
 
-  const reviewIds = rows.map((r: any) => r.id).filter(Boolean)
+  const reviewIds = rows.map((r) => r.id).filter(Boolean)
   const replyRows = reviewIds.length
     ? await db
       .select({
@@ -47,7 +47,7 @@ async function ReviewsContent() {
     createdAt: Date | null
   }>>()
 
-  for (const reply of replyRows as any[]) {
+  for (const reply of replyRows) {
     const list = replyMap.get(reply.reviewId) ?? []
     list.push({
       id: reply.id,
@@ -62,7 +62,7 @@ async function ReviewsContent() {
 
   return (
     <AdminReviewsContent
-      reviews={rows.map((r: any) => ({
+      reviews={rows.map((r) => ({
         id: r.id,
         productId: r.productId,
         productName: r.productName || r.productId,

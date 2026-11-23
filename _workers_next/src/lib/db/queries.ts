@@ -1,7 +1,9 @@
+import type { SQL, SQLWrapper } from 'drizzle-orm';
+import { getErrorCauseMessage, getErrorCode, getErrorMessage, getErrorText } from '@/lib/errors';
 import { db, dbRun, dbExecRaw } from "./index";
-import { products, cards, orders, settings, reviews, reviewReplies, loginUsers, categories, userNotifications, wishlistItems, wishlistVotes } from "./schema";
+import { products, cards, orders, settings, reviews, reviewReplies, loginUsers, categories, userNotifications } from "./schema";
 import { INFINITE_STOCK, RESERVATION_TTL_MS } from "@/lib/constants";
-import { eq, sql, desc, and, asc, gte, or, inArray, lte, lt, isNull } from "drizzle-orm";
+import { eq, sql, desc, and, asc, or, inArray, lte, lt, isNull } from "drizzle-orm";
 import { updateTag, revalidatePath } from "next/cache";
 import { cache } from "react";
 import { ensureInventoryFeatureTables } from './inventory-schema';
@@ -50,10 +52,10 @@ async function ensureCardKeyDuplicatesAllowed() {
 async function safeAddColumn(table: string, column: string, definition: string) {
     try {
         await dbRun(sql.raw(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`));
-    } catch (e: any) {
+    } catch (e) {
         // Ignore "duplicate column" errors in SQLite
         // Use JSON.stringify AND String(e) to be safe across different environments
-        const errorString = (JSON.stringify(e) + String(e)).toLowerCase();
+        const errorString = getErrorText(e).toLowerCase();
         if (!errorString.includes('duplicate column')) throw e;
     }
 }
@@ -104,8 +106,8 @@ async function ensureIndexes() {
     for (const statement of indexStatements) {
         try {
             await dbRun(sql.raw(statement));
-        } catch (e: any) {
-            const errorString = (JSON.stringify(e) + String(e) + (e?.message || '')).toLowerCase();
+        } catch (e) {
+            const errorString = getErrorText(e).toLowerCase();
             if (errorString.includes('no such table') || errorString.includes('does not exist')) {
                 continue;
             }
@@ -175,7 +177,7 @@ export async function ensureDatabaseInitialized() {
                 dbInitialized = true;
                 return;
             }
-        } catch (e) {
+        } catch {
             // Settings table likely doesn't exist, proceed to full checks
         }
 
@@ -521,7 +523,7 @@ async function isProductAggregatesBackfilled(): Promise<boolean> {
             .from(settings)
             .where(eq(settings.key, 'product_aggregates_backfilled_v2'));
         return result[0]?.value === '1';
-    } catch (error: any) {
+    } catch (error) {
         if (isMissingTable(error)) {
             await ensureSettingsTable();
             return false;
@@ -548,7 +550,7 @@ export async function recalcProductAggregates(productId: string) {
     try {
         await ensureProductsColumns();
         await ensureCardsColumns();
-    } catch (error: any) {
+    } catch (error) {
         if (isMissingTableOrColumn(error)) return;
         throw error;
     }
@@ -578,7 +580,7 @@ export async function recalcProductAggregates(productId: string) {
         unusedCount = Number(row?.unused || 0);
         availableCount = Number(row?.available || 0);
         lockedCount = Number(row?.locked || 0);
-    } catch (error: any) {
+    } catch (error) {
         if (!isMissingTableOrColumn(error)) throw error;
     }
 
@@ -590,7 +592,7 @@ export async function recalcProductAggregates(productId: string) {
             .from(orders)
             .where(eq(orders.productId, pid));
         soldCount = Number(soldRows[0]?.total || 0);
-    } catch (error: any) {
+    } catch (error) {
         if (!isMissingTableOrColumn(error)) throw error;
     }
 
@@ -605,7 +607,7 @@ export async function recalcProductAggregates(productId: string) {
             .where(eq(reviews.productId, pid));
         rating = Number(reviewRows[0]?.avg || 0);
         reviewCount = Number(reviewRows[0]?.count || 0);
-    } catch (error: any) {
+    } catch (error) {
         if (!isMissingTableOrColumn(error)) throw error;
     }
 
@@ -629,7 +631,7 @@ export async function recalcProductAggregatesForMany(productIds: string[]) {
     try {
         await ensureProductsColumns();
         await ensureCardsColumns();
-    } catch (error: any) {
+    } catch (error) {
         if (isMissingTableOrColumn(error)) return;
         throw error;
     }
@@ -691,7 +693,7 @@ export async function recalcProductAggregatesForMany(productIds: string[]) {
                 agg.locked = Number(row.locked || 0);
             }
         }
-    } catch (error: any) {
+    } catch (error) {
         if (!isMissingTableOrColumn(error)) throw error;
     }
 
@@ -712,7 +714,7 @@ export async function recalcProductAggregatesForMany(productIds: string[]) {
                 agg.sold = Number(row.total || 0);
             }
         }
-    } catch (error: any) {
+    } catch (error) {
         if (!isMissingTableOrColumn(error)) throw error;
     }
 
@@ -735,7 +737,7 @@ export async function recalcProductAggregatesForMany(productIds: string[]) {
                 agg.reviewCount = Number(row.count || 0);
             }
         }
-    } catch (error: any) {
+    } catch (error) {
         if (!isMissingTableOrColumn(error)) throw error;
     }
 
@@ -800,7 +802,7 @@ export async function getLiveCardStats(productIds: string[]): Promise<Map<string
 
     try {
         await ensureCardsColumns();
-    } catch (error: any) {
+    } catch (error) {
         if (isMissingTableOrColumn(error)) return stats;
         throw error;
     }
@@ -831,7 +833,7 @@ export async function getLiveCardStats(productIds: string[]): Promise<Map<string
                 });
             }
         }
-    } catch (error: any) {
+    } catch (error) {
         if (!isMissingTableOrColumn(error)) throw error;
     }
 
@@ -847,7 +849,7 @@ async function backfillProductAggregates() {
         const rows = await db.select({ id: products.id }).from(products);
         await recalcProductAggregatesForMany(rows.map((row) => row.id));
         await markProductAggregatesBackfilled();
-    } catch (error: any) {
+    } catch (error) {
         if (!isMissingTableOrColumn(error)) throw error;
     }
 }
@@ -855,9 +857,9 @@ async function backfillProductAggregates() {
 async function withProductColumnFallback<T>(fn: () => Promise<T>): Promise<T> {
     try {
         return await fn()
-    } catch (error: any) {
+    } catch (error) {
         // Use more robust string conversion for error checking
-        const errorString = (JSON.stringify(error) + String(error) + (error?.message || '')).toLowerCase();
+        const errorString = getErrorText(error).toLowerCase();
 
         // Check for missing column errors (PostgreSQL: 42703, SQLite/D1: no such column, D1_COLUMN_NOTFOUND)
         if (errorString.includes('42703') || errorString.includes('no such column') || errorString.includes('column not found') || errorString.includes('d1_column_notfound')) {
@@ -873,7 +875,7 @@ export async function withOrderColumnFallback<T>(fn: () => Promise<T>): Promise<
     await ensureDatabaseInitialized()
     try {
         return await fn()
-    } catch (error: any) {
+    } catch (error) {
         if (isMissingTableOrColumn(error)) {
             await ensureOrdersColumns()
             return await fn()
@@ -983,7 +985,8 @@ function groupProductsAsVariants<T extends {
     reviewCount?: number;
     isHot?: boolean | null;
     isShared?: boolean | null;
-}>(rows: T[]): (T & { variantCount?: number; priceMin?: number; priceMax?: number; totalSold?: number; totalStock?: number; totalLocked?: number; totalReviewCount?: number; avgRating?: number; groupHot?: boolean; groupShared?: boolean; allVariantIds?: string[] })[] {
+    isOnDemand?: number;
+}>(rows: T[]): (T & { variantCount?: number; priceMin?: number; priceMax?: number; totalSold?: number; totalStock?: number; totalLocked?: number; totalReviewCount?: number; avgRating?: number; groupHot?: boolean; groupShared?: boolean; groupOnDemand?: boolean; sharedVariantIds?: string[]; allVariantIds?: string[] })[] {
     const byGroup = new Map<string, T[]>();
     for (const row of rows) {
         const rawKey = (row.variantGroupId && row.variantGroupId.trim()) || null;
@@ -992,7 +995,7 @@ function groupProductsAsVariants<T extends {
         list.push(row);
         byGroup.set(key, list);
     }
-    const result: (T & { variantCount?: number; priceMin?: number; priceMax?: number; totalSold?: number; totalStock?: number; totalLocked?: number; totalReviewCount?: number; avgRating?: number; groupHot?: boolean; groupShared?: boolean; allVariantIds?: string[] })[] = [];
+    const result: (T & { variantCount?: number; priceMin?: number; priceMax?: number; totalSold?: number; totalStock?: number; totalLocked?: number; totalReviewCount?: number; avgRating?: number; groupHot?: boolean; groupShared?: boolean; groupOnDemand?: boolean; sharedVariantIds?: string[]; allVariantIds?: string[] })[] = [];
     for (const list of byGroup.values()) {
         const rep = list.slice().sort((a, b) => {
             const soA = a.sortOrder ?? 0;
@@ -1016,8 +1019,10 @@ function groupProductsAsVariants<T extends {
             const avgRating = totalReviewCount > 0 ? ratingSum / totalReviewCount : 0;
             const groupHot = list.some((p) => !!p.isHot);
             const groupShared = list.some((p) => !!p.isShared);
+            const groupOnDemand = list.some((p) => !!p.isOnDemand);
+            const sharedVariantIds = list.filter((p) => p.isShared).map((p) => p.id);
             const allVariantIds = list.map((p) => p.id);
-            result.push({ ...rep, variantCount, priceMin, priceMax, totalSold, totalStock, totalLocked, totalReviewCount, avgRating, groupHot, groupShared, allVariantIds });
+            result.push({ ...rep, variantCount, priceMin, priceMax, totalSold, totalStock, totalLocked, totalReviewCount, avgRating, groupHot, groupShared, groupOnDemand, sharedVariantIds, allVariantIds });
         } else {
             result.push({ ...rep });
         }
@@ -1033,11 +1038,13 @@ function groupProductsAsVariants<T extends {
     return result;
 }
 
+type WishlistSqlRow = { id: number; title: string; description: string | null; username: string | null; created_at: number | string | null; votes: number; voted: number }
+
 export async function getWishlistItems(userId: string | null, limit = 10) {
     await ensureDatabaseInitialized();
 
     try {
-        const result: any = await dbRun(sql`
+        const result = await dbRun<WishlistSqlRow>(sql`
             SELECT
                 wi.id AS id,
                 wi.title AS title,
@@ -1053,22 +1060,22 @@ export async function getWishlistItems(userId: string | null, limit = 10) {
             LIMIT ${limit}
         `);
 
-        const rows = result?.results || result?.rows || [];
-        return rows.map((row: any) => ({
+        const rows = result.results;
+        return rows.map((row) => ({
             id: Number(row.id),
             title: row.title,
             description: row.description,
             username: row.username,
-            createdAt: Number(row.created_at ?? row.createdAt ?? 0),
+            createdAt: Number(row.created_at ?? 0),
             votes: Number(row.votes || 0),
             voted: Number(row.voted || 0) > 0,
         }));
-    } catch (error: any) {
+    } catch (error) {
         if (isMissingTableOrColumn(error)) {
             await ensureWishlistTables();
             // Retry once
             try {
-                const result: any = await dbRun(sql`
+                const result = await dbRun<WishlistSqlRow>(sql`
                     SELECT
                         wi.id AS id,
                         wi.title AS title,
@@ -1083,13 +1090,13 @@ export async function getWishlistItems(userId: string | null, limit = 10) {
                     ORDER BY votes DESC, wi.created_at DESC
                     LIMIT ${limit}
                 `);
-                const rows = result?.results || result?.rows || [];
-                return rows.map((row: any) => ({
+                const rows = result.results;
+                return rows.map((row) => ({
                     id: Number(row.id),
                     title: row.title,
                     description: row.description,
                     username: row.username,
-                    createdAt: Number(row.created_at ?? row.createdAt ?? 0),
+                    createdAt: Number(row.created_at ?? 0),
                     votes: Number(row.votes || 0),
                     voted: Number(row.voted || 0) > 0,
                 }));
@@ -1259,7 +1266,7 @@ export async function getProductForAdmin(id: string) {
 }
 
 // Dashboard Stats
-export async function getDashboardStats(nowMs: number) {
+export async function getDashboardStats(nowMs: number = Date.now()) {
     return await withOrderColumnFallback(async () => {
         const now = new Date(nowMs);
         const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -1326,7 +1333,7 @@ export const getAllSettings = cache(async (): Promise<Record<string, string>> =>
             acc[row.key] = row.value || '';
             return acc;
         }, {} as Record<string, string>);
-    } catch (error: any) {
+    } catch (error) {
         if (isMissingTable(error)) {
             await ensureSettingsTable();
             return {};
@@ -1368,7 +1375,7 @@ export async function getCategories(): Promise<Array<{ id: number; name: string;
             sortOrder: sql<number>`COALESCE(${categories.sortOrder}, 0)`,
         }).from(categories).orderBy(asc(categories.sortOrder), asc(categories.name))
         return rows
-    } catch (error: any) {
+    } catch (error) {
         if (isMissingTable(error)) {
             await ensureCategoriesTable()
             return []
@@ -1382,7 +1389,7 @@ export async function createUserNotification(params: {
     type: string
     titleKey: string
     contentKey: string
-    data?: Record<string, any> | null
+    data?: Record<string, unknown> | null
 }) {
     if (!params.userId) return
     await ensureDatabaseInitialized()
@@ -1396,7 +1403,7 @@ export async function createUserNotification(params: {
             isRead: false,
             createdAt: new Date()
         })
-    } catch (error: any) {
+    } catch (error) {
         if (isMissingTable(error)) {
             await ensureUserNotificationsTable()
             await db.insert(userNotifications).values({
@@ -1431,7 +1438,7 @@ export async function getUserNotifications(userId: string, limit: number = 20) {
             .where(eq(userNotifications.userId, userId))
             .orderBy(desc(normalizeTimestampMs(userNotifications.createdAt)))
             .limit(limit)
-    } catch (error: any) {
+    } catch (error) {
         if (isMissingTable(error)) {
             await ensureUserNotificationsTable()
             return []
@@ -1446,7 +1453,7 @@ export async function markAllUserNotificationsRead(userId: string) {
         await db.update(userNotifications)
             .set({ isRead: true })
             .where(eq(userNotifications.userId, userId))
-    } catch (error: any) {
+    } catch (error) {
         if (isMissingTable(error)) {
             await ensureUserNotificationsTable()
             return
@@ -1464,7 +1471,7 @@ export async function getUserUnreadNotificationCount(userId: string) {
             .from(userNotifications)
             .where(and(eq(userNotifications.userId, userId), eq(userNotifications.isRead, false)))
         return Number(rows[0]?.count || 0)
-    } catch (error: any) {
+    } catch (error) {
         if (isMissingTable(error)) {
             await ensureUserNotificationsTable()
             return 0
@@ -1479,7 +1486,7 @@ export async function markUserNotificationRead(userId: string, id: number) {
         await db.update(userNotifications)
             .set({ isRead: true })
             .where(and(eq(userNotifications.userId, userId), eq(userNotifications.id, id)))
-    } catch (error: any) {
+    } catch (error) {
         if (isMissingTable(error)) {
             await ensureUserNotificationsTable()
             return
@@ -1493,7 +1500,7 @@ export async function clearUserNotifications(userId: string) {
     try {
         await db.delete(userNotifications)
             .where(eq(userNotifications.userId, userId))
-    } catch (error: any) {
+    } catch (error) {
         if (isMissingTable(error)) {
             await ensureUserNotificationsTable()
             return
@@ -1518,7 +1525,7 @@ export async function searchActiveProducts(params: {
     const pageSize = Math.min(params.pageSize && params.pageSize > 0 ? params.pageSize : 24, 60)
     const offset = (page - 1) * pageSize
 
-    const whereParts: any[] = [eq(products.isActive, true), visibilityCondition(params.isLoggedIn, params.trustLevel)]
+    const whereParts: Array<SQL | undefined> = [eq(products.isActive, true), visibilityCondition(params.isLoggedIn, params.trustLevel)]
     if (category && category !== 'all') whereParts.push(eq(products.category, category))
     if (q) {
         const like = `%${q}%`
@@ -1529,7 +1536,7 @@ export async function searchActiveProducts(params: {
     }
     const whereExpr = and(...whereParts)
 
-    const orderByParts: any[] = []
+    const orderByParts: SQL[] = []
     switch (sort) {
         case 'priceAsc':
             orderByParts.push(asc(products.price))
@@ -1610,7 +1617,7 @@ export async function getActiveProductCategories(options?: { isLoggedIn?: boolea
             .groupBy(products.category)
             .orderBy(asc(products.category));
         return rows.map((r) => r.category as string).filter(Boolean);
-    } catch (error: any) {
+    } catch (error) {
         if (isMissingTable(error)) return [];
         throw error;
     }
@@ -1643,7 +1650,7 @@ export async function getProductReviews(productId: string) {
             ...review,
             replies: replyMap.get(review.id) ?? [],
         }));
-    } catch (error: any) {
+    } catch (error) {
         if (!isMissingTableOrColumn(error)) throw error;
         return reviewRows.map((review) => ({ ...review, replies: [] }));
     }
@@ -1683,7 +1690,7 @@ export async function getProductRatings(productIds: string[]): Promise<Map<strin
                 count: row.count ?? 0
             });
         }
-    } catch (error: any) {
+    } catch (error) {
         if (!isMissingTable(error)) throw error;
     }
 
@@ -1724,7 +1731,7 @@ export async function createReviewReply(data: {
 
 export async function canUserReview(userId: string, productId: string, username?: string): Promise<{ canReview: boolean; orderId?: string }> {
     try {
-        const findUnreviewedOrder = async (whereClause: any) => {
+        const findUnreviewedOrder = async (whereClause: SQL | undefined) => {
             const rows = await db.select({ orderId: orders.orderId })
                 .from(orders)
                 .leftJoin(reviews, eq(reviews.orderId, orders.orderId))
@@ -1780,25 +1787,25 @@ export async function hasUserReviewedOrder(orderId: string): Promise<boolean> {
     return result.length > 0;
 }
 
-function isMissingTable(error: any) {
-    const errorString = (JSON.stringify(error) + String(error) + (error?.message || '')).toLowerCase();
+function isMissingTable(error: unknown) {
+    const errorString = getErrorText(error).toLowerCase();
     return (
-        error?.message?.includes('does not exist') ||
-        error?.cause?.message?.includes('does not exist') ||
+        getErrorMessage(error)?.includes('does not exist') ||
+        getErrorCauseMessage(error)?.includes('does not exist') ||
         errorString.includes('42p01') ||
         errorString.includes('no such table') ||
         (errorString.includes('relation') && errorString.includes('does not exist'))
     );
 }
 
-function isMissingTableOrColumn(error: any) {
-    const errorString = (JSON.stringify(error) + String(error) + (error?.message || '')).toLowerCase();
+function isMissingTableOrColumn(error: unknown) {
+    const errorString = getErrorText(error).toLowerCase();
     return isMissingTable(error) || errorString.includes('42703') || errorString.includes('no such column') || errorString.includes('column not found') || errorString.includes('d1_column_notfound');
 }
 
 const TIMESTAMP_MS_THRESHOLD = 1_000_000_000_000;
 
-export function normalizeTimestampMs(column: any) {
+export function normalizeTimestampMs(column: SQLWrapper) {
     return sql<number>`CASE WHEN ${column} < ${TIMESTAMP_MS_THRESHOLD} THEN ${column} * 1000 ELSE ${column} END`
 }
 
@@ -1829,7 +1836,7 @@ async function migrateTimestampColumnsToMs() {
                 await dbRun(sql.raw(
                     `UPDATE ${table} SET ${column} = ${column} * 1000 WHERE ${column} IS NOT NULL AND ${column} < ${TIMESTAMP_MS_THRESHOLD}`
                 ));
-            } catch (error: any) {
+            } catch (error) {
                 if (!isMissingTableOrColumn(error)) throw error;
             }
         }
@@ -2040,10 +2047,10 @@ function mergeLoginUserRows(primary: GitHubLoginUserRow, secondary: GitHubLoginU
     }
 }
 
-async function runMigrationQuery(statement: any) {
+async function runMigrationQuery(statement: SQL) {
     try {
         await dbRun(statement)
-    } catch (error: any) {
+    } catch (error) {
         if (!isMissingTableOrColumn(error)) throw error
     }
 }
@@ -2311,7 +2318,7 @@ async function isLoginUsersBackfilled(): Promise<boolean> {
             .from(settings)
             .where(eq(settings.key, 'login_users_backfilled'));
         return result[0]?.value === '1';
-    } catch (error: any) {
+    } catch (error) {
         if (isMissingTable(error)) {
             await ensureSettingsTable();
             return false;
@@ -2349,7 +2356,7 @@ async function backfillLoginUsersFromOrdersAndReviews() {
             GROUP BY user_id
             ON CONFLICT(user_id) DO NOTHING
         `);
-    } catch (error: any) {
+    } catch (error) {
         if (isMissingTable(error)) return;
         throw error;
     }
@@ -2374,7 +2381,7 @@ export async function recordLoginUser(userId: string, username?: string | null, 
             target: loginUsers.userId,
             set: { username: username || null, lastLoginAt: new Date() }
         });
-        if ((result as any)?.meta?.changes === 1) {
+        if (result.meta?.changes === 1) {
             try {
                 updateTag('home:visitors');
             } catch {
@@ -2388,8 +2395,8 @@ export async function recordLoginUser(userId: string, username?: string | null, 
                 // best effort
             }
         }
-    } catch (error: any) {
-        if (isMissingTable(error) || error?.code === '42703' || error?.message?.includes('column')) {
+    } catch (error) {
+        if (isMissingTable(error) || getErrorCode(error) === '42703' || getErrorMessage(error)?.includes('column')) {
             await ensureLoginUsersSchema();
 
             const result = await db.insert(loginUsers).values({
@@ -2401,7 +2408,7 @@ export async function recordLoginUser(userId: string, username?: string | null, 
                 target: loginUsers.userId,
                 set: { username: username || null, lastLoginAt: new Date() }
             });
-            if ((result as any)?.meta?.changes === 1) {
+            if (result.meta?.changes === 1) {
                 try {
                     updateTag('home:visitors');
                 } catch {
@@ -2429,7 +2436,7 @@ export async function getLoginUserEmail(userId: string): Promise<string | null> 
             .where(eq(loginUsers.userId, userId))
             .limit(1);
         return result[0]?.email ?? null;
-    } catch (error: any) {
+    } catch (error) {
         if (isMissingTableOrColumn(error)) return null;
         throw error;
     }
@@ -2443,7 +2450,7 @@ export async function updateLoginUserEmail(userId: string, email: string | null)
         await db.update(loginUsers)
             .set({ email: email || null, lastLoginAt: new Date() })
             .where(eq(loginUsers.userId, userId));
-    } catch (error: any) {
+    } catch (error) {
         if (isMissingTableOrColumn(error)) return;
         throw error;
     }
@@ -2457,7 +2464,7 @@ export async function getLoginUserDesktopNotificationsEnabled(userId: string): P
             .where(eq(loginUsers.userId, userId))
             .limit(1);
         return Boolean(result[0]?.enabled);
-    } catch (error: any) {
+    } catch (error) {
         if (isMissingTableOrColumn(error)) return false;
         throw error;
     }
@@ -2470,7 +2477,7 @@ export async function updateLoginUserDesktopNotificationsEnabled(userId: string,
         await db.update(loginUsers)
             .set({ desktopNotificationsEnabled: enabled, lastLoginAt: new Date() })
             .where(eq(loginUsers.userId, userId));
-    } catch (error: any) {
+    } catch (error) {
         if (isMissingTableOrColumn(error)) return;
         throw error;
     }
@@ -2480,7 +2487,7 @@ export async function cleanupExpiredCardsIfNeeded(throttleMs: number = 10 * 60 *
     const now = Date.now();
     try {
         await ensureCardsColumns();
-    } catch (error: any) {
+    } catch (error) {
         if (!isMissingTableOrColumn(error)) throw error;
         return false;
     }
@@ -2497,7 +2504,7 @@ export async function cleanupExpiredCardsIfNeeded(throttleMs: number = 10 * 60 *
             if (hasExpired.length > 0) {
                 throttleMs = 0;
             }
-        } catch (error: any) {
+        } catch (error) {
             if (!isMissingTableOrColumn(error)) throw error;
         }
     }
@@ -2518,13 +2525,13 @@ export async function cleanupExpiredCardsIfNeeded(throttleMs: number = 10 * 60 *
             .from(cards)
             .where(sql`${cards.expiresAt} IS NOT NULL AND ${cards.expiresAt} < ${now}`);
         affectedProductIds = Array.from(new Set(rows.map((r) => r.productId).filter(Boolean)));
-    } catch (error: any) {
+    } catch (error) {
         if (!isMissingTableOrColumn(error)) throw error;
     }
 
     try {
         await dbRun(sql`UPDATE cards SET reserved_at = NULL, reserved_order_id = NULL WHERE expires_at IS NOT NULL AND expires_at <= ${now} AND COALESCE(is_used, 0) = 0 AND NOT EXISTS (SELECT 1 FROM orders holding WHERE holding.order_id = cards.reserved_order_id AND holding.status = 'paid')`);
-    } catch (error: any) {
+    } catch (error) {
         if (!isMissingTableOrColumn(error)) throw error;
     }
 
@@ -2557,7 +2564,7 @@ export async function getVisitorCount(): Promise<number> {
         const result = await db.select({ count: sql<number>`count(*)` })
             .from(loginUsers);
         return result[0]?.count || 0;
-    } catch (error: any) {
+    } catch (error) {
         if (isMissingTable(error)) return 0;
         throw error;
     }
@@ -2573,7 +2580,7 @@ export async function cancelExpiredOrders(filters: { productId?: string; userId?
             ensureOrdersColumns(),
             ensureCardsColumns(),
         ])
-    } catch (error: any) {
+    } catch (error) {
         if (!isMissingTableOrColumn(error)) throw error
     }
 
@@ -2629,7 +2636,7 @@ export async function cancelExpiredOrders(filters: { productId?: string; userId?
         }
 
         return orderIds;
-    } catch (error: any) {
+    } catch (error) {
         if (isMissingTableOrColumn(error)) return [];
         throw error;
     }
@@ -2682,7 +2689,7 @@ export async function getUsers(page = 1, pageSize = 20, q = '') {
             page,
             pageSize
         }
-    } catch (error: any) {
+    } catch (error) {
         if (isMissingTable(error)) {
             return { items: [], total: 0, page, pageSize }
         }

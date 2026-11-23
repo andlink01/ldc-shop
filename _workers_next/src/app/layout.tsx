@@ -6,7 +6,7 @@ import { MobileNavWrapper } from "@/components/mobile-nav-wrapper";
 import { Providers } from "@/components/providers";
 import { cn } from "@/lib/utils";
 import { getSetting } from "@/lib/db/queries";
-import { Suspense } from "react";
+import { Suspense, type CSSProperties } from "react";
 import { detectServerLocale } from "@/lib/i18n/server";
 import type { Locale } from "@/lib/i18n/shared";
 import { DEFAULT_MONO_FONT_STACK, getThemeFontStack, getThemeFontStylesheetHref } from "@/lib/theme-fonts";
@@ -123,13 +123,13 @@ async function RootLayoutContent({
       lang={initialLocale === "zh" ? "zh-CN" : "en"}
       suppressHydrationWarning
       style={{
-        ["--theme-hue" as any]: themeHue,
-        ["--theme-chroma" as any]: themeChroma,
-        ["--theme-primary-l" as any]: themePrimaryL,
-        ["--theme-primary-dark-l" as any]: themePrimaryDarkL,
-        ["--app-font-sans" as any]: themeFontStack,
-        ["--app-font-mono" as any]: DEFAULT_MONO_FONT_STACK,
-      }}
+        ["--theme-hue"]: themeHue,
+        ["--theme-chroma"]: themeChroma,
+        ["--theme-primary-l"]: themePrimaryL,
+        ["--theme-primary-dark-l"]: themePrimaryDarkL,
+        ["--app-font-sans"]: themeFontStack,
+        ["--app-font-mono"]: DEFAULT_MONO_FONT_STACK,
+      } as CSSProperties & Record<`--${string}`, string | number>}
     >
       <head>
         {themeFontStylesheetHref && (

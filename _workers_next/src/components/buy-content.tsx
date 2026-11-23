@@ -216,7 +216,7 @@ export function BuyContent({
 
     useEffect(() => {
         setSelectedGalleryImage(galleryImages[0] ?? null)
-    }, [displayProduct.id, displayProduct.image, displayProduct.productImages])
+    }, [displayProduct.id, galleryImages])
 
     useEffect(() => {
         let cancelled = false

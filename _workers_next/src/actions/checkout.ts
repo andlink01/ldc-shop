@@ -1,4 +1,6 @@
 'use server'
+
+import { getErrorText } from '@/lib/errors'
 import { getAppBaseUrl } from "@/lib/url"
 
 import { auth } from "@/lib/auth"
@@ -17,7 +19,7 @@ const MAX_ORDER_QUANTITY = 10000
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 function isMissingColumnError(error: unknown) {
-    const errorString = (JSON.stringify(error) + String(error) + (error instanceof Error ? error.message : '')).toLowerCase()
+    const errorString = getErrorText(error).toLowerCase()
     return errorString.includes('no such column') || errorString.includes('column not found') || errorString.includes('d1_column_notfound')
 }
 

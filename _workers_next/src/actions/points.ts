@@ -1,5 +1,7 @@
 'use server'
 
+import { getErrorMessage } from '@/lib/errors'
+
 import { auth } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { loginUsers } from "@/lib/db/schema"
@@ -64,9 +66,9 @@ export async function checkIn() {
 
         revalidatePath('/')
         return { success: true, points: reward, consecutiveDays: updated[0]?.consecutiveDays ?? 1 }
-    } catch (error: any) {
+    } catch (error) {
         console.error("Check-in error:", error)
-        return { success: false, error: `Check-in failed: ${error?.message || 'Unknown error'}` }
+        return { success: false, error: `Check-in failed: ${getErrorMessage(error) || 'Unknown error'}` }
     }
 }
 
@@ -106,8 +108,8 @@ export async function getCheckinStatus() {
         const todayDate = new Date().toISOString().split('T')[0];
 
         return { checkedIn: lastCheckinDate === todayDate }
-    } catch (error: any) {
-        console.error('[CheckinStatus] Error:', error?.message)
+    } catch (error) {
+        console.error('[CheckinStatus] Error:', getErrorMessage(error))
         return { checkedIn: false }
     }
 }

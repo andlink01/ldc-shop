@@ -1,15 +1,15 @@
 'use client'
 
-import type { ReactNode } from "react"
-import Link from "next/link"
-import { useEffect, useState } from "react"
-import { usePathname } from "next/navigation"
-import { Button } from "@/components/ui/button"
-import { Sheet, SheetContent, SheetTrigger, SheetClose } from "@/components/ui/sheet"
-import { Package, CreditCard, Megaphone, Star, Download, Tags, RotateCcw, Users, Settings, QrCode, Bell, Menu, MessageSquare } from "lucide-react"
-import { useI18n } from "@/lib/i18n/context"
-import { getPendingRefundRequestCount } from "@/actions/refund-requests"
-import { getUnreadUserMessageCount } from "@/actions/user-messages"
+import type { ReactNode } from "react";
+import Link from "next/link";
+import { useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
+import { Button } from "@/components/ui/button";
+import { Sheet, SheetContent, SheetTrigger, SheetClose } from "@/components/ui/sheet";
+import { Package, CreditCard, Megaphone, Star, Download, Tags, RotateCcw, Users, Settings, QrCode, Bell, Menu, MessageSquare } from "lucide-react";
+import { useI18n } from "@/lib/i18n/context";
+import { getPendingRefundRequestCount } from "@/actions/refund-requests";
+import { getUnreadUserMessageCount } from "@/actions/user-messages";
 
 interface NavLinkProps {
     href: string
@@ -50,7 +50,7 @@ interface SidebarContentProps {
     t: (key: string) => string
 }
 
-function SidebarContent({ closeOnNavigate = false, showTitle = true, username, t }: SidebarContentProps) {
+function SidebarContent({ closeOnNavigate = false, showTitle = true, t }: SidebarContentProps) {
     const pathname = usePathname()
     const [pendingRefunds, setPendingRefunds] = useState(0)
     const [unreadMessages, setUnreadMessages] = useState(0)

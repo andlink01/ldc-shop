@@ -51,14 +51,7 @@ export async function getBuyPageMeta(productId: string): Promise<BuyPageMeta> {
     const session = await auth()
 
     const [rawReviews, emailSettings] = await Promise.all([
-        getProductReviews(id).catch(() => [] as Array<{
-            id: number
-            username: string
-            userId: string | null
-            rating: number
-            comment: string | null
-            createdAt: Date | string | null
-        }>),
+        getProductReviews(id).catch(() => []),
         getEmailSettings().catch(() => ({ apiKey: null, fromEmail: null, enabled: false, fromName: null })),
     ])
 
@@ -69,8 +62,8 @@ export async function getBuyPageMeta(productId: string): Promise<BuyPageMeta> {
         rating: Number(review.rating || 0),
         comment: review.comment || null,
         createdAt: toIsoString(review.createdAt),
-        replies: Array.isArray((review as any).replies)
-            ? (review as any).replies.map((reply: any) => ({
+        replies: Array.isArray(review.replies)
+            ? review.replies.map((reply) => ({
                 id: Number(reply.id),
                 username: reply.username || "",
                 userId: reply.userId || null,

@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useHydrated } from '@/lib/client-hooks'
 import { useI18n } from '@/lib/i18n/context'
 
 type DateValue = Date | string | null | undefined
@@ -15,11 +15,7 @@ interface ClientDateProps {
 
 export function ClientDate({ value, format = 'date', placeholder = '', className }: ClientDateProps) {
     const { locale } = useI18n()
-    const [mounted, setMounted] = useState(false)
-
-    useEffect(() => {
-        setMounted(true)
-    }, [])
+    const mounted = useHydrated()
 
     const renderValue = () => {
         if (!mounted || !value) return placeholder

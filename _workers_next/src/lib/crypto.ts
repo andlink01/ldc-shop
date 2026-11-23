@@ -4,7 +4,7 @@ export function md5(message: string): string {
     return createHash('md5').update(message).digest('hex');
 }
 
-export function generateSign(params: Record<string, any>, key: string): string {
+export function generateSign(params: Record<string, unknown>, key: string): string {
     const sorted = Object.keys(params)
         .filter(k => k !== 'sign' && k !== 'sign_type' && params[k] !== '' && params[k] !== null && params[k] !== undefined)
         .sort()

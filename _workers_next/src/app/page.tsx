@@ -2,7 +2,7 @@ import { getActiveProductCategories, getCategories, getActiveProducts, getVisito
 import { getActiveAnnouncement } from "@/actions/settings";
 import { auth } from "@/lib/auth";
 import { HomeContent } from "@/components/home-content";
-import { INFINITE_STOCK } from "@/lib/constants";
+import { getCatalogStock } from "@/lib/catalog-stock";
 
 const PAGE_SIZE = 24;
 
@@ -57,38 +57,16 @@ export default async function Home({
 
   const total = products.length;
 
-  const allProductIds = products.flatMap((p: any) => p.allVariantIds && p.allVariantIds.length > 1 ? p.allVariantIds : [p.id]);
+  const allProductIds = products.flatMap((p) => p.allVariantIds && (p.allVariantIds?.length || 0) > 1 ? p.allVariantIds : [p.id]);
   const liveStats = await getLiveCardStats(allProductIds).catch(() => new Map());
 
-  const productsWithRatings = products.map((p: any) => {
-    const isGroup = p.allVariantIds && p.allVariantIds.length > 1;
-
-    let stockTotal: number;
-    if (isGroup) {
-      let groupAvailable = 0;
-      let groupLocked = 0;
-      let hasInfinite = false;
-      for (const vid of p.allVariantIds) {
-        const vStat = liveStats.get(vid) || { unused: 0, available: 0, locked: 0 };
-        if (vStat.available >= INFINITE_STOCK || (p.groupShared && vStat.unused > 0)) {
-          hasInfinite = true;
-        }
-        groupAvailable += vStat.available;
-        groupLocked += vStat.locked;
-      }
-      stockTotal = hasInfinite ? INFINITE_STOCK : (groupAvailable + groupLocked);
-    } else {
-      const stat = liveStats.get(p.id) || { unused: 0, available: 0, locked: 0 };
-      const available = p.isShared
-        ? (stat.unused > 0 ? INFINITE_STOCK : 0)
-        : stat.available;
-      const locked = stat.locked;
-      stockTotal = available >= INFINITE_STOCK ? INFINITE_STOCK : (available + locked);
-    }
+  const productsWithRatings = products.map((p) => {
+    const isGroup = p.allVariantIds && (p.allVariantIds?.length || 0) > 1;
 
     return {
       ...p,
-      stockCount: stockTotal,
+      stockCount: getCatalogStock(p, liveStats),
+      onDemand: Boolean(p.isOnDemand || p.groupOnDemand),
       soldCount: isGroup ? (p.totalSold || 0) : (p.sold || 0),
       isHot: isGroup ? (p.groupHot || false) : p.isHot,
       descriptionPlain: stripMarkdown(p.description || ''),
@@ -98,7 +76,7 @@ export default async function Home({
   });
 
   // Check for pending orders (depends on session)
-  let pendingOrders: any[] = [];
+  let pendingOrders: Awaited<ReturnType<typeof getUserPendingOrders>> = [];
   if (session?.user?.id) {
     try {
       pendingOrders = await getUserPendingOrders(session.user.id);

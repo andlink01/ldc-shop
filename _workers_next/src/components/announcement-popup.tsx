@@ -1,6 +1,7 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useState, useSyncExternalStore } from "react"
+import { useHydrated } from '@/lib/client-hooks'
 import { BellRing } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -31,24 +32,23 @@ function setDismissedSignature(signature: string) {
     }
 }
 
+function subscribeDismissal(listener: () => void) {
+    window.addEventListener('storage', listener)
+    return () => window.removeEventListener('storage', listener)
+}
+
 export function AnnouncementPopup({ popup }: { popup: AnnouncementPopupData }) {
     const { t } = useI18n()
-    const [open, setOpen] = useState(false)
-
-    useEffect(() => {
-        if (!popup?.content?.trim()) {
-            setOpen(false)
-            return
-        }
-
-        setOpen(getDismissedSignature() !== popup.signature)
-    }, [popup])
+    const hydrated = useHydrated()
+    const storedDismissal = useSyncExternalStore(subscribeDismissal, getDismissedSignature, () => null)
+    const [dismissed, setDismissed] = useState<string | null>(null)
+    const open = hydrated && Boolean(popup?.content?.trim()) && storedDismissal !== popup?.signature && dismissed !== popup?.signature
 
     const dismiss = () => {
         if (popup?.signature) {
             setDismissedSignature(popup.signature)
         }
-        setOpen(false)
+        setDismissed(popup?.signature || null)
     }
 
     if (!popup?.content?.trim()) {
@@ -63,7 +63,6 @@ export function AnnouncementPopup({ popup }: { popup: AnnouncementPopupData }) {
                     dismiss()
                     return
                 }
-                setOpen(true)
             }}
         >
             <DialogContent className="overflow-hidden border-primary/20 bg-background/95 p-0 shadow-2xl backdrop-blur sm:max-w-xl">

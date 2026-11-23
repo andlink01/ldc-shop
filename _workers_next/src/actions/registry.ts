@@ -1,5 +1,7 @@
 "use server"
 
+import { getErrorMessage } from '@/lib/errors'
+
 import { checkAdmin } from "@/actions/admin"
 import { getSetting, setSetting } from "@/lib/db/queries"
 import { ensureRegistryInstanceId, getRegistryBaseUrl, normalizeOrigin } from "@/lib/registry"
@@ -34,8 +36,8 @@ export async function joinRegistry(origin: string): Promise<RegistryResult> {
     let normalized: string
     try {
         normalized = normalizeOrigin(origin)
-    } catch (error: any) {
-        return { ok: false, error: error?.message || "invalid_origin" }
+    } catch (error) {
+        return { ok: false, error: getErrorMessage(error) || "invalid_origin" }
     }
 
     await ensureRegistryInstanceId()
@@ -91,8 +93,8 @@ export async function leaveRegistry(): Promise<RegistryResult> {
         let normalized: string
         try {
             normalized = normalizeOrigin(origin)
-        } catch (error: any) {
-            return { ok: false, error: error?.message || "invalid_origin" }
+        } catch (error) {
+            return { ok: false, error: getErrorMessage(error) || "invalid_origin" }
         }
 
         const challengeRes = await fetch(`${baseUrl}/challenge`, {

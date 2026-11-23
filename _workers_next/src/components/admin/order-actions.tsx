@@ -1,5 +1,8 @@
 'use client'
 
+import type { AdminOrderSummary } from '@/lib/admin-types'
+import { getErrorMessage } from '@/lib/errors'
+
 import Link from "next/link"
 import { useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
@@ -10,7 +13,7 @@ import { toast } from "sonner"
 import { useI18n } from "@/lib/i18n/context"
 import { CheckCircle, Truck, XCircle, ExternalLink } from "lucide-react"
 
-export function AdminOrderActions({ order }: { order: any }) {
+export function AdminOrderActions({ order }: { order: AdminOrderSummary }) {
   const { t } = useI18n()
   const [loading, setLoading] = useState(false)
   const loadingRef = useRef(false)
@@ -49,8 +52,8 @@ export function AdminOrderActions({ order }: { order: any }) {
         await cancelOrder(order.orderId)
         toast.success(t('common.success'))
       }
-    } catch (e: any) {
-      toast.error(e.message)
+    } catch (e) {
+      toast.error(getErrorMessage(e))
     } finally {
       router.refresh()
       setLoading(false)

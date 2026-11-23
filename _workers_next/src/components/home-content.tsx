@@ -1,22 +1,22 @@
 "use client"
 
-import { useDeferredValue, useEffect, useMemo, useState } from "react"
-import Link from "next/link"
-import Image from "next/image"
-import { ArrowRight, Heart, Search, Sparkles, Users } from "lucide-react"
-import { ProductImagePlaceholder } from "@/components/product-image-placeholder"
-import { AnnouncementPopup } from "@/components/announcement-popup"
-import { CardContent } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { cn } from "@/lib/utils"
-import ReactMarkdown from "react-markdown"
-import { StarRatingStatic } from "@/components/star-rating-static"
-import { NavigationPill } from "@/components/navigation-pill"
-import { CheckInButton } from "@/components/checkin-button"
-import { useI18n } from "@/lib/i18n/context"
-import { INFINITE_STOCK } from "@/lib/constants"
+import { useDeferredValue, useMemo, useState } from "react";
+import Link from "next/link";
+import Image from "next/image";
+import { ArrowRight, Heart, Search, Sparkles, Users } from "lucide-react";
+import { ProductImagePlaceholder } from "@/components/product-image-placeholder";
+import { AnnouncementPopup } from "@/components/announcement-popup";
+import { CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
+import ReactMarkdown from "react-markdown";
+import { StarRatingStatic } from "@/components/star-rating-static";
+import { NavigationPill } from "@/components/navigation-pill";
+import { CheckInButton } from "@/components/checkin-button";
+import { useI18n } from "@/lib/i18n/context";
+import { INFINITE_STOCK } from "@/lib/constants";
 
 interface Product {
     id: string
@@ -28,6 +28,7 @@ interface Product {
     image: string | null
     category: string | null
     stockCount: number
+    onDemand?: boolean
     soldCount: number
     isHot?: boolean | null
     rating?: number
@@ -50,7 +51,7 @@ interface HomeContentProps {
     visitorCount?: number
     categories?: string[]
     categoryConfig?: Array<{ name: string; icon: string | null; sortOrder: number }>
-    pendingOrders?: Array<{ orderId: string; createdAt: Date; productName: string; amount: string }>
+    pendingOrders?: Array<{ orderId: string; createdAt: Date | null; productName: string; amount: string }>
     wishlistEnabled?: boolean
     isLoggedIn?: boolean
     checkinEnabled?: boolean
@@ -75,12 +76,14 @@ export function HomeContent({
     const [selectedCategory, setSelectedCategory] = useState<string | null>(filters.category || null)
     const [searchTerm, setSearchTerm] = useState(filters.q || "")
     const [sortKey, setSortKey] = useState(filters.sort || "default")
-    const [page, setPage] = useState(pagination.page || 1)
+    const [pageState, setPageState] = useState({ page: pagination.page || 1, filters: JSON.stringify([filters.category || null, filters.sort || "default", filters.q || ""]) })
     const deferredSearch = useDeferredValue(searchTerm)
 
-    useEffect(() => {
-        setPage(1)
-    }, [selectedCategory, sortKey, deferredSearch])
+    const pageFilters = JSON.stringify([selectedCategory, sortKey, deferredSearch])
+    if (pageState.filters !== pageFilters) setPageState({ page: 1, filters: pageFilters })
+    const page = pageState.filters === pageFilters ? pageState.page : 1
+    const setPage = (next: number | ((page: number) => number)) => setPageState(current => ({ filters: pageFilters,
+        page: typeof next === 'function' ? next(current.page) : next }))
 
     const filteredProducts = useMemo(() => {
         const keyword = deferredSearch.trim().toLowerCase()
@@ -442,7 +445,7 @@ export function HomeContent({
                                                     )}
                                                 </div>
                                                 <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-                                                    <span>{t("common.stock")}: {product.stockCount >= INFINITE_STOCK ? "∞" : product.stockCount}</span>
+                                                    <span>{product.onDemand ? t('inventory.onDemandBuyerHint') : `${t("common.stock")}: ${product.stockCount >= INFINITE_STOCK ? "∞" : product.stockCount}`}</span>
                                                     <span>{t("common.sold")}: {product.soldCount}</span>
                                                 </div>
                                             </div>

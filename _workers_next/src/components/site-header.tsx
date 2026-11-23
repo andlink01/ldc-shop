@@ -1,21 +1,15 @@
-import Link from "next/link"
-import { auth } from "@/lib/auth"
-import { Button } from "@/components/ui/button"
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuLabel,
-    DropdownMenuSeparator,
-    DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
-import { User } from "lucide-react"
-import { SignInButton } from "@/components/signin-button"
-import { SignOutButton } from "@/components/signout-button"
-import { HeaderLogo, HeaderNav, HeaderSearch, HeaderUserMenuItems, HeaderUnreadBadge, LanguageSwitcher } from "@/components/header-client-parts"
-import { ModeToggle } from "@/components/mode-toggle"
-import { getSetting, recordLoginUser, getUserUnreadNotificationCount, getLoginUserDesktopNotificationsEnabled } from "@/lib/db/queries"
-import { isRegistryEnabled } from "@/lib/registry"
+
+import { auth } from "@/lib/auth";
+import { Button } from "@/components/ui/button";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { User } from "lucide-react";
+import { SignInButton } from "@/components/signin-button";
+import { SignOutButton } from "@/components/signout-button";
+import { HeaderLogo, HeaderNav, HeaderUserMenuItems, HeaderUnreadBadge, LanguageSwitcher } from "@/components/header-client-parts";
+import { ModeToggle } from "@/components/mode-toggle";
+import { getSetting, recordLoginUser, getUserUnreadNotificationCount, getLoginUserDesktopNotificationsEnabled } from "@/lib/db/queries";
+import { isRegistryEnabled } from "@/lib/registry";
 
 export async function SiteHeader() {
     const session = await auth()

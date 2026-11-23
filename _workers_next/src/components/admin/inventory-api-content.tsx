@@ -1,5 +1,7 @@
 'use client'
 
+import { getErrorMessage } from '@/lib/errors'
+
 import { useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
@@ -23,7 +25,7 @@ export function InventoryApiContent(props: Props) {
         if (lock.current) return
         lock.current = true; setBusy(true)
         try { await fn(); toast.success(t('common.success')); router.refresh() }
-        catch (error) { toast.error(error instanceof Error ? error.message : t('common.error')) }
+        catch (error) { toast.error(error instanceof Error ? getErrorMessage(error) : t('common.error')) }
         finally { lock.current = false; setBusy(false) }
     }
     const date = (value: number | null) => value ? <ClientDate value={new Date(value)} format="dateTime" /> : '—'

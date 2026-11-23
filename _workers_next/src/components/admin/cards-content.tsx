@@ -1,5 +1,7 @@
 'use client'
 
+import { getErrorMessage } from '@/lib/errors'
+
 import { useI18n } from "@/lib/i18n/context"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -73,7 +75,7 @@ export function CardsContent({ productId, productName, unusedCards, apiConfig, s
         try {
             await updateCardsExpiry(productId, selectedIds, permanent ? null : new Date(expiryValue).toISOString())
             toast.success(t('common.success')); setSelectedIds([]); router.refresh()
-        } catch (e) { toast.error(e instanceof Error ? e.message : t('common.error')) }
+        } catch (e) { toast.error(e instanceof Error ? getErrorMessage(e) : t('common.error')) }
         finally { expiryLock.current = false; setExpiryBusy(false) }
     }
     const toggleSelectAll = () => {
@@ -104,7 +106,7 @@ export function CardsContent({ productId, productName, unusedCards, apiConfig, s
                 setSelectedIds([])
                 router.refresh()
             } catch (e) {
-                toast.error(e instanceof Error ? e.message : t('common.error'))
+                toast.error(e instanceof Error ? getErrorMessage(e) : t('common.error'))
             } finally {
                 setBatchDeleting(false)
                 batchDeleteLock.current = false
@@ -127,7 +129,7 @@ export function CardsContent({ productId, productName, unusedCards, apiConfig, s
             formRef.current?.reset()
             setPendingCount(0)
         } catch (e) {
-            toast.error(e instanceof Error ? e.message : t('common.error'))
+            toast.error(e instanceof Error ? getErrorMessage(e) : t('common.error'))
         } finally {
             setSubmitting(false)
             submitLock.current = false
@@ -182,7 +184,7 @@ export function CardsContent({ productId, productName, unusedCards, apiConfig, s
             }
             router.refresh()
         } catch (e) {
-            toast.error(e instanceof Error ? e.message : t('common.error'))
+            toast.error(e instanceof Error ? getErrorMessage(e) : t('common.error'))
         } finally {
             setSavingApi(false)
         }
@@ -203,7 +205,7 @@ export function CardsContent({ productId, productName, unusedCards, apiConfig, s
             }
             router.refresh()
         } catch (e) {
-            toast.error(e instanceof Error ? e.message : t('common.error'))
+            toast.error(e instanceof Error ? getErrorMessage(e) : t('common.error'))
         } finally {
             setTogglingApiEnabled(false)
         }
@@ -217,7 +219,7 @@ export function CardsContent({ productId, productName, unusedCards, apiConfig, s
             toast.success(t('admin.cards.apiPullSuccess'))
             router.refresh()
         } catch (e) {
-            toast.error(`${t('admin.cards.apiPullFailed')}: ${e instanceof Error ? e.message : ''}`)
+            toast.error(`${t('admin.cards.apiPullFailed')}: ${e instanceof Error ? getErrorMessage(e) : ''}`)
         } finally {
             setPullingApi(false)
         }
@@ -422,7 +424,7 @@ export function CardsContent({ productId, productName, unusedCards, apiConfig, s
                                                     toast.success(t('common.success'))
                                                     router.refresh()
                                                 } catch (e) {
-                                                    toast.error(e instanceof Error ? e.message : t('common.error'))
+                                                    toast.error(e instanceof Error ? getErrorMessage(e) : t('common.error'))
                                                 } finally {
                                                     setDeletingId(null)
                                                     deleteLock.current = null

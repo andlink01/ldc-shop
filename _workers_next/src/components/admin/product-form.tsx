@@ -1,5 +1,9 @@
 'use client'
 
+import NextImage from 'next/image'
+
+import { getErrorMessage } from '@/lib/errors'
+
 import { getProductForAdminAction, saveProduct } from "@/actions/admin"
 import { prepareUploadedImage } from "@/lib/client-image"
 import { Button } from "@/components/ui/button"
@@ -20,7 +24,20 @@ import {
 
 const PRODUCT_IMAGE_UPLOAD_MAX_BYTES = 500 * 1024
 
-export default function ProductForm({ product, categories = [] }: { product?: any; categories?: Array<{ name: string }> }) {
+function parsePurchaseQuestions(raw?: string | null): Array<{ q: string; a: string }> {
+    try {
+        const parsed: unknown = raw ? JSON.parse(raw) : null
+        if (!Array.isArray(parsed)) return []
+        return parsed.filter((item): item is { q: string; a: string } =>
+            item !== null && typeof item === 'object' && typeof item.q === 'string' && typeof item.a === 'string')
+    } catch { return [] }
+}
+
+type ProductFormProps = { product?: NonNullable<Awaited<ReturnType<typeof getProductForAdminAction>>>; categories?: Array<{ name: string }> }
+export default function ProductForm(props: ProductFormProps) {
+    return <ProductFormContent key={props.product?.id || 'new'} {...props} />
+}
+function ProductFormContent({ product, categories = [] }: ProductFormProps) {
     const router = useRouter()
     const [loading, setLoading] = useState(false)
     const submitLock = useRef(false)
@@ -36,50 +53,12 @@ export default function ProductForm({ product, categories = [] }: { product?: an
     const [galleryImageInputValue, setGalleryImageInputValue] = useState('')
     const [processingProductImageFile, setProcessingProductImageFile] = useState(false)
     const [processingProductGalleryFiles, setProcessingProductGalleryFiles] = useState(false)
-    const [purchaseQuestions, setPurchaseQuestions] = useState<Array<{ q: string; a: string }>>(() => {
-        try {
-            const raw = product?.purchaseQuestions
-            if (raw) {
-                const parsed = JSON.parse(raw)
-                if (Array.isArray(parsed) && parsed.length > 0) return parsed
-            }
-        } catch { /* ignore */ }
-        return []
-    })
+    const [purchaseQuestions, setPurchaseQuestions] = useState(() => parsePurchaseQuestions(product?.purchaseQuestions))
     const [showQuestions, setShowQuestions] = useState(purchaseQuestions.length > 0)
     const { t } = useI18n()
     const usingUploadedProductImage = productImageValue.startsWith('data:')
     const productImageInputValue = usingUploadedProductImage ? '' : productImageValue
     const hasRoomForMoreGalleryImages = productGalleryValues.length < PRODUCT_GALLERY_MAX_ITEMS - 1
-
-    useEffect(() => {
-        setCurrentProduct(product)
-        setShowWarning(Boolean(product?.purchaseWarning && String(product.purchaseWarning).trim()))
-        setVisibilityLevel(String(product?.visibilityLevel ?? -1))
-        setProductImageValue(product?.image || '')
-        setProductGalleryValues(parseStoredProductImages(product?.productImages))
-        setGalleryImageInputValue('')
-        try {
-            const raw = product?.purchaseQuestions
-            if (raw) {
-                const parsed = JSON.parse(raw)
-                if (Array.isArray(parsed) && parsed.length > 0) {
-                    setPurchaseQuestions(parsed)
-                    setShowQuestions(true)
-                } else {
-                    setPurchaseQuestions([])
-                    setShowQuestions(false)
-                }
-            } else {
-                setPurchaseQuestions([])
-                setShowQuestions(false)
-            }
-        } catch {
-            setPurchaseQuestions([])
-            setShowQuestions(false)
-        }
-        setFormSeed((s) => s + 1)
-    }, [product?.id])
 
     useEffect(() => {
         if (!product?.id) return
@@ -88,22 +67,15 @@ export default function ProductForm({ product, categories = [] }: { product?: an
                 try {
                     const latest = await getProductForAdminAction(product.id)
                     if (!active || !latest) return
-                    setCurrentProduct(latest as any)
+                    setCurrentProduct(latest)
                     setShowWarning(Boolean(latest?.purchaseWarning && String(latest.purchaseWarning).trim()))
                     setVisibilityLevel(String(latest?.visibilityLevel ?? -1))
                     setProductImageValue(latest?.image || '')
-                    setProductGalleryValues(parseStoredProductImages((latest as any)?.productImages))
+                    setProductGalleryValues(parseStoredProductImages(latest.productImages))
                     setGalleryImageInputValue('')
-                    try {
-                        const raw = (latest as any)?.purchaseQuestions
-                        if (raw) {
-                            const parsed = JSON.parse(raw)
-                            if (Array.isArray(parsed) && parsed.length > 0) {
-                                setPurchaseQuestions(parsed)
-                                setShowQuestions(true)
-                            }
-                        }
-                    } catch { /* ignore */ }
+                    const questions = parsePurchaseQuestions(latest.purchaseQuestions)
+                    setPurchaseQuestions(questions)
+                    setShowQuestions(questions.length > 0)
                     setFormSeed((s) => s + 1)
                 } catch {
                     // ignore
@@ -122,9 +94,9 @@ export default function ProductForm({ product, categories = [] }: { product?: an
             await saveProduct(formData)
             toast.success(t('common.success'))
             router.push('/admin/products')
-        } catch (e: any) {
+        } catch (e) {
             console.error('Save product error:', e)
-            toast.error(e?.message || t('common.error'))
+            toast.error(getErrorMessage(e) || t('common.error'))
         } finally {
             setLoading(false)
             submitLock.current = false
@@ -149,7 +121,7 @@ export default function ProductForm({ product, categories = [] }: { product?: an
                     : t('admin.productForm.imageFileReady')
             )
         } catch (error) {
-            const message = error instanceof Error ? error.message : ''
+            const message = error instanceof Error ? getErrorMessage(error) : ''
             if (message === 'image_compression_unsupported') {
                 toast.error(t('admin.productForm.imageFileCompressionUnsupported'))
                 return
@@ -216,7 +188,7 @@ export default function ProductForm({ product, categories = [] }: { product?: an
                     : t('admin.productForm.galleryFileReady')
             )
         } catch (error) {
-            const message = error instanceof Error ? error.message : ''
+            const message = error instanceof Error ? getErrorMessage(error) : ''
             if (message === 'image_compression_unsupported') {
                 toast.error(t('admin.productForm.imageFileCompressionUnsupported'))
                 return
@@ -261,12 +233,12 @@ export default function ProductForm({ product, categories = [] }: { product?: an
 
                     <div className="grid gap-2">
                         <Label htmlFor="name">{t('admin.productForm.nameLabel')}</Label>
-                        <Input id="name" name="name" defaultValue={currentProduct?.name} placeholder={t('admin.productForm.namePlaceholder')} required />
+                        <Input id="name" name="name" defaultValue={currentProduct?.name ?? ''} placeholder={t('admin.productForm.namePlaceholder')} required />
                     </div>
 
                     <div className="grid gap-2">
                         <Label htmlFor="price">{t('admin.productForm.priceLabel')}</Label>
-                        <Input id="price" name="price" type="number" step="0.01" defaultValue={currentProduct?.price} placeholder={t('admin.productForm.pricePlaceholder')} required onWheel={(e) => e.currentTarget.blur()} />
+                        <Input id="price" name="price" type="number" step="0.01" defaultValue={currentProduct?.price ?? ''} placeholder={t('admin.productForm.pricePlaceholder')} required onWheel={(e) => e.currentTarget.blur()} />
                     </div>
 
                     <div className="grid gap-2">
@@ -284,7 +256,7 @@ export default function ProductForm({ product, categories = [] }: { product?: an
 
                     <div className="grid gap-2">
                         <Label htmlFor="purchaseLimit">{t('admin.productForm.purchaseLimitLabel') || "Per-user Purchase Limit (0 or empty for unlimited)"}</Label>
-                        <Input id="purchaseLimit" name="purchaseLimit" type="number" defaultValue={currentProduct?.purchaseLimit} placeholder={t('admin.productForm.purchaseLimitPlaceholder') || "e.g. 1"} onWheel={(e) => e.currentTarget.blur()} />
+                        <Input id="purchaseLimit" name="purchaseLimit" type="number" defaultValue={currentProduct?.purchaseLimit ?? ''} placeholder={t('admin.productForm.purchaseLimitPlaceholder') || "e.g. 1"} onWheel={(e) => e.currentTarget.blur()} />
                     </div>
 
                     <div className="grid gap-2">
@@ -304,7 +276,7 @@ export default function ProductForm({ product, categories = [] }: { product?: an
 
                     <div className="grid gap-2">
                         <Label htmlFor="category">{t('admin.productForm.categoryLabel')}</Label>
-                        <Input id="category" name="category" list="ldc-category-list" defaultValue={currentProduct?.category} placeholder={t('admin.productForm.categoryPlaceholder')} />
+                        <Input id="category" name="category" list="ldc-category-list" defaultValue={currentProduct?.category ?? ''} placeholder={t('admin.productForm.categoryPlaceholder')} />
                         <datalist id="ldc-category-list">
                             {categories.map(c => (
                                 <option key={c.name} value={c.name} />
@@ -500,7 +472,7 @@ export default function ProductForm({ product, categories = [] }: { product?: an
                         </div>
                         {productImageValue && (
                             <div className="flex items-center gap-4 rounded-md border bg-muted/50 p-2">
-                                <img src={productImageValue} alt={currentProduct?.name || 'Product preview'} className="h-14 w-14 rounded object-contain" />
+                                <NextImage unoptimized width={56} height={56} src={productImageValue} alt={currentProduct?.name || 'Product preview'} className="h-14 w-14 rounded object-contain" />
                                 <span className="text-sm text-muted-foreground">{t('admin.productForm.imagePreview')}</span>
                             </div>
                         )}
@@ -554,7 +526,7 @@ export default function ProductForm({ product, categories = [] }: { product?: an
                                 {productGalleryValues.map((image, index) => (
                                     <div key={`${image}-${index}`} className="rounded-lg border bg-muted/30 p-3">
                                         <div className="mb-3 flex aspect-[4/3] items-center justify-center overflow-hidden rounded-md bg-background">
-                                            <img src={image} alt={`${currentProduct?.name || 'Product'} gallery ${index + 1}`} className="h-full w-full object-contain" />
+                                            <NextImage unoptimized width={400} height={300} src={image} alt={`${currentProduct?.name || 'Product'} gallery ${index + 1}`} className="h-full w-full object-contain" />
                                         </div>
                                         <div className="flex gap-2">
                                             <Button type="button" size="sm" variant="outline" onClick={() => handlePromoteGalleryImage(index)}>
@@ -577,7 +549,7 @@ export default function ProductForm({ product, categories = [] }: { product?: an
                         <Textarea
                             id="description"
                             name="description"
-                            defaultValue={currentProduct?.description}
+                            defaultValue={currentProduct?.description ?? ''}
                             placeholder={t('admin.productForm.descPlaceholder')}
                             className="min-h-[80px]"
                         />

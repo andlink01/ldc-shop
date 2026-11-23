@@ -1,5 +1,7 @@
 'use client'
 
+import { getErrorMessage } from '@/lib/errors'
+
 import { useRef, useState } from "react"
 import { useI18n } from "@/lib/i18n/context"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
@@ -54,8 +56,8 @@ export function OrderContent({ order, canViewKey, isOwner, refundRequest }: Orde
             await requestRefund(order.orderId, reason)
             toast.success(t('refund.requested'))
             setConfirmOpen(false)
-        } catch (e: any) {
-            toast.error(e.message)
+        } catch (e) {
+            toast.error(getErrorMessage(e))
         } finally {
             setSubmitting(false)
             submitLock.current = false
@@ -93,7 +95,6 @@ export function OrderContent({ order, canViewKey, isOwner, refundRequest }: Orde
         if (order.status !== 'pending' && order.status !== 'paid') return
 
         let mounted = true
-        let intervalId: NodeJS.Timeout
 
         const check = async () => {
             try {
@@ -112,7 +113,7 @@ export function OrderContent({ order, canViewKey, isOwner, refundRequest }: Orde
 
         // Poll every 3s for 1 minute (20 times)
         let attempts = 0
-        intervalId = setInterval(() => {
+        const intervalId = setInterval(() => {
             if (attempts > 20) {
                 clearInterval(intervalId)
                 return
@@ -296,8 +297,8 @@ export function OrderContent({ order, canViewKey, isOwner, refundRequest }: Orde
                                                 } else {
                                                     toast.error(result.error ? t(result.error) : t('common.error'))
                                                 }
-                                            } catch (e: any) {
-                                                toast.error(e.message)
+                                            } catch (e) {
+                                                toast.error(getErrorMessage(e))
                                             } finally {
                                                 setSubmitting(false)
                                                 submitLock.current = false
@@ -332,8 +333,8 @@ export function OrderContent({ order, canViewKey, isOwner, refundRequest }: Orde
                                                 } else {
                                                     toast.error(result.error ? t(result.error) : t('common.error'))
                                                 }
-                                            } catch (e: any) {
-                                                toast.error(e.message)
+                                            } catch (e) {
+                                                toast.error(getErrorMessage(e))
                                             } finally {
                                                 setSubmitting(false)
                                                 submitLock.current = false

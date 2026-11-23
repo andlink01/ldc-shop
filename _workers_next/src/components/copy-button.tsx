@@ -1,10 +1,10 @@
 'use client'
 
-import { useState } from 'react'
-import { Button } from '@/components/ui/button'
-import { Check, Copy } from 'lucide-react'
-import { toast } from 'sonner'
-import { useI18n } from '@/lib/i18n/context'
+import { useState } from 'react';
+import { Button } from '@/components/ui/button';
+import { Check, Copy } from 'lucide-react';
+import { toast } from 'sonner';
+import { useI18n } from '@/lib/i18n/context';
 
 interface CopyButtonProps {
     text: string
@@ -24,7 +24,7 @@ export function CopyButton({ text, label, truncate = false, maxLength = 20, ...p
             setCopied(true)
             toast.success(t('common.copied'))
             setTimeout(() => setCopied(false), 2000)
-        } catch (err) {
+        } catch {
             toast.error(t('common.copyFailed'))
         }
     }
