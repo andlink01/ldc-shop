@@ -14,23 +14,26 @@ import { sql } from 'drizzle-orm';
 import * as schema from '@/lib/db/schema';
 import { ensureDatabaseInitialized, setSetting } from '@/lib/db/queries';
 import { createOrder } from '@/actions/checkout';
-import { testNotification, testBarkNotification, testEmailNotification } from '@/actions/admin';
+import { testNotification, testBarkNotification, testEmailNotification, saveCardsApiConfig, setCardsApiEnabled, pullCardFromApi } from '@/actions/admin';
 import { sendOrderEmail } from '@/lib/email';
-import { saveProductCardApiConfig, pullOneCardFromApi } from '@/lib/card-api';
+import { saveProductCardApiConfig, pullOneCardFromApi, getProductCardApiConfig } from '@/lib/card-api';
 import { processInventoryEvents } from '@/lib/inventory-events';
+import { createInventoryKey, viewInventoryKey, resetInventoryKey } from '@/actions/inventory';
+import { listInventoryProducts } from '@/lib/inventory-api';
 import { GET, POST } from '@/app/api/notify/route';
 export default { async fetch(request, env) {
   globalThis.__runtimeEnv = env;
   try {
     const url = new URL(request.url);
     if (url.pathname === '/api/notify') return request.method === 'POST' ? POST(request) : GET(request);
+    if (url.pathname === '/api/v1/products') return listInventoryProducts(request);
     let result;
     if (url.pathname === '/seed') {
       const input = await request.json();
       await ensureDatabaseInitialized();
       await db.insert(schema.products).values({ id: 'product', name: 'Runtime product', price: '3' });
       await db.insert(schema.loginUsers).values({ userId: 'user', username: 'buyer', points: 20 });
-      if (!input.onDemand) await db.insert(schema.cards).values([{productId:'product',cardKey:'STOCK-ONE'},{productId:'product',cardKey:'STOCK-TWO'}]);
+      if (!input.onDemand && !input.noCards) await db.insert(schema.cards).values([{productId:'product',cardKey:'STOCK-ONE'},{productId:'product',cardKey:'STOCK-TWO'}]);
       const values = { telegram_enabled:'true', telegram_bot_token:'TEST-BOT', telegram_chat_id:'TEST-CHAT', bark_enabled:'true',
         bark_device_key:'TEST-DEVICE-KEY', bark_server_url:'https://api.day.app', resend_enabled:'true', resend_api_key:'TEST-RESEND',
         resend_from_email:'shop@example.com', ...input.settings };
@@ -45,11 +48,29 @@ export default { async fetch(request, env) {
     } else if (url.pathname === '/checkout') {
       const input = await request.json();
       result = await createOrder('product', input.quantity || 1, 'buyer@example.com', !!input.usePoints);
+    } else if (url.pathname === '/supplier-config') {
+      const input = await request.json();
+      result = await saveCardsApiConfig('product', input.url, input.token, input.enabled, input.mode);
+    } else if (url.pathname === '/supplier-toggle') {
+      const input = await request.json();
+      result = await setCardsApiEnabled('product', input.enabled, input.url, input.token, input.mode);
+    } else if (url.pathname === '/supplier-state') {
+      result = await getProductCardApiConfig('product');
+    } else if (url.pathname === '/key-create') {
+      result = await createInventoryKey(await request.json());
+    } else if (url.pathname === '/key-view') {
+      result = await viewInventoryKey(url.searchParams.get('id'));
+    } else if (url.pathname === '/key-reset') {
+      result = await resetInventoryKey((await request.json()).id);
+    } else if (url.pathname === '/key-state') {
+      result = await db.select().from(schema.inventoryApiKeys);
     } else if (url.pathname === '/maintenance') {
       for (let i=0; i<4; i++) await processInventoryEvents();
       result = { success:true };
     } else if (url.pathname === '/pull') {
       result = await pullOneCardFromApi('product');
+    } else if (url.pathname === '/manual-pull') {
+      result = await pullCardFromApi('product');
     } else if (url.pathname === '/snapshot') {
       result = { orders:await db.select().from(schema.orders), cards:await db.select().from(schema.cards),
         deliveries:await db.select().from(schema.orderDeliveries), events:await db.select().from(schema.inventoryEvents),
@@ -298,4 +319,74 @@ test('payment storage errors request gateway retry and recover without duplicate
     assert.equal(f.calls.telegram, 1)
     assert.equal(f.calls.bark, 1)
     assert.equal(f.calls.email, 1)
+})
+
+test('both modes return missing URL errors as data in production workerd and preserve the disabled draft', async t => {
+    const f = await setup(t, { noCards: true })
+    for (const mode of ['stock', 'on_demand']) {
+        const saved = await f.json('/supplier-config', { mode, enabled: false, url: '', token: '' })
+        assert.equal(saved.success, true)
+        assert.equal(saved.enabled, false)
+        const enabled = await f.json('/supplier-toggle', { enabled: true })
+        assert.equal(enabled.success, false)
+        assert.equal(enabled.error, 'admin.cards.apiUrlRequired')
+        assert.equal((await f.json('/supplier-state')).enabled, false)
+    }
+    assert.equal(f.calls.supplier, 0)
+})
+
+test('enabling procurement with an optional empty token makes no request until payment in real workerd', async t => {
+    const f = await setup(t, { noCards: true }, async (request, calls) => {
+        if (new URL(request.url).hostname !== 'supplier.example') return undefined
+        calls.supplier++
+        assert.equal(request.headers.get('authorization'), null)
+        const body = await request.json()
+        assert.equal(body.requestId, request.headers.get('idempotency-key'))
+        return Response.json({ success: true, requestId: body.requestId, data: { cardKey: 'OPTIONAL-TOKEN-CARD' } })
+    })
+    assert.equal((await f.json('/supplier-config', { mode: 'on_demand', enabled: false, url: 'https://supplier.example/cards', token: '' })).success, true)
+    assert.equal((await f.json('/supplier-toggle', { enabled: true })).success, true)
+    assert.equal(f.calls.supplier, 0)
+    const checkout = await f.json('/checkout', {})
+    assert.equal(checkout.success, true)
+    assert.equal((await pay(f, checkout)).status, 200)
+    await f.json('/maintenance')
+    assert.equal((await f.json('/snapshot')).orders[0].cardKey, 'OPTIONAL-TOKEN-CARD')
+    assert.equal(f.calls.supplier, 1)
+})
+
+test('encrypted inventory keys can be viewed and reset with correct authentication in real workerd', async t => {
+    const f = await setup(t)
+    const created = await f.json('/key-create', { name: 'Tool', productIds: ['product'], canRead: true, canWrite: false, expiresAt: null })
+    assert.equal(created.success, true)
+    const [key] = await f.json('/key-state')
+    assert.ok(!JSON.stringify(key).includes(created.token))
+    assert.equal((await f.json(`/key-view?id=${key.id}`)).token, created.token)
+    const auth = token => f.worker.dispatchFetch('https://shop.example/api/v1/products', { headers: { Authorization: `Bearer ${token}` } })
+    assert.equal((await auth(created.token)).status, 200)
+    const reset = await f.json('/key-reset', { id: key.id })
+    assert.equal(reset.success, true)
+    assert.notEqual(reset.token, created.token)
+    assert.equal((await auth(created.token)).status, 401)
+    assert.equal((await auth(reset.token)).status, 200)
+    assert.equal((await f.json(`/key-view?id=${key.id}`)).token, reset.token)
+    assert.equal((await f.json('/key-state')).length, 1)
+})
+
+test('manual restocking returns HTTP and response errors as data in production workerd', async t => {
+    let mode = 'http'
+    const f = await setup(t, { restock: true, noCards: true }, request => {
+        if (new URL(request.url).hostname !== 'supplier.example') return undefined
+        if (mode === 'http') return new Response('PRIVATE-CARD', { status: 520 })
+        if (mode === 'invalid') return new Response('PRIVATE-CARD', { headers: { 'Content-Type': 'application/json' } })
+        return Response.json({})
+    })
+    for (const [value, error] of [['http', 'api_request_failed_520'], ['invalid', 'api_invalid_response'], ['missing', 'api_card_missing']]) {
+        mode = value
+        const result = await f.json('/manual-pull')
+        assert.equal(result.success, false)
+        assert.equal(result.error, error)
+        assert.ok(!JSON.stringify(result).includes('PRIVATE'))
+        assert.equal((await f.json('/snapshot')).cards.length, 0)
+    }
 })

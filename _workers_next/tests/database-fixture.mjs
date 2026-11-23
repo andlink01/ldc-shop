@@ -57,7 +57,7 @@ export function fixture(t, { env: overrides = {}, initialize = true, fetch: init
     sqlite?.exec('PRAGMA foreign_keys = ON');
     const binding = sqlite ? d1Binding(sqlite) : null;
     const env = {
-        NODE_ENV: 'production', DATABASE_PATH: path.join(directory, 'test.sqlite'),
+        NODE_ENV: 'production', AUTH_SECRET: 'isolated-test-auth-secret', DATABASE_PATH: path.join(directory, 'test.sqlite'),
         INVENTORY_API_KEY: API_KEY, NEXT_PUBLIC_APP_URL: 'https://shop.example', ...overrides,
     };
     const invalidations = [];
@@ -101,7 +101,7 @@ export function fixture(t, { env: overrides = {}, initialize = true, fetch: init
                 if (args[1]?.redirect === 'error') throw new TypeError('Workers fetch supports only follow or manual redirects');
                 return networkFetch(...args);
             }, AbortSignal,
-            setTimeout, clearTimeout, Buffer, URLSearchParams, ...globals,
+            setTimeout, clearTimeout, setInterval, clearInterval, atob, btoa, Buffer, URLSearchParams, ...globals,
         }, { filename: resolved });
         return loadedModule.exports;
     }

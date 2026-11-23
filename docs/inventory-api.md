@@ -4,6 +4,12 @@ Workers 和 Docker 提供相同的固定接口。商品编码是商品链接 `/b
 
 ## 配置密钥
 
+Workers 推荐在后台“补货接口”创建密钥，选择可操作的商品、查询或补卡权限及到期时间，无需配置 `INVENTORY_API_KEY`。创建后在列表点击“查看”或“复制”即可再次取出密钥；浏览器禁止自动复制时，弹窗内可选中密钥手动复制。
+
+忘记旧版密钥时可点击“重置”，确认后生成新值，原记录的名称、商品范围、权限、期限、启停状态和请求记录保留，旧值立即失效。重置后将新值填写到补货程序。旧版只保存哈希，不能还原原值；新建或重置的密钥保存哈希和加密原值，不保存明文。查看与重置均要求管理员登录。
+
+Docker 1.4.3 尚无后台密钥管理；两版均继续支持环境变量密钥：
+
 生成独立随机密钥，例如在本机执行：
 
 ```sh
@@ -13,7 +19,7 @@ node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"
 - Cloudflare：在当前 Worker 的 **Settings → Variables and Secrets** 添加 Secret，名称为 `INVENTORY_API_KEY`，值为生成的密钥。保存并重新部署。
 - Docker：在 Compose 的 `environment` 中设置 `INVENTORY_API_KEY`，重新创建容器。无需更换数据库或卷。
 
-密钥必须为 32–512 个非空白字符。未配置时 API 返回 `503 api_not_configured`；所有接口使用 `Authorization: Bearer <密钥>`，密钥错误或缺少时返回 `401 unauthorized`。密钥允许查询全店商品及为任意商品补卡，应只交给可信的补货脚本。
+环境变量密钥必须为 32–512 个非空白字符，允许查询全店商品及为任意商品补卡。所有接口使用 `Authorization: Bearer <密钥>`。Workers 后台密钥按指定范围和权限鉴权，停用或过期后无法使用；旧哈希密钥升级后继续有效。环境变量密钥未配置且请求未使用后台密钥时，API 返回 `503 api_not_configured`；配置后缺少或错误的密钥返回 `401 unauthorized`。
 
 ## 接口
 
@@ -27,6 +33,8 @@ node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"
 
 `stock` 中的 `unused` 为未使用且未过期的卡密数；`locked` 为有效支付锁定数量；`available` 为当前可分配数量。共享商品可通过 `isShared` 识别，前台仍按共享商品规则显示无限库存。
 
+Workers 另返回 `fulfillmentMode`，值为 `stock` 或 `on_demand`。付款后采购商品可在没有预存卡密时下单，接口中的库存数仍表示实际卡密数量。第三方取卡配置见 [付款后采购接口规范](supplier-api.md)，此处的补货密钥用于外部程序调用商城，与商城调用供应商时使用的 Token 分别配置。
+
 ## 导入与有效期
 
 先建立 `cards.json`（UTF-8）：
@@ -38,7 +46,7 @@ node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"
 }
 ```
 
-`81000` 秒 = **22 小时 30 分钟**。从首次成功导入时计时，与后台填写小时、分钟的规则一致：到期后卡密不再计入可用库存，并按商城现有清理机制删除。它不会改变外部服务本身的账号或兑换码有效期。
+`81000` 秒 = **22 小时 30 分钟**。从首次成功导入时计时，与后台填写小时、分钟的规则一致：到期后卡密不再计入可用库存。Workers 保留到期记录供管理员处理，Docker 1.4.3 按原清理机制处理。它不会改变外部服务本身的账号或兑换码有效期。
 
 Windows PowerShell 示例（将 `https://shop.example.com` 替换为实际商城域名，并替换密钥）：
 
@@ -89,7 +97,9 @@ curl.exe "https://shop.example.com/api/v1/products/invitationcode/cards" --heade
 
 ## 数据与部署
 
-首次请求会沿用商城现有初始化流程，将数据库结构升级到版本 22，增加 `inventory_imports` 表。商品 ID、已有卡密、订单、D1 绑定及 Docker 数据卷保持原值。全量备份包含导入回执，恢复后保留重试保护。
+首次请求沿用商城现有初始化流程。Docker 1.4.3 的结构版本为 22，包含 `inventory_imports`；Workers 1.5.3 自动升级到 25，为 `inventory_api_keys` 增加可为空的 `token_encrypted` 字段。商品 ID、已有卡密、订单、密钥哈希、D1 绑定及 Docker 数据卷保持原值。全量备份包含导入回执，恢复后保留重试保护；Workers 备份同时包含密钥密文、采购编号和发货记录。
+
+Workers 密钥加密使用当前有效的认证 Secret，依次读取 `AUTH_SECRET`、`NEXTAUTH_SECRET`、`OAUTH_CLIENT_SECRET`，没有新增必须配置的环境变量。恢复备份时应沿用原值，并单独备份此 Secret，数据库导出不会包含它。更换认证 Secret 后，原补货密钥仍可通过哈希鉴权，但旧密文无法查看；可在后台原地重置并更新补货程序。
 
 后续业务同步检查在仓库根目录执行：
 

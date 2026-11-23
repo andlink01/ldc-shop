@@ -1,8 +1,10 @@
-import { dbExecRaw } from './index'
+import { dbExecRaw, dbRun } from './index'
+import { sql } from 'drizzle-orm'
+import { getErrorText } from '@/lib/errors'
 
 export const INVENTORY_FEATURE_SCHEMA = `
 CREATE TABLE IF NOT EXISTS inventory_api_keys (
-    id TEXT PRIMARY KEY, name TEXT NOT NULL, token_hash TEXT NOT NULL UNIQUE, token_prefix TEXT NOT NULL,
+    id TEXT PRIMARY KEY, name TEXT NOT NULL, token_hash TEXT NOT NULL UNIQUE, token_prefix TEXT NOT NULL, token_encrypted TEXT,
     product_ids TEXT NOT NULL DEFAULT '[]', can_read INTEGER NOT NULL DEFAULT 1, can_write INTEGER NOT NULL DEFAULT 1,
     is_enabled INTEGER NOT NULL DEFAULT 1, expires_at INTEGER, created_at INTEGER NOT NULL,
     last_used_at INTEGER, created_by TEXT
@@ -39,4 +41,9 @@ CREATE TABLE IF NOT EXISTS supplier_requests (
 
 export async function ensureInventoryFeatureTables() {
     await dbExecRaw(INVENTORY_FEATURE_SCHEMA)
+    const columns = await dbRun<{ name: string }>(sql`PRAGMA table_info(inventory_api_keys)`)
+    if (!columns.results.some(column => column.name === 'token_encrypted')) {
+        try { await dbExecRaw('ALTER TABLE inventory_api_keys ADD COLUMN token_encrypted TEXT;') }
+        catch (error) { if (!getErrorText(error).toLowerCase().includes('duplicate column')) throw error }
+    }
 }

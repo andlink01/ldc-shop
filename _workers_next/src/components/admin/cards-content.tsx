@@ -1,6 +1,7 @@
 'use client'
 
 import { getErrorMessage } from '@/lib/errors'
+import { validateCardApiConfig } from '@/lib/card-api-validation'
 
 import { useI18n } from "@/lib/i18n/context"
 import { Button } from "@/components/ui/button"
@@ -57,6 +58,8 @@ export function CardsContent({ productId, productName, unusedCards, apiConfig, s
     const [savingApi, setSavingApi] = useState(false)
     const [togglingApiEnabled, setTogglingApiEnabled] = useState(false)
     const [pullingApi, setPullingApi] = useState(false)
+    const [apiFormError, setApiFormError] = useState<string | null>(null)
+    const apiLock = useRef(false)
     const submitLock = useRef(false)
     const batchDeleteLock = useRef(false)
     const deleteLock = useRef<number | null>(null)
@@ -171,57 +174,106 @@ export function CardsContent({ productId, productName, unusedCards, apiConfig, s
         setConfirmOpen(true)
     }
 
+    const validateApiForm = (enabled: boolean) => {
+        const error = validateCardApiConfig({ enabled, url: apiUrl, token: apiToken, mode: apiMode })
+        setApiFormError(error)
+        if (error) toast.error(t(error))
+        return !error
+    }
+
+    const pullErrorMessage = (error: string) => {
+        const status = /^api_request_failed_(\d{3})$/.exec(error)?.[1]
+        if (status) return t('admin.cards.apiHttpError', { status })
+        const messages: Record<string, string> = {
+            api_disabled: 'admin.cards.apiPullDisabled', api_url_missing: 'admin.cards.apiUrlRequired',
+            api_url_invalid: 'admin.cards.apiUrlInvalid', api_network_error: 'admin.cards.apiPullNetworkError',
+            api_timeout: 'admin.cards.apiPullTimeout', api_invalid_response: 'admin.cards.apiPullInvalidResponse',
+            api_card_missing: 'admin.cards.apiPullCardMissing', api_card_duplicate: 'admin.cards.apiPullCardDuplicate',
+            api_insert_failed: 'admin.cards.apiPullInsertFailed', on_demand_uses_paid_orders: 'admin.cards.apiPullOnDemand',
+            'admin.cards.apiProductMissing': 'admin.cards.apiProductMissing',
+        }
+        return t(messages[error] || 'admin.cards.apiPullUnexpectedError')
+    }
+
+    const showAutoPullError = (error: string) => {
+        toast.error(`${t('admin.cards.apiAutoPullFailed')}: ${pullErrorMessage(error)}`)
+    }
+
     const handleSaveApiConfig = async () => {
-        if (savingApi) return
+        if (apiLock.current || !validateApiForm(apiEnabled)) return
+        apiLock.current = true
         setSavingApi(true)
         try {
             const result = await saveCardsApiConfig(productId, apiUrl, apiToken, apiEnabled, apiMode)
-            toast.success(t('common.success'))
+            if (!result.success) {
+                setApiFormError(result.error)
+                toast.error(t(result.error))
+                return
+            }
+            setApiEnabled(result.enabled)
+            setApiMode(result.mode)
+            toast.success(t(result.enabled ? 'admin.cards.apiSavedEnabled' : 'admin.cards.apiSavedDisabled'))
             if (result.autoPulled) {
                 toast.success(t('admin.cards.apiAutoPulled'))
             } else if (result.autoPullError) {
-                toast.error(`${t('admin.cards.apiAutoPullFailed')}: ${result.autoPullError}`)
+                showAutoPullError(result.autoPullError)
             }
             router.refresh()
         } catch (e) {
             toast.error(e instanceof Error ? getErrorMessage(e) : t('common.error'))
         } finally {
             setSavingApi(false)
+            apiLock.current = false
         }
     }
 
     const handleToggleApiEnabled = async () => {
-        if (togglingApiEnabled || savingApi || pullingApi) return
+        if (apiLock.current) return
         const nextEnabled = !apiEnabled
+        if (!validateApiForm(nextEnabled)) return
+        apiLock.current = true
         setTogglingApiEnabled(true)
         try {
             const result = await setCardsApiEnabled(productId, nextEnabled, apiUrl, apiToken, apiMode)
-            setApiEnabled(nextEnabled)
+            if (!result.success) {
+                setApiFormError(result.error)
+                toast.error(t(result.error))
+                return
+            }
+            setApiEnabled(result.enabled)
+            setApiMode(result.mode)
             toast.success(t('common.success'))
             if (result.autoPulled) {
                 toast.success(t('admin.cards.apiAutoPulled'))
             } else if (result.autoPullError) {
-                toast.error(`${t('admin.cards.apiAutoPullFailed')}: ${result.autoPullError}`)
+                showAutoPullError(result.autoPullError)
             }
             router.refresh()
         } catch (e) {
             toast.error(e instanceof Error ? getErrorMessage(e) : t('common.error'))
         } finally {
             setTogglingApiEnabled(false)
+            apiLock.current = false
         }
     }
 
     const handlePullOneCard = async () => {
-        if (pullingApi) return
+        if (apiLock.current) return
+        apiLock.current = true
         setPullingApi(true)
         try {
-            await pullCardFromApi(productId)
+            const result = await pullCardFromApi(productId)
+            if (!result.success) {
+                toast.error(`${t('admin.cards.apiPullFailed')}: ${pullErrorMessage(result.error)}`)
+                return
+            }
             toast.success(t('admin.cards.apiPullSuccess'))
             router.refresh()
         } catch (e) {
             toast.error(`${t('admin.cards.apiPullFailed')}: ${e instanceof Error ? getErrorMessage(e) : ''}`)
         } finally {
             setPullingApi(false)
+            apiLock.current = false
         }
     }
 
@@ -294,42 +346,48 @@ export function CardsContent({ productId, productName, unusedCards, apiConfig, s
 
                     <Card>
                         <CardHeader>
-                            <CardTitle>{t('admin.cards.apiTitle')}</CardTitle>
+                            <CardTitle>{t(apiMode === 'on_demand' ? 'inventory.onDemandTitle' : 'admin.cards.apiTitle')}</CardTitle>
                             <CardDescription>{t(apiMode === 'on_demand' ? 'inventory.onDemandHint' : 'admin.cards.apiHint')}</CardDescription>
                         </CardHeader>
                         <CardContent className="space-y-4">
                             <label className="block text-sm">{t('inventory.deliveryMode')}
-                                <select value={apiMode} onChange={e => setApiMode(e.target.value as 'stock' | 'on_demand')} disabled={savingApi || pullingApi || togglingApiEnabled} className="block w-full border rounded p-2 mt-1">
+                                <select value={apiMode} onChange={e => { setApiMode(e.target.value as 'stock' | 'on_demand'); setApiFormError(null) }} disabled={savingApi || pullingApi || togglingApiEnabled} className="block w-full border rounded p-2 mt-1">
                                     <option value="stock">{t('inventory.stockMode')}</option><option value="on_demand">{t('inventory.onDemandMode')}</option>
                                 </select>
                             </label>
                             <div className="grid gap-2">
-                                <label className="text-sm font-medium">{t('admin.cards.apiUrl')}</label>
+                                <label htmlFor="supplier-api-url" className="text-sm font-medium">{t('admin.cards.apiUrl')}</label>
                                 <Input
+                                    id="supplier-api-url"
+                                    type="url"
                                     value={apiUrl}
-                                    onChange={(e) => setApiUrl(e.target.value)}
+                                    onChange={(e) => { setApiUrl(e.target.value); setApiFormError(null) }}
                                     placeholder="https://example.com/api/card"
-                                    disabled={savingApi || pullingApi}
+                                    disabled={savingApi || pullingApi || togglingApiEnabled}
                                 />
                             </div>
                             <div className="grid gap-2">
-                                <label className="text-sm font-medium">{t('admin.cards.apiToken')}</label>
+                                <label htmlFor="supplier-api-token" className="text-sm font-medium">{t('admin.cards.apiToken')}</label>
                                 <Input
+                                    id="supplier-api-token"
                                     type="password"
                                     value={apiToken}
-                                    onChange={(e) => setApiToken(e.target.value)}
+                                    onChange={(e) => { setApiToken(e.target.value); setApiFormError(null) }}
                                     placeholder={t('admin.cards.apiTokenPlaceholder')}
-                                    disabled={savingApi || pullingApi}
+                                    disabled={savingApi || pullingApi || togglingApiEnabled}
                                 />
+                                <p className="text-xs text-muted-foreground">{t('admin.cards.apiTokenHint')}</p>
                             </div>
+                            {apiFormError && <p role="alert" className="text-sm text-destructive">{t(apiFormError)}</p>}
                             <div className="flex flex-wrap items-center gap-3">
+                                <Badge variant={apiEnabled ? 'default' : 'secondary'}>{t(apiEnabled ? 'admin.cards.apiEnabled' : 'admin.cards.apiDisabled')}</Badge>
                                 <Button
                                     variant={apiEnabled ? "default" : "outline"}
                                     size="sm"
                                     onClick={handleToggleApiEnabled}
                                     disabled={savingApi || pullingApi || togglingApiEnabled}
                                 >
-                                    {apiEnabled ? t('admin.cards.apiEnabled') : t('admin.cards.apiDisabled')}
+                                    {t(apiEnabled ? 'inventory.disable' : 'inventory.enable')}
                                 </Button>
                                 <Button
                                     variant="outline"

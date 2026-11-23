@@ -56,6 +56,7 @@ export const inventoryImports = sqliteTable('inventory_imports', {
 export const inventoryApiKeys = sqliteTable('inventory_api_keys', {
     id: text('id').primaryKey(), name: text('name').notNull(),
     tokenHash: text('token_hash').notNull().unique(), tokenPrefix: text('token_prefix').notNull(),
+    tokenEncrypted: text('token_encrypted'),
     productIds: text('product_ids').notNull().default('[]'),
     canRead: integer('can_read', { mode: 'boolean' }).notNull().default(true),
     canWrite: integer('can_write', { mode: 'boolean' }).notNull().default(true),

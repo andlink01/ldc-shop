@@ -11,7 +11,7 @@ function host(tag) {
 }
 const dialog = { Dialog: host('dialog'), ...Object.fromEntries(['DialogContent', 'DialogDescription', 'DialogFooter', 'DialogHeader', 'DialogTitle'].map(name => [name, host('div')])) }
 
-function setup(t, mocks = {}) {
+function setup(t, mocks = {}, globals = {}) {
     const values = new Map()
     const storage = {
         writable: true,
@@ -24,17 +24,17 @@ function setup(t, mocks = {}) {
     const pushed = []
     const f = fixture(t, {
         initialize: false,
-        globals: { window, localStorage: storage, document, Event },
+        globals: { window, localStorage: storage, document, Event, ...globals },
         mocks: {
             react: React,
             'next/link': host('a'),
-            'next/navigation': { useRouter: () => ({ push: url => pushed.push(url) }) },
+            'next/navigation': { useRouter: () => ({ push: url => pushed.push(url), refresh() {} }) },
             'react-markdown': host('article'),
             '@/components/ui/button': { Button: host('button') },
             '@/components/ui/input': { Input: host('input') },
             '@/components/ui/label': { Label: host('label') },
             '@/components/ui/dialog': dialog,
-            '@/components/ui/card': Object.fromEntries(['Card', 'CardContent', 'CardFooter', 'CardHeader', 'CardTitle'].map(name => [name, host('div')])),
+            '@/components/ui/card': Object.fromEntries(['Card', 'CardContent', 'CardFooter', 'CardHeader', 'CardTitle', 'CardDescription'].map(name => [name, host('div')])),
             '@/components/ui/checkbox': { Checkbox: host('input') },
             '@/components/ui/textarea': { Textarea: host('textarea') },
             'next/image': host('img'),
@@ -218,4 +218,99 @@ test('product form resets on product navigation and ignores stale fetches while 
     assert.equal(view.root.findByProps({ id: 'showQuestions', type: 'checkbox' }).props.checked, false)
     await act(async () => view.update(React.createElement(ProductForm, {})))
     assert.equal(view.root.findByProps({ name: 'name', id: 'name' }).props.defaultValue, '')
+})
+
+test('supplier form keeps drafts disabled, reports missing URLs locally and prevents repeated enable clicks', async t => {
+    const calls = [], errors = [], messages = []
+    let finishEnable
+    const f = setup(t, {
+        '@/actions/admin': {
+            saveCardsApiConfig: async (...args) => { calls.push(['save', ...args]); return { success: true, enabled: args[3], mode: args[4], autoPulled: false } },
+            setCardsApiEnabled: (...args) => { calls.push(['toggle', ...args]); return new Promise(resolve => { finishEnable = () => resolve({ success: true, enabled: args[1], mode: args[4], autoPulled: false }) }) },
+        },
+        '@/actions/inventory': { updateCardsExpiry: async () => {} },
+        sonner: { toast: { success: message => messages.push(message), error: message => errors.push(message) } },
+    })
+    const { CardsContent } = f.load('components/admin/cards-content')
+    const view = await mount(t, React.createElement(CardsContent, {
+        productId: 'product', productName: 'Product', snapshotAt: Date.now(), unusedCards: [],
+        apiConfig: { enabled: false, url: '', token: '', mode: 'on_demand' },
+    }))
+    const button = label => view.root.findAllByType('button').find(node => node.children.join('') === label)
+    await act(async () => button('Save').props.onClick())
+    assert.equal(calls.length, 1)
+    assert.equal(calls[0][4], false)
+    assert.ok(messages.some(message => message.includes('disabled')))
+    await act(async () => button('Enable').props.onClick())
+    assert.equal(calls.length, 1)
+    assert.match(view.root.findByProps({ role: 'alert' }).children.join(''), /supplier URL/)
+    assert.ok(errors.some(message => message.includes('supplier URL')))
+    await act(async () => view.root.findByProps({ id: 'supplier-api-url', type: 'url' }).props.onChange({ target: { value: 'https://supplier.example/cards' } }))
+    let first, second
+    await act(async () => { first = button('Enable').props.onClick(); second = button('Enable').props.onClick() })
+    assert.equal(calls.filter(call => call[0] === 'toggle').length, 1)
+    await act(async () => { finishEnable(); await Promise.all([first, second]) })
+    assert.ok(button('Disable'))
+})
+
+test('supplier form shows server validation errors without marking the feature enabled', async t => {
+    const errors = []
+    const f = setup(t, {
+        '@/actions/admin': { setCardsApiEnabled: async () => ({ success: false, error: 'admin.cards.apiSharedUnsupported' }) },
+        '@/actions/inventory': { updateCardsExpiry: async () => {} },
+        sonner: { toast: { success() { assert.fail('Validation must not be reported as success') }, error: message => errors.push(message) } },
+    })
+    const { CardsContent } = f.load('components/admin/cards-content')
+    const view = await mount(t, React.createElement(CardsContent, {
+        productId: 'product', productName: 'Product', snapshotAt: Date.now(), unusedCards: [],
+        apiConfig: { enabled: false, url: 'https://supplier.example/cards', token: '', mode: 'on_demand' },
+    }))
+    const button = () => view.root.findAllByType('button').find(node => node.children.join('') === 'Enable')
+    await act(async () => button().props.onClick())
+    assert.ok(button())
+    assert.match(view.root.findByProps({ role: 'alert' }).children.join(''), /Shared-card/)
+    assert.equal(errors.length, 1)
+})
+
+test('key list supports view, clipboard fallback and reset without deleting its configuration', async t => {
+    const errors = [], resets = []
+    const f = setup(t, { '@/actions/inventory': {
+        viewInventoryKey: async () => ({ success: true, token: 'VISIBLE-TEST-KEY' }),
+        resetInventoryKey: async id => { resets.push(id); return { success: true, token: 'RESET-TEST-KEY' } },
+    }, sonner: { toast: { success() {}, error: message => errors.push(message) } } }, {
+        navigator: { clipboard: { writeText: async () => { throw new Error('Clipboard denied') } } },
+    })
+    const { InventoryApiContent } = f.load('components/admin/inventory-api-content')
+    const view = await mount(t, React.createElement(InventoryApiContent, {
+        keysData: [{ id: 'key', name: 'Tool', prefix: 'ldc_inv_test', productIds: '[]', canRead: true, canWrite: true, enabled: true, expiresAt: null, lastUsedAt: null, recoverable: true }],
+        products: [], logs: [], page: 1, hasNext: false, keyFilter: '', statusFilter: '', alertMinutes: 60,
+    }))
+    const button = label => view.root.findAllByType('button').find(node => node.children.join('') === label)
+    const field = () => view.root.findByProps({ 'aria-label': 'Restock key', readOnly: true })
+    await act(async () => button('View').props.onClick())
+    assert.equal(field().props.value, 'VISIBLE-TEST-KEY')
+    await act(async () => button('Copy').props.onClick())
+    assert.match(errors.at(-1), /copy it manually/)
+    assert.equal(field().props.value, 'VISIBLE-TEST-KEY')
+    await act(async () => button('Reset').props.onClick())
+    assert.deepEqual(resets, [])
+    await act(async () => button('Confirm').props.onClick())
+    assert.deepEqual(resets, ['key'])
+    assert.equal(field().props.value, 'RESET-TEST-KEY')
+})
+
+test('manual restocking shows provider failure messages without a success toast', async t => {
+    const errors = []
+    const f = setup(t, {
+        '@/actions/admin': { pullCardFromApi: async () => ({ success: false, error: 'api_request_failed_520' }) },
+        '@/actions/inventory': { updateCardsExpiry: async () => {} },
+        sonner: { toast: { success() { assert.fail('A failed pull must not show success') }, error: message => errors.push(message) } },
+    })
+    const { CardsContent } = f.load('components/admin/cards-content')
+    const view = await mount(t, React.createElement(CardsContent, {
+        productId: 'product', productName: 'Product', snapshotAt: Date.now(), unusedCards: [],
+        apiConfig: { enabled: true, url: 'https://supplier.example/cards', token: '', mode: 'stock' },
+    }))
+    await act(async () => view.root.findAllByType('button').find(node => node.children.join('') === 'Pull 1 Card').props.onClick())
+    assert.match(errors.at(-1), /HTTP 520/)
 })

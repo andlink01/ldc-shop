@@ -10,7 +10,7 @@ test('fresh schema initializes all business tables and raw SQL returns rows', as
     for (const name of ['products', 'cards', 'orders', 'review_replies', 'inventory_imports', 'wishlist_votes', 'inventory_api_keys', 'inventory_api_requests', 'order_deliveries', 'inventory_events', 'supplier_requests']) {
         assert.ok(tables.results.some((table) => table.name === name), name);
     }
-    assert.equal(await f.queries.getSetting('schema_version'), '24');
+    assert.equal(await f.queries.getSetting('schema_version'), '25');
     await f.db.insert(f.schema.products).values({ id: 'stable', name: 'Stable', price: '1' });
     await f.db.insert(f.schema.cards).values({ productId: 'stable', cardKey: 'test' });
     const returning = await f.dbRun(sql`UPDATE cards SET reserved_order_id = 'order' WHERE product_id = 'stable' RETURNING id, card_key`);
@@ -31,7 +31,7 @@ test('schema v19 upgrades without changing product IDs, cards or orders', async 
         INSERT INTO orders (order_id, product_id, product_name, amount, status) VALUES ('existing-order', 'invitationcode', 'Invitation', '1.00', 'pending');
     `);
     await f.queries.ensureDatabaseInitialized();
-    assert.equal(await f.queries.getSetting('schema_version'), '24');
+    assert.equal(await f.queries.getSetting('schema_version'), '25');
     assert.equal((await f.db.select().from(f.schema.products))[0].id, 'invitationcode');
     assert.equal((await f.db.select().from(f.schema.cards))[0].cardKey, 'sddssssss');
     assert.equal((await f.db.select().from(f.schema.orders))[0].orderId, 'existing-order');
@@ -49,7 +49,7 @@ test('schema v21 adds import receipts and preserves existing records', async (t)
         INSERT INTO products (id, name, price) VALUES ('stable', 'Stable', '1');
     `);
     await legacy.queries.ensureDatabaseInitialized();
-    assert.equal(await legacy.queries.getSetting('schema_version'), '24');
+    assert.equal(await legacy.queries.getSetting('schema_version'), '25');
     assert.equal((await legacy.dbRun(sql`SELECT id FROM products`)).results[0].id, 'stable');
     assert.deepEqual((await legacy.db.select().from(legacy.schema.inventoryImports)), []);
 });
@@ -69,7 +69,7 @@ test('schema v22 upgrades to inventory features while preserving expiries, issue
     await f.queries.setSetting('schema_version', '22')
     const upgraded = f.reload('lib/db/queries')
     await upgraded.ensureDatabaseInitialized()
-    assert.equal(await upgraded.getSetting('schema_version'), '24')
+    assert.equal(await upgraded.getSetting('schema_version'), '25')
     const cards = await f.db.select().from(f.schema.cards)
     assert.equal(cards[0].id, 1)
     assert.equal(cards[0].cardKey, 'old-card')

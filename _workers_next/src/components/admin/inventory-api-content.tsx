@@ -5,15 +5,17 @@ import { getErrorMessage } from '@/lib/errors'
 import { useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { createInventoryKey, setInventoryKeyEnabled, saveExpiryAlertMinutes } from '@/actions/inventory'
+import { createInventoryKey, viewInventoryKey, resetInventoryKey, setInventoryKeyEnabled, saveExpiryAlertMinutes } from '@/actions/inventory'
 import { useI18n } from '@/lib/i18n/context'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { toast } from 'sonner'
 import { ClientDate } from '@/components/client-date'
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Badge } from '@/components/ui/badge'
 
-type KeyData = { id: string; name: string; prefix: string; productIds: string; canRead: boolean; canWrite: boolean; enabled: boolean; expiresAt: number | null; lastUsedAt: number | null }
+type KeyData = { id: string; name: string; prefix: string; productIds: string; canRead: boolean; canWrite: boolean; enabled: boolean; expiresAt: number | null; lastUsedAt: number | null; recoverable?: boolean }
 type LogData = { id: string; keyId: string | null; action: string; productId: string | null; status: number; addedCount: number; replayed: boolean; error: string | null; createdAt: number }
 type Props = { keysData: KeyData[]; products: { id: string; name: string }[]; logs: LogData[]; page: number; hasNext: boolean; keyFilter: string; statusFilter: string; alertMinutes: number }
 
@@ -21,11 +23,27 @@ export function InventoryApiContent(props: Props) {
     const { t } = useI18n(), router = useRouter()
     const [busy, setBusy] = useState(false), lock = useRef(false)
     const [token, setToken] = useState(''), [allProducts, setAllProducts] = useState(true)
+    const [tokenName, setTokenName] = useState(''), [resetKey, setResetKey] = useState<KeyData | null>(null)
     const perform = async (fn: () => Promise<unknown>) => {
         if (lock.current) return
         lock.current = true; setBusy(true)
-        try { await fn(); toast.success(t('common.success')); router.refresh() }
+        try { if (await fn() === false) return; toast.success(t('common.success')); router.refresh() }
         catch (error) { toast.error(error instanceof Error ? getErrorMessage(error) : t('common.error')) }
+        finally { lock.current = false; setBusy(false) }
+    }
+    const copyToken = async (value: string) => {
+        try { await navigator.clipboard.writeText(value); toast.success(t('common.success')) }
+        catch { toast.error(t('inventory.copyManually')) }
+    }
+    const revealToken = async (key: KeyData, copy: boolean) => {
+        if (lock.current) return
+        lock.current = true; setBusy(true)
+        try {
+            const result = await viewInventoryKey(key.id)
+            if (!result.success) { toast.error(t(result.error)); return }
+            setTokenName(key.name); setToken(result.token)
+            if (copy) await copyToken(result.token)
+        } catch { toast.error(t('common.error')) }
         finally { lock.current = false; setBusy(false) }
     }
     const date = (value: number | null) => value ? <ClientDate value={new Date(value)} format="dateTime" /> : '—'
@@ -48,7 +66,8 @@ export function InventoryApiContent(props: Props) {
                     const result = await createInventoryKey({ name: String(data.get('name') || ''),
                         productIds: allProducts ? [] : data.getAll('products').map(String), canRead: data.has('read'), canWrite: data.has('write'),
                         expiresAt: expires ? new Date(expires).toISOString() : null })
-                    setToken(result.token); form.reset(); setAllProducts(true)
+                    if (!result.success) { toast.error(t(result.error)); return false }
+                    setTokenName(String(data.get('name') || '')); setToken(result.token); form.reset(); setAllProducts(true)
                 })
             }}>
                 <label className="block text-sm">{t('inventory.keyName')}<Input name="name" placeholder={t('inventory.keyNamePlaceholder')} required maxLength={80} disabled={busy} /></label>
@@ -63,21 +82,42 @@ export function InventoryApiContent(props: Props) {
                 <label className="block text-sm">{t('inventory.keyExpiry')}<Input type="datetime-local" name="expires" disabled={busy} /></label>
                 <Button disabled={busy}>{t('inventory.createKey')}</Button>
             </form>
-            {token && <div className="mt-4 space-y-2 rounded border p-4"><p>{t('inventory.tokenOnce')}</p><Input readOnly value={token} className="font-mono" aria-label={t('inventory.tokenOnce')} />
-                <Button variant="outline" onClick={() => void navigator.clipboard.writeText(token).then(() => toast.success(t('common.success'))).catch(() => toast.error(t('common.error')))}>{t('common.copy')}</Button>
-                <Button variant="ghost" onClick={() => setToken('')}>{t('inventory.close')}</Button>
-            </div>}
         </CardContent></Card>
         <Card><CardHeader><CardTitle>{t('inventory.keys')}</CardTitle></CardHeader><CardContent className="overflow-x-auto">
-            <table className="w-full text-sm"><thead><tr>{['keyName', 'scope', 'permissions', 'keyExpiry', 'lastUsed', 'state'].map(k => <th key={k} className="p-2 text-left">{t(`inventory.${k}`)}</th>)}</tr></thead><tbody>
+            <table className="w-full text-sm"><thead><tr>{['keyName', 'scope', 'permissions', 'keyExpiry', 'lastUsed', 'state', 'action'].map(k => <th key={k} className="p-2 text-left">{t(`inventory.${k}`)}</th>)}</tr></thead><tbody>
                 {props.keysData.map(key => <tr key={key.id} className="border-t"><td className="p-2">{key.name}<div className="font-mono text-xs">{key.prefix}…</div></td>
                     <td className="p-2 max-w-64 break-words">{key.productIds === '[]' ? t('inventory.allProducts') : (JSON.parse(key.productIds) as string[]).join(', ')}</td>
                     <td className="p-2">{[key.canRead && t('inventory.read'), key.canWrite && t('inventory.write')].filter(Boolean).join(' / ')}</td>
                     <td className="p-2">{date(key.expiresAt)}</td><td className="p-2">{date(key.lastUsedAt)}</td>
-                    <td className="p-2"><Button size="sm" variant="outline" disabled={busy} onClick={() => void perform(() => setInventoryKeyEnabled(key.id, !key.enabled))}>{t(key.enabled ? 'inventory.disable' : 'inventory.enable')}</Button></td>
+                    <td className="p-2"><Badge variant={key.enabled ? 'default' : 'secondary'}>{t(key.enabled ? 'inventory.keyActive' : 'inventory.keyInactive')}</Badge></td>
+                    <td className="p-2"><div className="flex flex-wrap gap-2">
+                        <Button size="sm" variant="outline" disabled={busy} onClick={() => void revealToken(key, false)}>{t('inventory.viewKey')}</Button>
+                        <Button size="sm" variant="outline" disabled={busy} onClick={() => void revealToken(key, true)}>{t('common.copy')}</Button>
+                        <Button size="sm" variant="outline" disabled={busy} onClick={() => setResetKey(key)}>{t('inventory.resetKey')}</Button>
+                        <Button size="sm" variant="outline" disabled={busy} onClick={() => void perform(() => setInventoryKeyEnabled(key.id, !key.enabled))}>{t(key.enabled ? 'inventory.disable' : 'inventory.enable')}</Button>
+                    </div>{!key.recoverable && <p className="mt-2 text-xs text-muted-foreground">{t('inventory.legacyKeyHint')}</p>}</td>
                 </tr>)}
             </tbody></table>
         </CardContent></Card>
+        <Dialog open={Boolean(token)} onOpenChange={open => { if (!open) setToken('') }}>
+            <DialogContent><DialogHeader><DialogTitle>{t('inventory.tokenLabel')}{tokenName ? `：${tokenName}` : ''}</DialogTitle><DialogDescription>{t('inventory.tokenOnce')}</DialogDescription></DialogHeader>
+                <Input readOnly value={token} onFocus={event => event.currentTarget.select()} className="font-mono" aria-label={t('inventory.tokenLabel')} />
+                <DialogFooter><Button onClick={() => void copyToken(token)}>{t('common.copy')}</Button><Button variant="outline" onClick={() => setToken('')}>{t('inventory.close')}</Button></DialogFooter>
+            </DialogContent>
+        </Dialog>
+        <Dialog open={Boolean(resetKey)} onOpenChange={open => { if (!open && !busy) setResetKey(null) }}>
+            <DialogContent><DialogHeader><DialogTitle>{t('inventory.resetKey')}</DialogTitle><DialogDescription>{t('inventory.resetKeyHint')}</DialogDescription></DialogHeader>
+                <DialogFooter><Button variant="outline" disabled={busy} onClick={() => setResetKey(null)}>{t('common.cancel')}</Button><Button disabled={busy} onClick={() => {
+                    if (!resetKey) return
+                    const key = resetKey
+                    void perform(async () => {
+                        const result = await resetInventoryKey(key.id)
+                        if (!result.success) { toast.error(t(result.error)); return false }
+                        setResetKey(null); setTokenName(key.name); setToken(result.token)
+                    })
+                }}>{t('common.confirm')}</Button></DialogFooter>
+            </DialogContent>
+        </Dialog>
         <Card><CardHeader><CardTitle>{t('inventory.expiryAlert')}</CardTitle></CardHeader><CardContent>
             <form className="flex flex-wrap items-end gap-3" onSubmit={event => { event.preventDefault(); const data = new FormData(event.currentTarget); void perform(() => saveExpiryAlertMinutes(Number(data.get('minutes')))) }}>
                 <label className="text-sm">{t('inventory.alertHint')}<Input name="minutes" type="number" min={0} max={10080} defaultValue={props.alertMinutes} required disabled={busy} /></label>

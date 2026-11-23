@@ -24,6 +24,8 @@ test('full SQL backup restores key hashes, procurement IDs and delivery deduplic
     const response = await f.load('app/admin/data/download/route').GET(new Request('https://shop.example/admin/data/download?type=full&format=sql'))
     assert.equal(response.status, 200)
     const dump = await response.text()
+    assert.ok(!dump.includes(issued.token))
+    assert.ok(dump.includes('token_encrypted'))
     assert.match(dump, /char\(10\)/)
     for (const name of ['inventory_api_keys', 'order_deliveries', 'inventory_events', 'supplier_requests']) assert.ok(dump.includes(`INTO ${name}`))
     const restored = fixture(t, options)
@@ -35,6 +37,8 @@ test('full SQL backup restores key hashes, procurement IDs and delivery deduplic
     assert.equal((await restored.db.select().from(restored.schema.supplierRequests))[0].requestId, 'purchase')
     assert.equal((await restored.db.select().from(restored.schema.cards))[0].supplierRequestId, 'purchase')
     assert.equal((await restored.db.select().from(restored.schema.inventoryApiKeys))[0].tokenHash, await restored.load('lib/inventory-management').hashInventoryToken(issued.token))
+    const restoredKey = (await restored.db.select().from(restored.schema.inventoryApiKeys))[0]
+    assert.equal((await restored.load('lib/inventory-management').readManagedInventoryToken(restoredKey.id)).token, issued.token)
     assert.equal((await restored.load('lib/fulfillment').fulfillPaidOrder('order')).replayed, true)
     assert.equal((await restored.db.select().from(restored.schema.userNotifications)).length, 1)
 })

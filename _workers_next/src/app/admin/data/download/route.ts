@@ -395,6 +395,7 @@ export async function GET(req: Request) {
           targetType: 'target_type',
           targetValue: 'target_value',
             tokenHash: 'token_hash',
+            tokenEncrypted: 'token_encrypted',
             tokenPrefix: 'token_prefix',
             productIds: 'product_ids',
             canRead: 'can_read',

@@ -16,6 +16,7 @@ import { unstable_noStore } from "next/cache";
 import { isThemeFont } from "@/lib/theme-fonts";
 import { normalizeCurrencyUnit } from "@/lib/currency-unit";
 import { PRODUCT_GALLERY_MAX_ITEMS, PRODUCT_GALLERY_MAX_JSON_LENGTH, normalizeProductImageRefs, parseStoredProductImages, splitProductImageGallery, validateProductImageRef } from "@/lib/product-images";
+import { CardApiConfigError, type CardApiMode } from '@/lib/card-api-validation';
 
 export async function checkAdmin() {
     const session = await auth()
@@ -323,56 +324,33 @@ export async function deleteCards(cardIds: number[]) {
     await deleteUnconsumedCards(cardIds)
 }
 
-export async function saveCardsApiConfig(productId: string, apiUrl: string, apiToken: string, enabled: boolean, mode: 'stock' | 'on_demand' = 'stock') {
-    await checkAdmin()
-
-    const id = String(productId || "").trim()
-    if (!id) throw new Error("Invalid product id")
-
-    const url = String(apiUrl || "").trim()
-    const token = String(apiToken || "").trim()
-    const safeEnabled = !!enabled
-
-    if (safeEnabled && !url) {
-        throw new Error("API URL is required")
+async function persistCardsApiConfig(id: string, apiUrl: string, apiToken: string, enabled: boolean, mode: CardApiMode) {
+    if (!id) return { success: false as const, error: 'admin.cards.apiProductMissing' }
+    const url = String(apiUrl || '').trim(), token = String(apiToken || '').trim()
+    try {
+        await saveProductCardApiConfig(id, { enabled, mode, url, token })
+    } catch (error) {
+        // Expected form errors must survive production Server Action serialization.
+        if (error instanceof CardApiConfigError) return { success: false as const, error: error.code }
+        throw error
     }
-
-    if (url.length > 1000) {
-        throw new Error("API URL is too long")
-    }
-    if (token.length > 1000) {
-        throw new Error("API token is too long")
-    }
-
-    if (url) {
-        try {
-            // Validate URL format early to avoid runtime fetch failures.
-            void new URL(url)
-        } catch {
-            throw new Error("Invalid API URL")
-        }
-    }
-
-    await saveProductCardApiConfig(id, {
-        enabled: safeEnabled, mode,
-        url,
-        token,
-    })
 
     let autoPulled = false
     let autoPullError: string | null = null
-    if (safeEnabled && url) {
-        const pullResult = await pullOneCardFromApi(id)
-        if (pullResult.ok) {
-            autoPulled = true
-            try {
-                await recalcProductAggregates(id)
-            } catch {
-                // best effort
+    if (enabled && mode === 'stock') {
+        try {
+            const pullResult = await pullOneCardFromApi(id)
+            if (pullResult.ok) {
+                autoPulled = true
+                try {
+                    await recalcProductAggregates(id)
+                } catch {
+                    // best effort
+                }
+            } else if (!pullResult.skipped) {
+                autoPullError = pullResult.error || "api_pull_failed"
             }
-        } else if (!pullResult.skipped) {
-            autoPullError = pullResult.error || "api_pull_failed"
-        }
+        } catch { autoPullError = 'api_pull_failed' }
     }
 
     revalidatePath(`/admin/cards/${id}`)
@@ -383,10 +361,17 @@ export async function saveCardsApiConfig(productId: string, apiUrl: string, apiT
     updateTag('home:product-categories')
 
     return {
-        success: true,
+        success: true as const,
+        enabled,
+        mode,
         autoPulled,
         autoPullError,
     }
+}
+
+export async function saveCardsApiConfig(productId: string, apiUrl: string, apiToken: string, enabled: boolean, mode: CardApiMode = 'stock') {
+    await checkAdmin()
+    return persistCardsApiConfig(String(productId || '').trim(), apiUrl, apiToken, !!enabled, mode)
 }
 
 export async function setCardsApiEnabled(
@@ -394,75 +379,28 @@ export async function setCardsApiEnabled(
     enabled: boolean,
     apiUrl?: string,
     apiToken?: string,
-    mode?: 'stock' | 'on_demand'
+    mode?: CardApiMode
 ) {
     await checkAdmin()
 
     const id = String(productId || "").trim()
-    if (!id) throw new Error("Invalid product id")
+    if (!id) return { success: false as const, error: 'admin.cards.apiProductMissing' }
 
     const current = await getProductCardApiConfig(id)
     const nextUrl = typeof apiUrl === "string" ? apiUrl.trim() : current.url
     const nextToken = typeof apiToken === "string" ? apiToken.trim() : current.token
 
-    if (nextUrl.length > 1000) {
-        throw new Error("API URL is too long")
-    }
-    if (nextToken.length > 1000) {
-        throw new Error("API token is too long")
-    }
-    if (nextUrl) {
-        try {
-            void new URL(nextUrl)
-        } catch {
-            throw new Error("Invalid API URL")
-        }
-    }
-
-    if (enabled && !nextUrl) {
-        throw new Error("API URL is required")
-    }
-
-    await saveProductCardApiConfig(id, {
-        enabled, mode: mode || current.mode,
-        url: nextUrl,
-        token: nextToken,
-    })
-
-    let autoPulled = false
-    let autoPullError: string | null = null
-    if (enabled && nextUrl) {
-        const pullResult = await pullOneCardFromApi(id)
-        if (pullResult.ok) {
-            autoPulled = true
-            try {
-                await recalcProductAggregates(id)
-            } catch {
-                // best effort
-            }
-        } else if (!pullResult.skipped) {
-            autoPullError = pullResult.error || "api_pull_failed"
-        }
-    }
-
-    revalidatePath(`/admin/cards/${id}`)
-    revalidatePath('/admin/products')
-    revalidatePath('/admin/settings')
-    revalidatePath('/')
-    updateTag('home:products')
-    updateTag('home:product-categories')
-
-    return { success: true, autoPulled, autoPullError }
+    return persistCardsApiConfig(id, nextUrl, nextToken, !!enabled, mode ?? current.mode)
 }
 
 export async function pullCardFromApi(productId: string) {
     await checkAdmin()
     const id = String(productId || "").trim()
-    if (!id) throw new Error("Invalid product id")
+    if (!id) return { success: false as const, error: 'admin.cards.apiProductMissing' }
 
     const result = await pullOneCardFromApi(id)
     if (!result.ok) {
-        throw new Error(result.error || "api_pull_failed")
+        return { success: false as const, error: result.error || "api_pull_failed" }
     }
 
     try {
@@ -478,7 +416,7 @@ export async function pullCardFromApi(productId: string) {
     updateTag('home:products')
     updateTag('home:product-categories')
 
-    return { success: true, cardKey: result.cardKey || null }
+    return { success: true as const, cardKey: result.cardKey || null }
 }
 
 export async function saveShopName(rawName: string) {

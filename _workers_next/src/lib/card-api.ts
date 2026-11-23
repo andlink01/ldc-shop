@@ -1,9 +1,10 @@
-import { getErrorMessage, getErrorText } from '@/lib/errors'
+import { getErrorText } from '@/lib/errors'
 import { recoverAfterRestock } from '@/lib/inventory-management'
 import { db, dbBatchRaw } from "@/lib/db"
 import { cards, settings, products } from "@/lib/db/schema"
 import { ensureDatabaseInitialized } from "@/lib/db/queries"
 import { inArray, eq } from "drizzle-orm"
+import { CardApiConfigError, validateCardApiConfig } from './card-api-validation'
 
 export interface ProductCardApiConfig {
     enabled: boolean
@@ -54,7 +55,7 @@ function extractCardKey(payload: unknown): string {
 
 function isUniqueConstraintError(error: unknown) {
     const text = getErrorText(error).toLowerCase()
-    return text.includes("unique") || text.includes("constraint failed")
+    return text.includes('unique constraint') || text.includes('constraint_unique')
 }
 
 async function getSettingsUncached(keys: string[]): Promise<Record<string, string>> {
@@ -97,17 +98,12 @@ export async function saveProductCardApiConfig(productId: string, config: Omit<P
     const token = config.token.trim()
     const enabled = !!config.enabled
 
-    const mode = config.mode || 'stock'
-    if (mode !== 'stock' && mode !== 'on_demand') throw new Error('Invalid fulfillment mode')
-    if (url) {
-        const parsed = new URL(url)
-        if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password) throw new Error('Invalid supplier URL')
-        if (mode === 'on_demand' && (parsed.search || parsed.hash)) throw new Error('Use a supplier URL without query parameters')
-    }
-    if (mode === 'on_demand') {
-        const product = await db.query.products.findFirst({ where: eq(products.id, productId), columns: { isShared: true } })
-        if (!product || product.isShared) throw new Error('On-demand delivery requires a finite-stock product')
-    }
+    const mode = config.mode ?? 'stock'
+    const error = validateCardApiConfig({ enabled, url, token, mode })
+    if (error) throw new CardApiConfigError(error)
+    const product = await db.query.products.findFirst({ where: eq(products.id, productId), columns: { isShared: true } })
+    if (!product) throw new CardApiConfigError('admin.cards.apiProductMissing')
+    if (mode === 'on_demand' && product.isShared) throw new CardApiConfigError('admin.cards.apiSharedUnsupported')
     await dbBatchRaw(([
         ['enabled', enabled ? 'true' : 'false'], ['url', url], ['token', token], ['mode', mode],
     ] as const).map(([field, value]) => ({
@@ -146,11 +142,17 @@ export async function pullOneCardFromApi(productId: string): Promise<{
         headers.Authorization = `Bearer ${config.token}`
     }
 
-    const response = await fetch(requestUrl, {
-        method: "GET",
-        headers,
-        cache: "no-store", signal: AbortSignal.timeout(15000), redirect: "manual",
-    })
+    let response: Response
+    try {
+        response = await fetch(requestUrl, {
+            method: "GET",
+            headers,
+            cache: "no-store", signal: AbortSignal.timeout(15000), redirect: "manual",
+        })
+    } catch (error) {
+        const name = error !== null && typeof error === 'object' && 'name' in error ? error.name : ''
+        return { ok: false, error: name === 'TimeoutError' || name === 'AbortError' ? 'api_timeout' : 'api_network_error' }
+    }
 
     if (!response.ok) {
         return { ok: false, error: `api_request_failed_${response.status}` }
@@ -159,11 +161,9 @@ export async function pullOneCardFromApi(productId: string): Promise<{
     const contentType = (response.headers.get("content-type") || "").toLowerCase()
 
     let payload: unknown
-    if (contentType.includes("application/json")) {
-        payload = await response.json()
-    } else {
-        payload = await response.text()
-    }
+    try {
+        payload = contentType.includes("application/json") ? await response.json() : await response.text()
+    } catch { return { ok: false, error: 'api_invalid_response' } }
 
     const cardKey = extractCardKey(payload)
     if (!cardKey) {
@@ -179,7 +179,7 @@ export async function pullOneCardFromApi(productId: string): Promise<{
         if (isUniqueConstraintError(error)) {
             return { ok: false, error: "api_card_duplicate" }
         }
-        return { ok: false, error: getErrorMessage(error) || "api_insert_failed" }
+        return { ok: false, error: "api_insert_failed" }
     }
 
     await recoverAfterRestock(productId)
