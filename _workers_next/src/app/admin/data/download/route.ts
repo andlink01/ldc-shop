@@ -1,5 +1,5 @@
 import type { SQL } from 'drizzle-orm'
-import { getErrorCauseMessage, getErrorMessage } from '@/lib/errors'
+import { getErrorMessage } from '@/lib/errors'
 import { NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
 import { db } from "@/lib/db"
@@ -25,22 +25,12 @@ import {
 } from "@/lib/db/schema"
 import { and, desc, eq, or, sql } from "drizzle-orm"
 import { getProducts, normalizeTimestampMs, ensureDatabaseInitialized } from "@/lib/db/queries"
+import { isAdminUsername } from '@/lib/admin-auth'
 
 function requireAdminUsername(username?: string | null) {
-  const adminUsers = process.env.ADMIN_USERS?.toLowerCase().split(",") || []
-  if (!username || !adminUsers.includes(username.toLowerCase())) {
+  if (!isAdminUsername(username)) {
     throw new Error("Unauthorized")
   }
-}
-
-function isMissingTable(error: unknown) {
-  const errorString = JSON.stringify(error)
-  return (
-    getErrorMessage(error)?.includes("does not exist") ||
-    getErrorCauseMessage(error)?.includes("does not exist") ||
-    errorString.includes("42P01") ||
-    (errorString.includes("relation") && errorString.includes("does not exist"))
-  )
 }
 
 function csvEscape(value: unknown): string {
@@ -277,39 +267,36 @@ export async function GET(req: Request) {
     if (type === "full") {
       await ensureDatabaseInitialized()
       const full: Record<string, Record<string, unknown>[]> = {}
-      const tables: Array<[string, () => Promise<Record<string, unknown>[]>]> = [
-        ["categories", async () => db.select().from(categories).all()],
-        ["products", async () => db.select().from(products).all()],
-        ["cards", async () => db.select().from(cards).all()],
-        ["inventory_imports", async () => db.select().from(inventoryImports).all()],
-        ["orders", async () => db.select().from(orders).all()],
-        ["inventory_api_keys", async () => db.select().from(inventoryApiKeys).all()],
-        ["inventory_api_requests", async () => db.select().from(inventoryApiRequests).all()],
-        ["order_deliveries", async () => db.select().from(orderDeliveries).all()],
-        ["inventory_events", async () => db.select().from(inventoryEvents).all()],
-        ["supplier_requests", async () => db.select().from(supplierRequests).all()],
-        ["reviews", async () => db.select().from(reviews).all()],
-        ["review_replies", async () => db.select().from(reviewReplies).all()],
-        ["settings", async () => db.select().from(settings).all()],
-        ["login_users", async () => db.select().from(loginUsers).all()],
-        ["user_notifications", async () => db.select().from(userNotifications).all()],
-        ["user_messages", async () => db.select().from(userMessages).all()],
-        ["admin_messages", async () => db.select().from(adminMessages).all()],
-        ["broadcast_messages", async () => db.select().from(broadcastMessages).all()],
-        ["broadcast_reads", async () => db.select().from(broadcastReads).all()],
-        ["wishlist_items", async () => db.select().from(wishlistItems).all()],
-        ["wishlist_votes", async () => db.select().from(wishlistVotes).all()],
-        ["refund_requests", async () => db.select().from(refundRequests).all()],
-        ["daily_checkins_v2", async () => db.select().from(dailyCheckins).all()],
-      ]
-
-      for (const [tableName, fetcher] of tables) {
-        try {
-          full[tableName] = await fetcher()
-        } catch (e) {
-          if (isMissingTable(e)) full[tableName] = []
-          else throw e
-        }
+      const tables = [
+        ["categories", db.select().from(categories)],
+        ["products", db.select().from(products)],
+        ["cards", db.select().from(cards)],
+        ["inventory_imports", db.select().from(inventoryImports)],
+        ["orders", db.select().from(orders)],
+        ["inventory_api_keys", db.select().from(inventoryApiKeys)],
+        ["inventory_api_requests", db.select().from(inventoryApiRequests)],
+        ["order_deliveries", db.select().from(orderDeliveries)],
+        ["inventory_events", db.select().from(inventoryEvents)],
+        ["supplier_requests", db.select().from(supplierRequests)],
+        ["reviews", db.select().from(reviews)],
+        ["review_replies", db.select().from(reviewReplies)],
+        ["settings", db.select().from(settings)],
+        ["login_users", db.select().from(loginUsers)],
+        ["user_notifications", db.select().from(userNotifications)],
+        ["user_messages", db.select().from(userMessages)],
+        ["admin_messages", db.select().from(adminMessages)],
+        ["broadcast_messages", db.select().from(broadcastMessages)],
+        ["broadcast_reads", db.select().from(broadcastReads)],
+        ["wishlist_items", db.select().from(wishlistItems)],
+        ["wishlist_votes", db.select().from(wishlistVotes)],
+        ["refund_requests", db.select().from(refundRequests)],
+        ["daily_checkins_v2", db.select().from(dailyCheckins)],
+      ] as const
+      // D1 batch reads all tables in one transaction, including stock and its delivery receipts.
+      const [firstQuery, ...otherQueries] = tables.map(([, query]) => query)
+      const snapshot = await db.batch([firstQuery, ...otherQueries])
+      for (const [index, [tableName]] of tables.entries()) {
+        full[tableName] = snapshot[index] as Record<string, unknown>[]
       }
 
       if (format === "json") {

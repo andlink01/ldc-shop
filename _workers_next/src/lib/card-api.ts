@@ -1,9 +1,9 @@
 import { getErrorText } from '@/lib/errors'
 import { recoverAfterRestock } from '@/lib/inventory-management'
-import { db, dbBatchRaw } from "@/lib/db"
-import { cards, settings, products } from "@/lib/db/schema"
+import { db, dbRun, dbBatchRaw } from "@/lib/db"
+import { settings, products } from "@/lib/db/schema"
 import { ensureDatabaseInitialized } from "@/lib/db/queries"
-import { inArray, eq } from "drizzle-orm"
+import { inArray, eq, sql } from "drizzle-orm"
 import { CardApiConfigError, validateCardApiConfig } from './card-api-validation'
 
 export interface ProductCardApiConfig {
@@ -171,10 +171,12 @@ export async function pullOneCardFromApi(productId: string): Promise<{
     }
 
     try {
-        await db.insert(cards).values({
-            productId,
-            cardKey,
-        })
+        // Keep manual duplicate stock supported, but never restock a supplier value twice.
+        const inserted = await dbRun<{ id: number }>(sql`INSERT INTO cards (product_id, card_key, created_at)
+            SELECT ${productId}, ${cardKey}, ${Date.now()}
+            WHERE NOT EXISTS (SELECT 1 FROM cards WHERE product_id = ${productId} AND TRIM(card_key) = ${cardKey})
+            RETURNING id`)
+        if (!inserted.results.length) return { ok: false, error: 'api_card_duplicate' }
     } catch (error) {
         if (isUniqueConstraintError(error)) {
             return { ok: false, error: "api_card_duplicate" }

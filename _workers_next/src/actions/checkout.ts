@@ -47,6 +47,13 @@ function isValidEmail(value: string | null | undefined) {
     return EMAIL_REGEX.test(value.trim())
 }
 
+function isPurchaseQuestion(value: unknown): value is { q: string; a: string } {
+    if (!value || typeof value !== 'object') return false
+    const question = value as Record<string, unknown>
+    return typeof question.q === 'string' && Boolean(question.q.trim())
+        && typeof question.a === 'string' && Boolean(question.a.trim())
+}
+
 export async function createOrder(productId: string, quantity: number = 1, email?: string, usePoints: boolean = false, answers?: string[]) {
     const session = await auth()
     const user = session?.user
@@ -72,6 +79,7 @@ export async function createOrder(productId: string, quantity: number = 1, email
                 purchaseLimit: true,
                 maxPointsDiscount: true,
                 isShared: true,
+                visibilityLevel: true,
                 purchaseQuestions: true
             }
         })
@@ -89,22 +97,27 @@ export async function createOrder(productId: string, quantity: number = 1, email
     const product = await getCheckoutProduct()
     if (!product) return { success: false, error: 'buy.productNotFound' }
 
+    const trustLevel = Math.max(0, Number.isFinite(Number(user.trustLevel)) ? Number(user.trustLevel) : 0)
+    if (Number(product.visibilityLevel ?? -1) > trustLevel) {
+        return { success: false, error: 'buy.visibilityDenied' }
+    }
+
     if (product.purchaseQuestions) {
+        let questions: unknown
         try {
-            const qs: Array<{ q: string; a: string }> = JSON.parse(product.purchaseQuestions)
-            if (Array.isArray(qs) && qs.length > 0) {
-                if (!answers || answers.length !== qs.length) {
-                    return { success: false, error: 'buy.answersRequired' }
-                }
-                const allCorrect = qs.every((q, i) => {
-                    const userAnswer = (answers[i] || '').trim().toLowerCase()
-                    return userAnswer === q.a.trim().toLowerCase()
-                })
-                if (!allCorrect) {
-                    return { success: false, error: 'buy.questionsWrong' }
-                }
+            questions = JSON.parse(product.purchaseQuestions)
+        } catch { return { success: false, error: 'buy.questionsUnavailable' } }
+        if (!Array.isArray(questions) || !questions.every(isPurchaseQuestion)) {
+            return { success: false, error: 'buy.questionsUnavailable' }
+        }
+        if (questions.length > 0) {
+            if (!Array.isArray(answers) || answers.length !== questions.length || answers.some(answer => typeof answer !== 'string')) {
+                return { success: false, error: 'buy.answersRequired' }
             }
-        } catch { /* malformed JSON, skip */ }
+            if (!questions.every((question, i) => answers[i].trim().toLowerCase() === question.a.trim().toLowerCase())) {
+                return { success: false, error: 'buy.questionsWrong' }
+            }
+        }
     }
 
     const purchaseLimit = product.purchaseLimit && product.purchaseLimit > 0 ? product.purchaseLimit : null
@@ -232,7 +245,7 @@ export async function createOrder(productId: string, quantity: number = 1, email
     const committed = await commitCheckoutOrder({ orderId, productId, productName: product.name, price: product.price,
         shared: Boolean(product.isShared), quantity, amount: finalAmount, points: pointsToUse,
         userId: user.id, username: user.username || user.name || null, email: resolvedContactInfo,
-        purchaseLimit, onDemand })
+        purchaseLimit, onDemand, trustLevel, purchaseQuestions: product.purchaseQuestions })
     if (!committed.success) return { success: false, error: 'buy.stockLocked' }
     try { await recalcProductAggregates(productId); updateTag('home:products') } catch { /* maintenance refreshes stock */ }
 

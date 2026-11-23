@@ -141,7 +141,7 @@ export async function adminApproveRefund(requestId: number, adminNote?: string) 
     if (result?.processed) {
       return { ok: true, processed: true }
     }
-    return { ok: true, processed: false, error: result?.message || 'refund_failed' }
+    return { ok: true, processed: false, error: result?.messageKey || result?.message || 'refund_failed' }
   } catch (e) {
     return { ok: true, processed: false, error: getErrorMessage(e) || 'refund_failed' }
   }

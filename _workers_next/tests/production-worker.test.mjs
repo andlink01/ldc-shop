@@ -12,11 +12,15 @@ async function setup(t, options) {
     return { ...f, sessionCookie: await f.cookie() }
 }
 
-async function pay(f, id) {
+function paymentCallbackPath(id) {
     const params = { pid: 'TEST-MERCHANT', out_trade_no: id, trade_no: 'production-test-trade', trade_status: 'TRADE_SUCCESS', money: '3.00', sign_type: 'MD5' }
     const sorted = Object.keys(params).filter(key => key !== 'sign_type').sort().map(key => `${key}=${params[key]}`).join('&')
     params.sign = createHash('md5').update(sorted + 'isolated-production-merchant-key').digest('hex')
-    const response = await f.request(`/api/notify?${new URLSearchParams(params)}`)
+    return `/api/notify?${new URLSearchParams(params)}`
+}
+
+async function pay(f, id) {
+    const response = await f.request(paymentCallbackPath(id))
     assert.equal(response.status, 200)
     assert.equal(await response.text(), 'success')
 }
@@ -398,7 +402,7 @@ test('a five-second supplier issues a card only after payment through the produc
 })
 
 test('production refund actions call the payment refund operation and restore inventory only once', async t => {
-    let refunds = 0
+    let refunds = 0, refundedOrderId
     const f = await setup(t, { provider: async request => {
         const url = new URL(request.url)
         if (url.hostname !== 'credit.linux.do') return undefined
@@ -406,21 +410,23 @@ test('production refund actions call the payment refund operation and restore in
             assert.equal(request.method, 'POST')
             const form = await request.formData()
             assert.equal(form.get('money'), '3.00')
+            assert.equal(form.get('trade_no'), 'production-test-trade')
+            refundedOrderId = form.get('out_trade_no')
             refunds++
             return Response.json({ code: 1 })
         }
         assert.equal(url.searchParams.get('act'), 'order')
-        return Response.json({ code: 1, status: 0, out_trade_no: url.searchParams.get('out_trade_no') })
+        assert.equal(url.searchParams.get('trade_no'), 'production-test-trade')
+        return Response.json({ code: 1, status: 0, trade_no: 'production-test-trade', out_trade_no: refundedOrderId })
     } })
     await f.database.prepare('INSERT INTO cards (product_id, card_key) VALUES (?, ?)').bind('product', 'REFUND-PRODUCTION-CARD').run()
     const created = await f.action('createOrder', '/buy/product', ['product', 1, '', false], f.sessionCookie)
     assert.equal(created.result?.success, true, created.body)
     const id = created.result.params.out_trade_no
     await pay(f, id)
-    for (let attempt = 0; attempt < 2; attempt++) {
-        const response = await f.action('proxyRefund', `/admin/orders/${id}`, [id], f.sessionCookie)
-        assert.equal(response.result?.processed, true, response.body)
-    }
+    const responses = await Promise.all(Array.from({ length: 3 }, () => f.action('proxyRefund', `/admin/orders/${id}`, [id], f.sessionCookie)))
+    assert.ok(responses.some(response => response.result?.processed), responses.map(response => response.body).join('\n'))
+    assert.equal((await f.action('proxyRefund', `/admin/orders/${id}`, [id], f.sessionCookie)).result?.processed, true)
     const verified = await f.action('verifyOrderRefundStatus', `/admin/orders/${id}`, [id], f.sessionCookie)
     assert.equal(verified.result?.success, true, verified.body)
     assert.equal(refunds, 1)
@@ -428,4 +434,188 @@ test('production refund actions call the payment refund operation and restore in
     assert.equal(cards.results[0].is_used, 0)
     const orders = await f.database.prepare('SELECT status FROM orders WHERE order_id = ?').bind(id).all()
     assert.equal(orders.results[0].status, 'refunded')
+})
+
+test('production checkout rejects a direct trust-level bypass without spending points or reserving stock', async t => {
+    const f = await setup(t)
+    await f.database.prepare('UPDATE products SET visibility_level = ? WHERE id = ?').bind(2, 'product').run()
+    await f.database.prepare('INSERT INTO cards (product_id,card_key) VALUES (?,?)').bind('product', 'TRUST-PRODUCTION-CARD').run()
+    for (const level of [0, 1]) {
+        const denied = await f.action('createOrder', '/buy/product', ['product', 1, '', true], await f.cookie('owner', 'audit-admin', level))
+        assert.equal(denied.result?.success, false, denied.body)
+        assert.equal(denied.result?.error, 'buy.visibilityDenied')
+    }
+    assert.equal((await f.database.prepare('SELECT count(*) AS count FROM orders').bind().all()).results[0].count, 0)
+    assert.equal((await f.database.prepare('SELECT points FROM login_users WHERE user_id = ?').bind('owner').all()).results[0].points, 20)
+    assert.equal((await f.database.prepare('SELECT reserved_order_id FROM cards').bind().all()).results[0].reserved_order_id, null)
+    const allowed = await f.action('createOrder', '/buy/product', ['product', 1, '', false], await f.cookie('owner', 'audit-admin', 2))
+    assert.equal(allowed.result?.success, true, allowed.body)
+})
+
+test('production Server Actions reject malformed answers while a correct answer still buys normally', async t => {
+    const f = await setup(t)
+    const questions = JSON.stringify([{ q: 'Answer?', a: 'Correct' }])
+    await f.database.prepare('UPDATE products SET purchase_questions = ? WHERE id = ?').bind(questions, 'product').run()
+    await f.database.prepare('INSERT INTO cards (product_id,card_key) VALUES (?,?)').bind('product', 'ANSWER-PRODUCTION-CARD').run()
+    for (const answers of [[{}], [null], { 0: 'Correct', length: 1 }]) {
+        const denied = await f.action('createOrder', '/buy/product', ['product', 1, '', false, answers], f.sessionCookie)
+        assert.equal(denied.result?.success, false, denied.body)
+        assert.equal(denied.result?.error, 'buy.answersRequired')
+    }
+    assert.equal((await f.database.prepare('SELECT count(*) AS count FROM orders').bind().all()).results[0].count, 0)
+    await f.database.prepare('UPDATE products SET purchase_questions = ? WHERE id = ?').bind('invalid-json', 'product').run()
+    const invalid = await f.action('createOrder', '/buy/product', ['product', 1, '', false, ['Correct']], f.sessionCookie)
+    assert.equal(invalid.result?.error, 'buy.questionsUnavailable', invalid.body)
+    await f.database.prepare('UPDATE products SET purchase_questions = ? WHERE id = ?').bind(questions, 'product').run()
+    const allowed = await f.action('createOrder', '/buy/product', ['product', 1, '', false, [' correct ']], f.sessionCookie)
+    assert.equal(allowed.result?.success, true, allowed.body)
+})
+
+test('production automatic GET restocking rejects historical and concurrent duplicate cards', async t => {
+    let cardKey = 'SOLD-PRODUCTION-CARD'
+    const f = await setup(t, { provider: request => {
+        if (new URL(request.url).hostname === 'supplier.example') return Response.json({ cardKey })
+    } })
+    await f.database.prepare('INSERT INTO cards (product_id,card_key,is_used) VALUES (?,?,1)').bind('product', cardKey).run()
+    const saved = await f.action('saveCardsApiConfig', '/admin/cards/product', ['product', 'https://supplier.example/cards', '', true, 'stock'], f.sessionCookie)
+    assert.equal(saved.result?.success, true, saved.body)
+    const duplicate = await f.action('pullCardFromApi', '/admin/cards/product', ['product'], f.sessionCookie)
+    assert.equal(duplicate.result?.success, false, duplicate.body)
+    assert.equal(duplicate.result?.error, 'api_card_duplicate')
+    cardKey = 'NEW-PRODUCTION-CARD'
+    const pulls = await Promise.all(Array.from({ length: 3 }, () => f.action('pullCardFromApi', '/admin/cards/product', ['product'], f.sessionCookie)))
+    assert.equal(pulls.filter(pull => pull.result?.success).length, 1, pulls.map(pull => pull.body).join('\n'))
+    assert.equal((await f.database.prepare('SELECT count(*) AS count FROM cards WHERE card_key = ?').bind(cardKey).all()).results[0].count, 1)
+})
+
+test('the production backup and import routes preserve inventory across a payment during export', async t => {
+    const f = await setup(t)
+    await f.database.prepare('INSERT INTO cards (product_id,card_key) VALUES (?,?)').bind('product', 'BACKUP-PRODUCTION-CARD').run()
+    const created = await f.action('createOrder', '/buy/product', ['product', 1, '', false], f.sessionCookie)
+    assert.equal(created.result?.success, true, created.body)
+    const id = created.result.params.out_trade_no
+    const response = await f.request('/admin/data/download?type=full&format=sql', { headers: { Cookie: f.sessionCookie, 'X-Test-Interleave-Callback': paymentCallbackPath(id) } })
+    const dump = await response.text()
+    assert.equal(response.status, 200, dump)
+    assert.equal(response.headers.get('x-test-interleaved'), 'true')
+    assert.equal((await f.database.prepare('SELECT status FROM orders WHERE order_id = ?').bind(id).all()).results[0].status, 'delivered')
+    const restored = await setup(t)
+    await restored.database.prepare('DELETE FROM products').bind().run()
+    const form = new FormData()
+    form.set('file', new File([dump], 'backup.sql', { type: 'application/sql' }))
+    const imported = await restored.action('importData', '/admin/data', [form], restored.sessionCookie)
+    assert.equal(imported.result?.success, true, imported.body)
+    assert.equal(imported.result?.errors, 0, imported.body)
+    const order = (await restored.database.prepare('SELECT status FROM orders WHERE order_id = ?').bind(id).all()).results[0]
+    const card = (await restored.database.prepare('SELECT is_used FROM cards').bind().all()).results[0]
+    assert.equal(order.status === 'delivered', Boolean(card.is_used))
+    await pay(restored, id)
+    const second = await restored.action('createOrder', '/buy/product', ['product', 1, '', false], restored.sessionCookie)
+    assert.equal(second.result?.success, false, second.body)
+    assert.equal(second.result?.error, 'buy.outOfStock')
+    assert.equal((await restored.database.prepare('SELECT count(*) AS count FROM order_deliveries').bind().all()).results[0].count, 1)
+})
+
+test('production review metadata keeps more than 100 reviews and their replies', async t => {
+    const f = await setup(t)
+    for (let i = 0; i < 101; i++) await f.database.prepare('INSERT INTO reviews (product_id,order_id,user_id,username,rating,comment,created_at) VALUES (?,?,?,?,?,?,?)')
+        .bind('product', 'review-' + i, 'owner', 'audit-admin', 5, 'Review ' + i, Date.now() + i).run()
+    await f.database.prepare('INSERT INTO review_replies (review_id,user_id,username,comment) VALUES (?,?,?,?)').bind(1, 'owner', 'audit-admin', 'Production reply').run()
+    const result = await f.action('getBuyPageMeta', '/buy/product', ['product'], f.sessionCookie)
+    assert.equal(result.result?.reviewCount, 101, result.body)
+    assert.equal(result.result?.averageRating, 5)
+    assert.equal(result.result?.reviews.length, 101)
+    assert.equal(result.result?.reviews.find(review => review.id === 1).replies[0].comment, 'Production reply')
+})
+
+test('the production cleanup route rotates beyond 50 missing-stock orders without cancelling payment', async t => {
+    const f = await setup(t)
+    await f.database.prepare('INSERT INTO products (id,name,price) VALUES (?,?,?)').bind('a-unavailable', 'Unavailable', '3').run()
+    for (let i = 0; i < 50; i++) await f.database.prepare('INSERT INTO orders (order_id,product_id,product_name,amount,status,user_id,paid_at,created_at) VALUES (?,?,?,?,?,?,?,?)')
+        .bind('old-' + i, 'a-unavailable', 'Unavailable', '3', 'paid', 'owner', 1, i + 1).run()
+    await f.database.prepare('INSERT INTO cards (product_id,card_key) VALUES (?,?)').bind('product', 'RECOVERY-PRODUCTION-CARD').run()
+    await f.database.prepare('INSERT INTO orders (order_id,product_id,product_name,amount,status,user_id,paid_at,created_at) VALUES (?,?,?,?,?,?,?,?)')
+        .bind('ready-order', 'product', 'Production test product', '3', 'paid', 'owner', Date.now(), Date.now()).run()
+    const cleanup = async () => {
+        const response = await f.request('/api/internal/cron/cleanup', { method: 'POST', headers: { 'X-Cron-Cleanup-Token': 'isolated-production-oauth' } })
+        assert.equal(response.status, 200, await response.clone().text())
+        return response.json()
+    }
+    assert.equal((await cleanup()).fulfillment.delivered, 0)
+    assert.equal((await cleanup()).fulfillment.delivered, 1)
+    assert.equal((await f.database.prepare("SELECT count(*) AS count FROM orders WHERE status = 'paid'").bind().all()).results[0].count, 50)
+    assert.equal((await f.database.prepare('SELECT status FROM orders WHERE order_id = ?').bind('ready-order').all()).results[0].status, 'delivered')
+})
+
+async function productionRefundSetup(t, provider) {
+    const f = await setup(t, { provider })
+    await f.database.prepare('UPDATE products SET price = ?, max_points_discount = ? WHERE id = ?').bind('5', '2', 'product').run()
+    await f.database.prepare('INSERT INTO cards (product_id,card_key) VALUES (?,?)').bind('product', 'REFUND-RECOVERY-CARD').run()
+    const created = await f.action('createOrder', '/buy/product', ['product', 1, '', true], f.sessionCookie)
+    assert.equal(created.result?.success, true, created.body)
+    const id = created.result.params.out_trade_no
+    await pay(f, id)
+    return { ...f, id, refund: (confirmed = false) => f.action('proxyRefund', `/admin/orders/${id}`, [id, confirmed], f.sessionCookie) }
+}
+
+test('a production refund accepted before a local failure restores stock and points without another refund', async t => {
+    let refunds = 0
+    const f = await productionRefundSetup(t, request => {
+        if (new URL(request.url).hostname === 'credit.linux.do') { refunds++; return Response.json({ code: 1 }) }
+    })
+    await f.database.prepare("CREATE TRIGGER fail_refund BEFORE UPDATE ON orders WHEN NEW.status = 'refunded' BEGIN SELECT RAISE(ABORT, 'isolated failure'); END;").bind().run()
+    const failed = await f.refund()
+    assert.equal(failed.result?.needsVerification, true, failed.body)
+    assert.equal((await f.database.prepare('SELECT points FROM login_users WHERE user_id = ?').bind('owner').all()).results[0].points, 18)
+    const event = (await f.database.prepare("SELECT data FROM inventory_events WHERE kind = 'refund_request'").bind().all()).results[0]
+    assert.equal(JSON.parse(event.data).state, 'accepted')
+    await f.database.prepare('DROP TRIGGER fail_refund').bind().run()
+    assert.equal((await f.refund()).result?.processed, true)
+    assert.equal(refunds, 1)
+    assert.equal((await f.database.prepare('SELECT points FROM login_users WHERE user_id = ?').bind('owner').all()).results[0].points, 20)
+    assert.equal((await f.database.prepare('SELECT is_used FROM cards').bind().all()).results[0].is_used, 0)
+})
+
+test('production refunds recover lost acknowledgements by trade ID and reject mismatched transactions', async t => {
+    let refunds = 0, queries = 0, id, wrongTrade = true
+    const f = await productionRefundSetup(t, request => {
+        const url = new URL(request.url)
+        if (url.hostname !== 'credit.linux.do') return undefined
+        if (request.method === 'POST') { refunds++; return new Response(null, { status: 503 }) }
+        queries++
+        assert.equal(url.searchParams.get('trade_no'), 'production-test-trade')
+        return Response.json({ code: 1, status: 0, trade_no: wrongTrade ? 'another-trade' : 'production-test-trade', out_trade_no: id + '_retry123' })
+    })
+    id = f.id
+    assert.equal((await f.refund()).result?.needsVerification, true)
+    const denied = await f.action('verifyOrderRefundStatus', `/admin/orders/${id}`, [id], f.sessionCookie)
+    assert.equal(denied.result?.success, false, denied.body)
+    assert.equal((await f.database.prepare('SELECT status FROM orders WHERE order_id = ?').bind(id).all()).results[0].status, 'delivered')
+    wrongTrade = false
+    assert.equal((await f.refund()).result?.processed, true)
+    assert.equal(refunds, 1)
+    assert.equal(queries, 2)
+    assert.equal((await f.database.prepare('SELECT points FROM login_users WHERE user_id = ?').bind('owner').all()).results[0].points, 20)
+})
+
+test('production refunds require verification and explicit review before an uncertain attempt is resubmitted', async t => {
+    let refunds = 0, id, accepted = false
+    const f = await productionRefundSetup(t, request => {
+        const url = new URL(request.url)
+        if (url.hostname !== 'credit.linux.do') return undefined
+        if (request.method === 'POST') { refunds++; return accepted ? Response.json({ code: 1 }) : new Response(null, { status: 503 }) }
+        return Response.json({ code: 1, status: 1, trade_no: 'production-test-trade', out_trade_no: id })
+    })
+    id = f.id
+    assert.equal((await f.refund()).result?.needsVerification, true)
+    assert.equal((await f.refund(true)).result?.needsVerification, true)
+    assert.equal(refunds, 1)
+    const verified = await f.action('verifyOrderRefundStatus', `/admin/orders/${id}`, [id], f.sessionCookie)
+    assert.equal(verified.result?.canRetry, true, verified.body)
+    assert.equal(verified.result?.needsReview, true)
+    assert.equal((await f.refund()).result?.needsReview, true)
+    accepted = true
+    assert.equal((await f.refund(true)).result?.processed, true)
+    assert.equal(refunds, 2)
+    assert.equal((await f.database.prepare('SELECT points FROM login_users WHERE user_id = ?').bind('owner').all()).results[0].points, 20)
 })

@@ -14,6 +14,13 @@ import { sql } from 'drizzle-orm';
 import * as schema from '@/lib/db/schema';
 import { ensureDatabaseInitialized, setSetting } from '@/lib/db/queries';
 import { createOrder } from '@/actions/checkout';
+import { getBuyPageMeta } from '@/actions/buy';
+import { proxyRefund } from '@/actions/refund';
+import { verifyOrderRefundStatus } from '@/actions/admin-orders';
+import { importData } from '@/actions/data';
+import { GET as downloadData } from '@/app/admin/data/download/route';
+import { fulfillPaidOrder, fulfillPendingOrders } from '@/lib/fulfillment';
+import { interleaveSnapshotReads } from './tests/d1-snapshot-fixture.mjs';
 import { testNotification, testBarkNotification, testEmailNotification, saveCardsApiConfig, setCardsApiEnabled, pullCardFromApi } from '@/actions/admin';
 import { sendOrderEmail } from '@/lib/email';
 import { saveProductCardApiConfig, pullOneCardFromApi, getProductCardApiConfig } from '@/lib/card-api';
@@ -31,7 +38,7 @@ export default { async fetch(request, env) {
     if (url.pathname === '/seed') {
       const input = await request.json();
       await ensureDatabaseInitialized();
-      await db.insert(schema.products).values({ id: 'product', name: 'Runtime product', price: '3' });
+      await db.insert(schema.products).values({ id: 'product', name: 'Runtime product', price: '3', ...input.product });
       await db.insert(schema.loginUsers).values({ userId: 'user', username: 'buyer', points: 20 });
       if (!input.onDemand && !input.noCards) await db.insert(schema.cards).values([{productId:'product',cardKey:'STOCK-ONE'},{productId:'product',cardKey:'STOCK-TWO'}]);
       const values = { telegram_enabled:'true', telegram_bot_token:'TEST-BOT', telegram_chat_id:'TEST-CHAT', bark_enabled:'true',
@@ -47,7 +54,38 @@ export default { async fetch(request, env) {
       result = await sendOrderEmail({ to:'buyer@example.com', orderId:'email-test', productName:'Runtime product', cardKeys:'TEST-CARD', idempotencyKey:'delivery:email-test' });
     } else if (url.pathname === '/checkout') {
       const input = await request.json();
-      result = await createOrder('product', input.quantity || 1, 'buyer@example.com', !!input.usePoints);
+      globalThis.__runtimeTrustLevel = input.trustLevel ?? 0;
+      result = await createOrder(input.productId || 'product', input.quantity || 1, 'buyer@example.com', !!input.usePoints, input.answers);
+    } else if (url.pathname === '/sql') {
+      const queries = await request.json();
+      result = await env.DB.batch(queries.map(({sql,params=[]})=>env.DB.prepare(sql).bind(...params)));
+    } else if (url.pathname === '/reviews') {
+      result = await getBuyPageMeta('product');
+    } else if (url.pathname === '/recover') {
+      const input = await request.json();
+      result = await fulfillPendingOrders(input.productId, input.limit);
+    } else if (url.pathname === '/fulfill') {
+      result = await fulfillPaidOrder((await request.json()).orderId);
+    } else if (url.pathname === '/refund') {
+      const input = await request.json();
+      result = await proxyRefund(input.orderId, input.confirmVerifiedRetry);
+    } else if (url.pathname === '/refund-verify') {
+      result = await verifyOrderRefundStatus((await request.json()).orderId);
+    } else if (url.pathname === '/backup') {
+      const orderId = url.searchParams.get('deliver');
+      const trace = interleaveSnapshotReads(env.DB, async()=>{
+        const delivery=await fulfillPaidOrder(orderId);
+        if (!delivery.delivered) throw new Error('Interleaved delivery failed');
+      });
+      if (orderId) globalThis.__runtimeEnv = {...env, DB:trace.database};
+      try {
+        const response = await downloadData(request);
+        response.headers.set('x-test-interleaved', String(trace.didInterleave()));
+        return response;
+      } finally { globalThis.__runtimeEnv=env; }
+    } else if (url.pathname === '/import') {
+      const input = await request.json();
+      result = await importData({get:()=>({text:async()=>input.dump})});
     } else if (url.pathname === '/supplier-config') {
       const input = await request.json();
       result = await saveCardsApiConfig('product', input.url, input.token, input.enabled, input.mode);
@@ -105,9 +143,9 @@ async function bundle() {
             // Replace Next request context only. Business code, D1 driver and fetch run in workerd.
             const shims = {
                 '@opennextjs/cloudflare': 'export const getCloudflareContext=()=>({env:globalThis.__runtimeEnv});',
-                '@/lib/auth': 'export const auth=async()=>({user:{id:"user",username:"buyer",trustLevel:0}});',
+                '@/lib/auth': 'export const auth=async()=>({user:{id:"user",username:"buyer",trustLevel:globalThis.__runtimeTrustLevel??0}});',
                 'next/cache': 'export const revalidatePath=()=>{}; export const revalidateTag=()=>{}; export const updateTag=()=>{}; export const unstable_noStore=()=>{}; export const unstable_cache=fn=>fn;',
-                'next/server': 'export const after=()=>{};',
+                'next/server': 'export const after=()=>{}; export class NextResponse extends Response { static json(value, init) { return Response.json(value, init); } }',
                 'next/headers': 'export const cookies=async()=>({get:()=>undefined,set:()=>{}});',
                 'next/constants': 'export const PHASE_EXPORT="phase-export"; export const PHASE_PRODUCTION_BUILD="phase-production-build";',
                 react: 'export const cache=fn=>fn;',
@@ -395,4 +433,209 @@ test('manual restocking returns HTTP and response errors as data in production w
         assert.ok(!JSON.stringify(result).includes('PRIVATE'))
         assert.equal((await f.json('/snapshot')).cards.length, 0)
     }
+})
+
+test('real D1 checkout enforces trust levels and leaves denied buyers stock and points untouched', async t => {
+    const f = await setup(t, { product: { visibilityLevel: 2 } })
+    for (const trustLevel of [0, 1]) {
+        const result = await f.json('/checkout', { trustLevel, usePoints: true })
+        assert.equal(result.success, false)
+        assert.equal(result.error, 'buy.visibilityDenied')
+    }
+    const before = await f.json('/snapshot')
+    assert.equal(before.orders.length, 0)
+    assert.equal(before.users[0].points, 20)
+    assert.ok(before.cards.every(card => !card.isUsed && !card.reservedOrderId))
+    assert.equal((await f.json('/checkout', { trustLevel: 2 })).success, true)
+})
+
+test('purchase questions reject malformed answers and invalid stored questions in real workerd', async t => {
+    const f = await setup(t, { product: { purchaseQuestions: JSON.stringify([{ q: 'Answer?', a: 'Correct' }]) } })
+    for (const answers of [[{}], [1], { 0: 'Correct', length: 1 }]) {
+        const result = await f.json('/checkout', { answers })
+        assert.equal(result.success, false)
+        assert.equal(result.error, 'buy.answersRequired')
+    }
+    assert.equal((await f.json('/snapshot')).orders.length, 0)
+    await f.json('/sql', [{ sql: 'UPDATE products SET purchase_questions = ? WHERE id = ?', params: ['invalid-json', 'product'] }])
+    assert.equal((await f.json('/checkout', { answers: ['Correct'] })).error, 'buy.questionsUnavailable')
+    await f.json('/sql', [{ sql: 'UPDATE products SET purchase_questions = ? WHERE id = ?', params: [JSON.stringify([{ q: 'Answer?', a: 'Correct' }]), 'product'] }])
+    assert.equal((await f.json('/checkout', { answers: [' correct '] })).success, true)
+})
+
+test('automatic GET stock rejects used and expired values and concurrent duplicates in real D1', async t => {
+    let cardKey = ' USED-CARD '
+    const f = await setup(t, { restock: true, noCards: true }, request => {
+        if (new URL(request.url).hostname === 'supplier.example') return Response.json({ cardKey })
+    })
+    await f.json('/sql', [
+        { sql: 'INSERT INTO cards (product_id,card_key,is_used,used_at) VALUES (?,?,1,?)', params: ['product', 'USED-CARD', Date.now()] },
+        { sql: 'INSERT INTO cards (product_id,card_key,expires_at) VALUES (?,?,?)', params: ['product', 'EXPIRED-CARD', Date.now() - 1000] },
+    ])
+    for (const value of [' USED-CARD ', 'EXPIRED-CARD']) {
+        cardKey = value
+        assert.equal((await f.json('/pull')).error, 'api_card_duplicate')
+    }
+    cardKey = 'NEW-UNIQUE-CARD'
+    const results = await Promise.all(Array.from({ length: 3 }, () => f.json('/pull')))
+    assert.equal(results.filter(result => result.ok).length, 1)
+    assert.equal((await f.json('/snapshot')).cards.filter(card => card.cardKey === cardKey).length, 1)
+    // Manual imports may still intentionally contain duplicate values.
+    await f.json('/sql', [{ sql: 'INSERT INTO cards (product_id,card_key) VALUES (?,?)', params: ['product', cardKey] }])
+    assert.equal((await f.json('/snapshot')).cards.filter(card => card.cardKey === cardKey).length, 2)
+})
+
+test('a real D1 full backup cannot reissue a sold card after an interleaved delivery and restore', async t => {
+    const f = await setup(t, { noCards: true })
+    await f.json('/sql', [
+        { sql: 'INSERT INTO cards (product_id,card_key) VALUES (?,?)', params: ['product', 'BACKUP-ONLY-CARD'] },
+        { sql: 'INSERT INTO orders (order_id,product_id,product_name,amount,status,user_id) VALUES (?,?,?,?,?,?)', params: ['backup-order', 'product', 'Runtime product', '3', 'paid', 'user'] },
+    ])
+    const response = await f.worker.dispatchFetch('https://shop.example/backup?type=full&format=sql&deliver=backup-order')
+    assert.equal(response.status, 200)
+    assert.equal(response.headers.get('x-test-interleaved'), 'true')
+    const dump = await response.text()
+    assert.equal((await f.json('/snapshot')).orders[0].status, 'delivered')
+    const restored = await setup(t, { noCards: true })
+    await restored.json('/sql', [{ sql: 'DELETE FROM products' }])
+    const imported = await restored.json('/import', { dump })
+    assert.equal(imported.success, true, JSON.stringify(imported))
+    assert.equal(imported.errors, 0)
+    const state = await restored.json('/snapshot')
+    assert.equal(state.orders[0].status === 'delivered', state.cards[0].isUsed)
+    assert.equal((await restored.json('/fulfill', { orderId: 'backup-order' })).delivered, true)
+    await restored.json('/sql', [{ sql: 'INSERT INTO orders (order_id,product_id,product_name,amount,status,user_id) VALUES (?,?,?,?,?,?)', params: ['second-order', 'product', 'Runtime product', '3', 'paid', 'user'] }])
+    assert.equal((await restored.json('/fulfill', { orderId: 'second-order' })).delivered, false)
+    assert.equal((await restored.json('/snapshot')).deliveries.length, 1)
+})
+
+test('101 reviews and their replies remain complete in real D1', async t => {
+    const f = await setup(t)
+    await f.json('/sql', Array.from({ length: 101 }, (_, i) => ({
+        sql: 'INSERT INTO reviews (product_id,order_id,user_id,username,rating,comment,created_at) VALUES (?,?,?,?,?,?,?)',
+        params: ['product', 'review-' + i, 'user', 'buyer', 5, 'Review ' + i, Date.now() + i],
+    })))
+    await f.json('/sql', [{ sql: 'INSERT INTO review_replies (review_id,user_id,username,comment) VALUES (?,?,?,?)', params: [1, 'user', 'buyer', 'First review reply'] }])
+    const result = await f.json('/reviews')
+    assert.equal(result.reviewCount, 101)
+    assert.equal(result.averageRating, 5)
+    assert.equal(result.reviews.length, 101)
+    assert.equal(result.reviews.find(review => review.id === 1).replies[0].comment, 'First review reply')
+})
+
+test('global fulfillment moves past 50 unavailable old orders to another product in real workerd', async t => {
+    const f = await setup(t)
+    await f.json('/sql', [{ sql: 'INSERT INTO products (id,name,price) VALUES (?,?,?)', params: ['a-unavailable', 'Unavailable', '3'] },
+        ...Array.from({ length: 50 }, (_, i) => ({
+            sql: 'INSERT INTO orders (order_id,product_id,product_name,amount,status,user_id,paid_at,created_at) VALUES (?,?,?,?,?,?,?,?)',
+            params: ['old-' + i, 'a-unavailable', 'Unavailable', '3', 'paid', 'user', 1, i + 1],
+        })),
+        { sql: 'INSERT INTO orders (order_id,product_id,product_name,amount,status,user_id,paid_at,created_at) VALUES (?,?,?,?,?,?,?,?)', params: ['ready', 'product', 'Runtime product', '3', 'paid', 'user', Date.now(), Date.now()] },
+    ])
+    assert.equal((await f.json('/recover', { limit: 50 })).delivered, 0)
+    assert.equal((await f.json('/recover', { limit: 50 })).delivered, 1)
+    const state = await f.json('/snapshot')
+    assert.equal(state.orders.find(order => order.orderId === 'ready').status, 'delivered')
+    assert.equal(state.orders.filter(order => order.status === 'paid').length, 50)
+})
+
+test('a failed fulfillment transaction does not block another product in real D1', async t => {
+    const f = await setup(t)
+    await f.json('/sql', [
+        { sql: 'INSERT INTO products (id,name,price) VALUES (?,?,?)', params: ['a-broken', 'Broken', '3'] },
+        { sql: 'INSERT INTO cards (product_id,card_key) VALUES (?,?)', params: ['a-broken', 'BROKEN-CARD'] },
+        ...[['bad', 'a-broken'], ['good', 'product']].map(([id, product]) => ({ sql: 'INSERT INTO orders (order_id,product_id,product_name,amount,status,user_id) VALUES (?,?,?,?,?,?)', params: [id, product, 'Runtime product', '3', 'paid', 'user'] })),
+        { sql: "CREATE TRIGGER fail_delivery BEFORE UPDATE ON orders WHEN NEW.order_id = 'bad' AND NEW.status = 'delivered' BEGIN SELECT RAISE(ABORT, 'isolated failure'); END;" },
+    ])
+    const result = await f.json('/recover', { limit: 50 })
+    assert.equal(result.failed, 1)
+    assert.equal(result.delivered, 1)
+    const state = await f.json('/snapshot')
+    assert.equal(state.orders.find(order => order.orderId === 'bad').status, 'paid')
+    assert.equal(state.orders.find(order => order.orderId === 'good').status, 'delivered')
+})
+
+async function refundSetup(t, configure) {
+    const f = await setup(t, { product: { price: '5', maxPointsDiscount: '2' } }, configure)
+    const checkout = await f.json('/checkout', { usePoints: true })
+    assert.equal(checkout.success, true, checkout.error)
+    assert.equal((await pay(f, checkout)).status, 200)
+    return { ...f, orderId: checkout.params.out_trade_no }
+}
+
+test('concurrent refund requests contact the gateway and return points once in real workerd', async t => {
+    let refunds = 0
+    const f = await refundSetup(t, async request => {
+        if (new URL(request.url).hostname !== 'credit.linux.do') return undefined
+        assert.equal(request.method, 'POST')
+        assert.equal(new URL(request.url).searchParams.get('act'), 'refund')
+        assert.equal((await request.formData()).get('money'), '3.00')
+        refunds++
+        await new Promise(resolve => setTimeout(resolve, 100))
+        return Response.json({ code: 1 })
+    })
+    const results = await Promise.all(Array.from({ length: 3 }, () => f.json('/refund', { orderId: f.orderId })))
+    assert.ok(results.some(result => result.processed))
+    assert.equal(refunds, 1)
+    const state = await f.json('/snapshot')
+    assert.equal(state.orders[0].status, 'refunded')
+    assert.equal(state.users[0].points, 20)
+    assert.ok(state.cards.every(card => !card.isUsed))
+})
+
+test('an accepted refund survives a local rollback and recovers without resubmission in real D1', async t => {
+    let refunds = 0
+    const f = await refundSetup(t, request => {
+        if (new URL(request.url).hostname === 'credit.linux.do') { refunds++; return Response.json({ code: 1 }) }
+    })
+    await f.json('/sql', [{ sql: "CREATE TRIGGER fail_refund BEFORE UPDATE ON orders WHEN NEW.status = 'refunded' BEGIN SELECT RAISE(ABORT, 'isolated failure'); END;" }])
+    assert.equal((await f.json('/refund', { orderId: f.orderId })).needsVerification, true)
+    const before = await f.json('/snapshot')
+    assert.equal(before.orders[0].status, 'delivered')
+    assert.equal(before.users[0].points, 18)
+    assert.equal(JSON.parse(before.events.find(event => event.kind === 'refund_request').data).state, 'accepted')
+    await f.json('/sql', [{ sql: 'DROP TRIGGER fail_refund' }])
+    assert.equal((await f.json('/refund', { orderId: f.orderId })).processed, true)
+    assert.equal(refunds, 1)
+    assert.equal((await f.json('/snapshot')).users[0].points, 20)
+})
+
+test('a lost refund acknowledgement is recovered by its transaction ID in real workerd', async t => {
+    let refunds = 0, queries = 0, orderId
+    const f = await refundSetup(t, request => {
+        const url = new URL(request.url)
+        if (url.hostname !== 'credit.linux.do') return undefined
+        if (request.method === 'POST') { refunds++; return new Response(null, { status: 503 }) }
+        queries++
+        assert.equal(url.searchParams.get('trade_no'), 'test-trade')
+        return Response.json({ code: 1, status: 0, trade_no: 'test-trade', out_trade_no: orderId + '_retry123' })
+    })
+    orderId = f.orderId
+    assert.equal((await f.json('/refund', { orderId })).needsVerification, true)
+    assert.equal((await f.json('/refund', { orderId })).processed, true)
+    assert.equal(refunds, 1)
+    assert.equal(queries, 1)
+    assert.equal((await f.json('/snapshot')).users[0].points, 20)
+})
+
+test('an uncertain refund needs explicit verification and confirmation before retry in real D1', async t => {
+    let refunds = 0, accepted = false, orderId
+    const f = await refundSetup(t, request => {
+        const url = new URL(request.url)
+        if (url.hostname !== 'credit.linux.do') return undefined
+        if (request.method === 'POST') { refunds++; return accepted ? Response.json({ code: 1 }) : new Response(null, { status: 503 }) }
+        return Response.json({ code: 1, status: 1, trade_no: 'test-trade', out_trade_no: orderId })
+    })
+    orderId = f.orderId
+    assert.equal((await f.json('/refund', { orderId })).needsVerification, true)
+    assert.equal((await f.json('/refund', { orderId, confirmVerifiedRetry: true })).needsVerification, true)
+    assert.equal(refunds, 1)
+    const verified = await f.json('/refund-verify', { orderId })
+    assert.equal(verified.canRetry, true)
+    assert.equal(verified.needsReview, true)
+    assert.equal((await f.json('/refund', { orderId })).needsReview, true)
+    accepted = true
+    assert.equal((await f.json('/refund', { orderId, confirmVerifiedRetry: true })).processed, true)
+    assert.equal(refunds, 2)
+    assert.equal((await f.json('/snapshot')).users[0].points, 20)
 })

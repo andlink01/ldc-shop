@@ -32,7 +32,7 @@ test('full SQL backup restores key hashes, procurement IDs and delivery deduplic
     await restored.ready
     const result = await restored.load('actions/data').importData({ get: () => ({ text: async () => dump }) })
     assert.equal(result.success, true)
-    assert.equal(result.errorCount || 0, 0)
+    assert.equal(result.errors, 0)
     assert.equal((await restored.db.select().from(restored.schema.orders))[0].cardKey, "line 1\nline '2'\rline 3")
     assert.equal((await restored.db.select().from(restored.schema.supplierRequests))[0].requestId, 'purchase')
     assert.equal((await restored.db.select().from(restored.schema.cards))[0].supplierRequestId, 'purchase')

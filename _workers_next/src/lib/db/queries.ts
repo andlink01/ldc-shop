@@ -1636,7 +1636,8 @@ export async function getProductReviews(productId: string) {
     try {
         const replyRows = await db.select()
             .from(reviewReplies)
-            .where(inArray(reviewReplies.reviewId, reviewRows.map((review) => review.id)))
+            .where(inArray(reviewReplies.reviewId,
+                db.select({ id: reviews.id }).from(reviews).where(eq(reviews.productId, productId))))
             .orderBy(asc(reviewReplies.createdAt));
 
         const replyMap = new Map<number, typeof replyRows>()

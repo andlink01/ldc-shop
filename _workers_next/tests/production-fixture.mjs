@@ -11,6 +11,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const secret = 'isolated-production-audit-secret'
 const inventoryKey = 'isolated-production-inventory-key'
 const require = createRequire(import.meta.url)
+const { encodeReply } = require('next/dist/compiled/react-server-dom-webpack/client.node')
 let bundled
 function productionBundle() {
     if (bundled) return bundled
@@ -31,6 +32,7 @@ export async function productionFixture(t, { provider } = {}) {
     if (!existsSync(path.join(build, 'worker.js'))) throw new Error('Build the OpenNext production worker before running this test')
     const modules = [{ path: path.join(root, 'production-audit-entry.mjs'), type: 'ESModule', contents: `
         import production from './worker-entry.mjs';
+        import { interleaveSnapshotReads } from './d1-snapshot-fixture.mjs';
         export default { async fetch(request, env, ctx) {
             if (new URL(request.url).pathname === '/__audit/database') {
                 const { sql, params, mode } = await request.json();
@@ -40,6 +42,17 @@ export async function productionFixture(t, { provider } = {}) {
             const url = new URL(request.url), headers = new Headers(request.headers);
             headers.set('host', url.host); headers.set('x-forwarded-host', url.host);
             headers.set('x-forwarded-proto', url.protocol.slice(0, -1));
+            const callback = headers.get('x-test-interleave-callback');
+            if (callback) {
+                const trace = interleaveSnapshotReads(env.DB, async()=>{
+                    const response = await production.fetch(new Request('https://shop.example' + callback, {headers:{host:'shop.example'}}), env, ctx);
+                    if (response.status !== 200 || await response.text() !== 'success') throw new Error('Interleaved payment failed');
+                });
+                const response = await production.fetch(new Request(request, {headers}), {...env, DB:trace.database}, ctx);
+                const resultHeaders = new Headers(response.headers);
+                resultHeaders.set('x-test-interleaved', String(trace.didInterleave()));
+                return new Response(response.body, {status:response.status, headers:resultHeaders});
+            }
             if (headers.get('x-audit-profile') !== '1') return production.fetch(new Request(request, { headers }), env, ctx);
             // Test-only instrumentation: count statements without exposing SQL parameters or changing normal streaming responses.
             const stats = { total: 0, settings: 0, liveStock: 0 };
@@ -56,7 +69,8 @@ export async function productionFixture(t, { provider } = {}) {
             resultHeaders.set('x-audit-queries', JSON.stringify(stats));
             return new Response(body, { status: response.status, headers: resultHeaders });
         }};
-    ` }, { path: path.join(root, 'worker-entry.mjs'), type: 'ESModule', contents: productionBundle() }]
+    ` }, { path: path.join(root, 'worker-entry.mjs'), type: 'ESModule', contents: productionBundle() },
+    { path: path.join(root, 'd1-snapshot-fixture.mjs'), type: 'ESModule', contents: readFileSync(path.join(root, 'tests/d1-snapshot-fixture.mjs'), 'utf8') }]
     const calls = []
     const worker = new Miniflare({
         modules, modulesRoot: root, compatibilityDate: '2025-11-12', compatibilityFlags: ['nodejs_compat'],
@@ -83,9 +97,9 @@ export async function productionFixture(t, { provider } = {}) {
         }
         return { run: () => run('run'), all: () => run('all') }
     } } } }
-    const cookie = async (id = 'owner', username = 'audit-admin') => {
+    const cookie = async (id = 'owner', username = 'audit-admin', trustLevel = 3) => {
         const name = '__Secure-authjs.session-token'
-        return `${name}=${await encode({ secret, salt: name, token: { id, username, name: username, trustLevel: 3 } })}`
+        return `${name}=${await encode({ secret, salt: name, token: { id, username, name: username, trustLevel } })}`
     }
     const request = (pathname, init) => worker.dispatchFetch(`https://shop.example${pathname}`, {
         ...init, headers: { Host: 'shop.example', 'X-Forwarded-Host': 'shop.example', 'X-Forwarded-Proto': 'https', ...init?.headers },
@@ -104,15 +118,25 @@ export async function productionFixture(t, { provider } = {}) {
     const action = async (name, pathname, args, sessionCookie) => {
         const id = Object.entries(actions).find(([, item]) => item.exportedName === name)?.[0]
         if (!id) throw new Error(`Production action not found: ${name}`)
+        const payload = await encodeReply(args)
+        let body = payload, contentType = 'text/plain;charset=UTF-8'
+        if (typeof payload !== 'string') {
+            // Node and Miniflare use different fetch implementations. Serialize the
+            // multipart form once, preserving its boundary and binary file content.
+            const encoded = new Request('https://shop.example', { method: 'POST', body: payload })
+            body = await encoded.arrayBuffer()
+            contentType = encoded.headers.get('content-type')
+        }
         const response = await request(pathname, { method: 'POST', headers: { 'Next-Action': id, Origin: 'https://shop.example',
-            'Content-Type': 'text/plain;charset=UTF-8', ...(sessionCookie ? { Cookie: sessionCookie } : {}) }, body: JSON.stringify(args) })
-        const body = await response.text()
-        const objects = body.split('\n').flatMap(line => {
+            'Content-Type': contentType,
+            ...(sessionCookie ? { Cookie: sessionCookie } : {}) }, body })
+        const responseBody = await response.text()
+        const objects = responseBody.split('\n').flatMap(line => {
             const json = /^[\da-f]+:(\{.*)$/.exec(line)?.[1]
             if (!json) return []
             try { return [JSON.parse(json)] } catch { return [] }
         })
-        return { status: response.status, body, result: objects.find(item => typeof item.success === 'boolean' || typeof item.processed === 'boolean') }
+        return { status: response.status, body: responseBody, result: objects.find(item => typeof item.success === 'boolean' || typeof item.processed === 'boolean' || typeof item.reviewCount === 'number') }
     }
     return { worker, database, request, cookie, calls, initialize, action, profile }
 }

@@ -7,11 +7,13 @@ import { fulfillPaidOrder, invalidateInventory } from '@/lib/fulfillment'
 import { scheduleInventoryEvents } from '@/lib/inventory-events'
 
 type CheckoutInput = { orderId: string; productId: string; productName: string; price: string; shared: boolean;
-    quantity: number; amount: number; points: number; userId: string; username: string | null; email: string | null; purchaseLimit: number | null; onDemand: boolean }
+    quantity: number; amount: number; points: number; userId: string; username: string | null; email: string | null; purchaseLimit: number | null; onDemand: boolean;
+    trustLevel?: number; purchaseQuestions?: string | null }
 
 export async function commitCheckoutOrder(input: CheckoutInput) {
     await ensureDatabaseInitialized()
     const now = Date.now(), cutoff = now - RESERVATION_TTL_MS, paid = input.amount <= 0
+    const trustLevel = Math.max(0, typeof input.trustLevel === 'number' && Number.isFinite(input.trustLevel) ? input.trustLevel : 0)
     // Cards used for an external payment must survive the five minute payment window.
     const expiresAfter = paid ? now : now + RESERVATION_TTL_MS
     const eligible = `COALESCE(is_used, 0) = 0 AND (expires_at IS NULL OR expires_at > ?)
@@ -22,7 +24,8 @@ export async function commitCheckoutOrder(input: CheckoutInput) {
                 points_used, quantity, current_payment_id, trade_no, paid_at, created_at)
             SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
             WHERE EXISTS (SELECT 1 FROM products WHERE id = ? AND COALESCE(is_active, 1) = 1
-                AND price = ? AND COALESCE(is_shared, 0) = ?)
+                AND price = ? AND COALESCE(is_shared, 0) = ? AND COALESCE(visibility_level, -1) <= ?
+                AND COALESCE(purchase_questions, '') = ?)
             AND EXISTS (SELECT 1 FROM login_users WHERE user_id = ? AND COALESCE(is_blocked, 0) = 0 AND points >= ?)
             AND (? = 1 AND EXISTS (SELECT 1 FROM settings WHERE key = 'cards_api_mode_' || ? AND value = 'on_demand')
                 AND EXISTS (SELECT 1 FROM settings WHERE key = 'cards_api_enabled_' || ? AND value = 'true')
@@ -31,7 +34,7 @@ export async function commitCheckoutOrder(input: CheckoutInput) {
                 AND status IN ('pending', 'paid', 'delivered')) + ? <= ?)`,
         params: [input.orderId, input.productId, input.productName, input.amount.toFixed(2), input.email, input.userId, input.username,
             paid ? 'paid' : 'pending', input.points, input.quantity, paid ? null : input.orderId, paid ? 'POINTS_REDEMPTION' : null, paid ? now : null, now,
-            input.productId, input.price, Number(input.shared), input.userId, input.points, Number(input.onDemand), input.productId, input.productId, Number(input.onDemand), input.productId,
+            input.productId, input.price, Number(input.shared), trustLevel, input.purchaseQuestions || '', input.userId, input.points, Number(input.onDemand), input.productId, input.productId, Number(input.onDemand), input.productId,
             expiresAfter, Number(input.shared), cutoff, input.shared ? 1 : input.quantity,
             input.purchaseLimit, input.userId, input.productId, input.quantity, input.purchaseLimit],
     }, {

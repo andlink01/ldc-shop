@@ -486,3 +486,59 @@ test('order detail retries show the actual failure and refund success refreshes 
     await act(async () => release({ processed: true }))
     assert.equal(refreshes, 2)
 })
+
+test('refund buttons translate uncertainty, verify before retry and require the reviewed confirmation', async t => {
+    const errors = [], confirmations = [], submitted = [], successes = []
+    let marked = 0, verified = 0
+    const f = setup(t, {
+        '@/actions/admin-orders': { verifyOrderRefundStatus: async () => { verified++; return { success: true, status: 1, canRetry: true, needsReview: true } } },
+        '@/actions/refund': {
+            proxyRefund: async (id, confirmed) => {
+                submitted.push({ id, confirmed })
+                return submitted.length === 1
+                    ? { processed: false, needsVerification: true, message: 'Raw internal message', messageKey: 'admin.orders.refundNeedsVerification' }
+                    : { processed: true }
+            },
+            markOrderRefunded: async () => { marked++ },
+        },
+        sonner: { toast: { success: value => successes.push(value), error: value => errors.push(value), info() {} } },
+    }, { confirm: message => { confirmations.push(message); return true } })
+    const { RefundButton } = f.load('components/admin/refund-button')
+    const view = await mount(t, React.createElement(RefundButton, { order: { orderId: 'refund-order', amount: '3', status: 'paid', tradeNo: 'trade' } }))
+    const buttons = () => view.root.findAllByType('button')
+    await act(async () => buttons()[1].props.onClick())
+    assert.match(errors[0], /refund result is uncertain/i)
+    assert.ok(!errors[0].includes('Raw internal message'))
+    assert.equal(buttons()[1].props.disabled, true)
+    assert.equal(buttons().length, 3)
+    await act(async () => buttons()[0].props.onClick())
+    assert.equal(verified, 1)
+    assert.equal(buttons()[1].props.disabled, false)
+    assert.equal(buttons().length, 2)
+    await act(async () => buttons()[1].props.onClick())
+    assert.match(confirmations[1], /previous request has stopped without refunding/i)
+    assert.deepEqual(submitted, [{ id: 'refund-order', confirmed: false }, { id: 'refund-order', confirmed: true }])
+    assert.equal(marked, 0)
+    assert.equal(successes.length, 1)
+})
+
+test('a rejected or active refund keeps the compact controls and never suggests a manual completed refund', async t => {
+    const messages = []
+    let response = { processed: false, inProgress: true, messageKey: 'admin.orders.refundInProgress' }
+    const f = setup(t, {
+        '@/actions/admin-orders': {},
+        '@/actions/refund': { proxyRefund: async () => response },
+        sonner: { toast: { success() {}, error: value => messages.push(value), info() {} } },
+    }, { confirm: () => true })
+    const { RefundButton } = f.load('components/admin/refund-button')
+    const view = await mount(t, React.createElement(RefundButton, { compact: true, order: { orderId: 'refund-order', amount: '3', status: 'paid', tradeNo: 'trade' } }))
+    const buttons = () => view.root.findAllByType('button')
+    await act(async () => buttons()[1].props.onClick())
+    assert.equal(buttons().length, 2)
+    assert.match(messages[0], /in progress/i)
+    response = { processed: false, messageKey: 'admin.orders.refundRejected' }
+    await act(async () => buttons()[1].props.onClick())
+    assert.equal(buttons().length, 2)
+    assert.equal(buttons()[1].props.disabled, false)
+    assert.match(messages[1], /rejected the refund/i)
+})

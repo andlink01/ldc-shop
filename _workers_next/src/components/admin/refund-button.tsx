@@ -15,6 +15,7 @@ import { useI18n } from "@/lib/i18n/context"
 export function RefundButton({ order, compact = false }: { order: AdminOrderSummary; compact?: boolean }) {
     const [loading, setLoading] = useState(false)
     const [showMarkDone, setShowMarkDone] = useState(false)
+    const [retryNeedsReview, setRetryNeedsReview] = useState(false)
     const lock = useRef(false)
     const router = useRouter()
     const { t } = useI18n()
@@ -25,16 +26,17 @@ export function RefundButton({ order, compact = false }: { order: AdminOrderSumm
 
     const handleRefund = async () => {
         if (lock.current) return
-        if (!confirm(t('admin.orders.refundProxyConfirm'))) return
+        if (!confirm(t(retryNeedsReview ? 'admin.orders.refundRetryConfirm' : 'admin.orders.refundProxyConfirm'))) return
         lock.current = true
         setLoading(true)
         try {
-            const result = await proxyRefund(order.orderId)
+            const result = await proxyRefund(order.orderId, retryNeedsReview)
             if (result.processed) {
                 toast.success(t('admin.orders.verifySuccessRefunded'))
             } else {
-                toast.error(result.message || t('admin.orders.refundProxyNotProcessed'), { duration: 8000 })
-                setShowMarkDone(true)
+                toast.error(result.messageKey ? t(result.messageKey) : result.message || t('admin.orders.refundProxyNotProcessed'), { duration: 8000 })
+                setRetryNeedsReview(result.needsReview === true)
+                setShowMarkDone(result.needsVerification === true || (result.needsVerification === undefined && !result.inProgress && !result.messageKey))
             }
         } catch (e) {
             toast.error(getErrorMessage(e) || "Refund failed", { duration: 8000 })
@@ -75,8 +77,9 @@ export function RefundButton({ order, compact = false }: { order: AdminOrderSumm
                 if (result.status === 0) { // Refunded
                     toast.success(t('admin.orders.verifySuccessRefunded'))
                 } else if (result.status === 1) { // Paid
-                    toast.info(t('admin.orders.verifyInfoPaid'))
-                    setShowMarkDone(true)
+                    toast.info(t(result.canRetry === false ? 'admin.orders.refundInProgress' : 'admin.orders.verifyInfoPaid'))
+                    setRetryNeedsReview(result.needsReview === true)
+                    setShowMarkDone(false)
                 } else {
                     toast.info(`${t('admin.orders.verifyStatus')}: ${result.msg}`)
                 }

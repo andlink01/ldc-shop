@@ -59,7 +59,7 @@ export function AdminRefundsContent({ requests }: { requests: AdminRefundRequest
         } else {
           toast.success(t('admin.refunds.autoRefundPending'))
           if (result?.error) {
-            toast.error(result.error)
+            toast.error(t(result.error))
           }
         }
       } else {

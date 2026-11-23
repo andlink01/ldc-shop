@@ -6,7 +6,7 @@ export function getEpayApiUrl() {
     return `${endpoint.origin}${pathname}`
 }
 
-export async function queryOrderStatus(orderId: string) {
+export async function queryOrderStatus(orderId: string, tradeNo?: string) {
     const merchantId = process.env.MERCHANT_ID
     const merchantKey = process.env.MERCHANT_KEY
     if (!merchantId || !merchantKey) return { success: false as const, error: 'Missing merchant config' }
@@ -15,7 +15,7 @@ export async function queryOrderStatus(orderId: string) {
         act: 'order',
         pid: merchantId,
         key: merchantKey,
-        out_trade_no: orderId
+        ...(tradeNo ? { trade_no: tradeNo } : { out_trade_no: orderId })
     })
 
     try {
@@ -25,7 +25,11 @@ export async function queryOrderStatus(orderId: string) {
 
         if (data && (data.code === 1 || data.code === '1')) {
             const status = typeof data.status === 'number' ? data.status : typeof data.status === 'string' && /^\d+$/.test(data.status) ? Number(data.status) : NaN
-            if (!Number.isSafeInteger(status) || (data.out_trade_no !== undefined && data.out_trade_no !== orderId)) return { success: false as const, error: 'Invalid payment query response' }
+            const retryId = typeof data.out_trade_no === 'string' && data.out_trade_no.startsWith(`${orderId}_retry`)
+                && /^\d+$/.test(data.out_trade_no.slice(`${orderId}_retry`.length))
+            if (!Number.isSafeInteger(status)
+                || (data.out_trade_no !== undefined && data.out_trade_no !== orderId && !(tradeNo && retryId))
+                || (tradeNo && data.trade_no !== undefined && data.trade_no !== tradeNo)) return { success: false as const, error: 'Invalid payment query response' }
             return { success: true as const, status, msg: 'Query success', data }
         } else {
             return { success: false as const, error: 'Payment server rejected the query' }

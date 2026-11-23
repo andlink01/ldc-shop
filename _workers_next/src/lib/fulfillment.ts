@@ -1,5 +1,5 @@
 import { db, dbRun, dbBatchRaw } from '@/lib/db'
-import { cards, orders, products } from '@/lib/db/schema'
+import { cards, orders, products, settings } from '@/lib/db/schema'
 import { ensureDatabaseInitialized, recalcProductAggregates } from '@/lib/db/queries'
 import { and, asc, eq, gt, isNull, or, sql } from 'drizzle-orm'
 import { RESERVATION_TTL_MS } from '@/lib/constants'
@@ -120,16 +120,39 @@ export async function fulfillPaidOrder(orderId: string): Promise<{ delivered: bo
 
 export async function fulfillPendingOrders(productId?: string, limit = 10) {
     await ensureDatabaseInitialized()
-    const waiting = await db.select({ orderId: orders.orderId }).from(orders).where(and(
+    const cursorKey = 'fulfillment_scan_after_product'
+    const previousCursor = productId ? null : (await db.query.settings.findFirst({
+        where: eq(settings.key, cursorKey), columns: { value: true },
+    }))?.value ?? null
+    const query = (after: string | null) => db.select({ orderId: orders.orderId, productId: orders.productId }).from(orders).where(and(
         eq(orders.status, 'paid'), or(isNull(orders.cardKey), eq(orders.cardKey, '')),
         productId ? eq(orders.productId, productId) : undefined,
+        !productId && after ? gt(orders.productId, after) : undefined,
         // Payment links collect money without delivering stock.
         sql`${orders.productId} != ${PAYMENT_PRODUCT_ID}`,
-    )).orderBy(asc(orders.paidAt), asc(orders.createdAt), asc(orders.orderId)).limit(Math.min(50, Math.max(1, limit)))
-    let delivered = 0
+    )).orderBy(...(productId ? [] : [asc(orders.productId)]), asc(orders.paidAt), asc(orders.createdAt), asc(orders.orderId))
+        .limit(Math.min(50, Math.max(1, limit)))
+    let waiting = await query(previousCursor)
+    if (!waiting.length && !productId && previousCursor) waiting = await query(null)
+    let delivered = 0, failed = 0
     for (const { orderId } of waiting) {
-        const result = await fulfillPaidOrder(orderId)
-        if (result.delivered && !result.replayed) delivered++
+        try {
+            const result = await fulfillPaidOrder(orderId)
+            if (result.delivered && !result.replayed) delivered++
+        } catch {
+            failed++
+            console.error('[fulfillment] order recovery deferred')
+        }
     }
-    return { checked: waiting.length, delivered }
+    if (!productId && waiting.length) {
+        try {
+            // Rotate products between runs; keep the oldest orders first inside each product.
+            // A stale concurrent scan cannot overwrite newer progress.
+            await dbRun(sql`INSERT INTO settings (key, value, updated_at)
+                VALUES (${cursorKey}, ${waiting[waiting.length - 1].productId}, ${Date.now()})
+                ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+                WHERE COALESCE(settings.value, '') = COALESCE(${previousCursor}, '')`)
+        } catch { console.error('[fulfillment] scan progress save deferred') }
+    }
+    return { checked: waiting.length, delivered, failed }
 }

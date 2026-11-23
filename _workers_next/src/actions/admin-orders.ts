@@ -11,6 +11,7 @@ import { recalcProductAggregates, recalcProductAggregatesForMany, ensureDatabase
 import { fulfillPaidOrder, queuePaymentNotification } from '@/lib/fulfillment'
 import { scheduleInventoryEvents } from '@/lib/inventory-events'
 import { cancelPendingOrder, deleteOrderInventory, refundOrderInventory } from '@/lib/order-transitions'
+import { allowVerifiedRefundRetry } from '@/lib/payment-refund'
 
 export async function markOrderPaid(orderId: string) {
   await checkAdmin()
@@ -164,17 +165,23 @@ export async function deleteOrders(orderIds: string[]) {
 
 import { queryOrderStatus } from "@/lib/epay"
 
-export async function verifyOrderRefundStatus(orderId: string) {
+type RefundVerificationResult = { success: false; error: string } | {
+  success: true; status: number; msg: string; canRetry?: boolean; needsReview?: boolean
+}
+
+export async function verifyOrderRefundStatus(orderId: string): Promise<RefundVerificationResult> {
   await checkAdmin()
   if (!orderId) throw new Error("Missing order id")
 
   try {
-    const result = await queryOrderStatus(orderId)
+    const order = await db.query.orders.findFirst({ where: eq(orders.orderId, orderId),
+      columns: { orderId: true, productId: true, tradeNo: true, amount: true } })
+    if (!order) return { success: false, error: 'Order not found' }
+    const result = await queryOrderStatus(orderId, order.tradeNo || undefined)
 
     if (result.success) {
       // status 0 = Refunded
       if (result.status === 0) {
-        const order = await db.query.orders.findFirst({ where: eq(orders.orderId, orderId), columns: { productId: true } })
         await refundOrderInventory(orderId, (await getSetting('refund_reclaim_cards')) !== 'false')
         revalidatePath('/admin/orders')
         if (order?.productId) {
@@ -191,7 +198,8 @@ export async function verifyOrderRefundStatus(orderId: string) {
         }
         return { success: true, status: result.status, msg: 'Refunded (Verified)' }
       } else if (result.status === 1) {
-        return { success: true, status: result.status, msg: 'Paid (Not Refunded)' }
+        const retry = await allowVerifiedRefundRetry(order)
+        return { success: true, status: result.status, msg: 'Paid (Not Refunded)', ...retry }
       } else {
         return { success: true, status: result.status, msg: `Status: ${result.status}` }
       }

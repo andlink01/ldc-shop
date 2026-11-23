@@ -229,7 +229,7 @@ Workers 原地重置后台密钥保留记录 ID，重试仍能命中旧回执。
 
 ## 数据与部署
 
-首次请求沿用商城现有初始化流程。Docker 1.4.3 的结构版本为 22，包含 `inventory_imports`；Workers 从 1.5.3 起使用结构版本 25，为 `inventory_api_keys` 增加可为空的 `token_encrypted` 字段，1.5.5 无新结构升级。全量备份包含导入回执，恢复后保留重试保护；Workers 备份同时包含密钥密文、采购编号和发货记录。删除密钥不删除历史回执。
+首次请求沿用商城现有初始化流程。Docker 1.4.3 的结构版本为 22，包含 `inventory_imports`；Workers 从 1.5.3 起使用结构版本 25，为 `inventory_api_keys` 增加可为空的 `token_encrypted` 字段，1.5.11 仍保持该结构。全量备份包含导入回执，恢复后保留重试保护；Workers 备份同时包含密钥密文、采购编号和发货记录。从 1.5.11 起，Workers 全量备份在同一个 D1 事务批次读取所有表，也包含持久退款请求记录，防止备份期间发货造成订单与卡密状态不一致。删除密钥不删除历史回执。
 
 Workers 密钥加密使用当前有效的认证 Secret，依次读取 `AUTH_SECRET`、`NEXTAUTH_SECRET`、`OAUTH_CLIENT_SECRET`，没有新增必须配置的环境变量。恢复备份时应沿用原值，并单独备份此 Secret，数据库导出不会包含它。更换认证 Secret 后，原补货密钥仍可通过哈希鉴权，但旧密文无法查看；可在后台原地重置并更新补货程序。
 
