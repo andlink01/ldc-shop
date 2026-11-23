@@ -15,8 +15,26 @@ export const nativeMerchantKey = 'isolated-native-production-merchant-key'
 const inventoryKey = 'isolated-native-production-inventory-key'
 
 async function listen(server) {
-    await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
-    return server.address().port
+    let lastError
+    for (let attempt = 0; attempt < 20; attempt++) {
+        await new Promise((resolve, reject) => {
+            server.once('error', reject)
+            server.listen(0, '127.0.0.1', () => { server.off('error', reject); resolve() })
+        })
+        const port = server.address().port
+        try {
+            // Windows can allocate a port such as 1720 that fetch blocks before
+            // connecting. Probe each private listener before reserving its port.
+            const response = await fetch(`http://127.0.0.1:${port}/`, { method: 'HEAD', headers: { Connection: 'close' }, signal: AbortSignal.timeout(2000) })
+            await response.arrayBuffer()
+            return port
+        } catch (error) {
+            lastError = error
+            server.closeAllConnections()
+            await new Promise(resolve => server.close(resolve))
+        }
+    }
+    throw new Error('Unable to reserve a fetch-compatible loopback port', { cause: lastError })
 }
 
 export async function dockerProductionFixture(t, { provider, legacySql } = {}) {
@@ -50,7 +68,7 @@ export async function dockerProductionFixture(t, { provider, legacySql } = {}) {
         } catch { outgoing.writeHead(503); outgoing.end() }
     })
     const bridgePort = await listen(bridge)
-    const reservation = createServer()
+    const reservation = createServer((_, response) => response.end())
     const port = await listen(reservation)
     await new Promise(resolve => reservation.close(resolve))
     const baseUrl = `http://127.0.0.1:${port}`
@@ -132,7 +150,7 @@ export async function dockerProductionFixture(t, { provider, legacySql } = {}) {
                 if (response.status === 200) { ready = true; break }
                 lastProbe = `HTTP ${response.status}: ${body.slice(0, 300)}`
                 logs += body.slice(0, 300)
-            } catch (error) { lastProbe = `${error.message}: ${error.cause?.code || ''}` }
+            } catch (error) { lastProbe = `${error.message}: ${error.cause?.code || error.cause?.message || ''}` }
             if (!running()) break
             await new Promise(resolve => setTimeout(resolve, 250))
         }
