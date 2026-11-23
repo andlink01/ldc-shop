@@ -1,0 +1,45 @@
+name: Docker Runtime Validation
+
+on:
+  push:
+    branches: [main]
+    paths: ['_docker/**', 'scripts/sync-variants.mjs', '.github/workflows/docker-runtime.yml']
+  pull_request:
+    paths: ['_docker/**', 'scripts/sync-variants.mjs', '.github/workflows/docker-runtime.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  docker-runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: _docker
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: _docker/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npx tsc --noEmit
+      - run: npm run test:auth
+      - run: npm run test:inventory
+      - run: npm run test:db
+      - run: npm run test:update
+      - run: npm run test:client
+      - run: npm run test:card-config
+      - run: npm run test:features
+      - run: npm run test:storefront
+      - run: npm run build
+      - run: npm run test:production
+      - name: Build the deployment image
+        run: docker build --tag ldc-shop-runtime:${{ github.sha }} .
+      - name: Validate real container routes and SQLite volume recovery
+        run: npm run test:production
+        env:
+          LDC_DOCKER_TEST_IMAGE: ldc-shop-runtime:${{ github.sha }}

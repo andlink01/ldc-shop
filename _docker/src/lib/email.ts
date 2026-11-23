@@ -1,3 +1,4 @@
+import { getErrorText } from '@/lib/errors'
 import { db } from "./db"
 import { settings } from "./db/schema"
 import { inArray } from "drizzle-orm"
@@ -13,8 +14,8 @@ async function getSettingsUncached(keys: string[]): Promise<Record<string, strin
             map[row.key] = row.value || ""
         }
         return map
-    } catch (error: any) {
-        const text = `${error?.message || ""}${JSON.stringify(error || {})}`.toLowerCase()
+    } catch (error) {
+        const text = getErrorText(error).toLowerCase()
         if (text.includes("no such table") && text.includes("settings")) {
             return {}
         }
@@ -48,12 +49,17 @@ export async function getEmailSettings() {
     }
 }
 
+function escapeEmailHtml(value: string) {
+    return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;')
+}
+
 interface OrderEmailParams {
     to: string
     orderId: string
     productName: string
     cardKeys: string
     language?: 'zh' | 'en'
+    idempotencyKey?: string
 }
 
 const emailTemplates = {
@@ -163,28 +169,28 @@ export async function sendOrderEmail(params: OrderEmailParams) {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${settings.apiKey}`
+                'Authorization': `Bearer ${settings.apiKey}`,
+                ...(params.idempotencyKey ? { 'Idempotency-Key': params.idempotencyKey } : {}),
             },
             body: JSON.stringify({
                 from: `${settings.fromName} <${settings.fromEmail}>`,
                 to: params.to,
                 subject: template.subject(params.orderId),
-                html: template.body(params)
-            })
+                html: template.body({ ...params, productName: escapeEmailHtml(params.productName), orderId: escapeEmailHtml(params.orderId), cardKeys: escapeEmailHtml(params.cardKeys) })
+            }), signal: AbortSignal.timeout(15000), redirect: 'manual',
         })
 
         if (!response.ok) {
-            const error = await response.text()
-            console.error('[Email] Resend API Error:', error)
-            return { success: false, error }
+            return { success: false, error: `Email HTTP ${response.status}` }
         }
 
         const result = await response.json()
+        if (!result || typeof result.id !== 'string' || !result.id.trim()) return { success: false, error: 'Email provider did not confirm delivery acceptance' }
         console.log('[Email] Sent successfully:', result.id)
         return { success: true, id: result.id }
-    } catch (e: any) {
-        console.error('[Email] Send Error:', e)
-        return { success: false, error: e.message }
+    } catch {
+        console.error('[Email] Send request failed')
+        return { success: false, error: 'Email request failed; check the configuration or try again later' }
     }
 }
 
@@ -213,16 +219,17 @@ export async function testResendEmail(to: string) {
                         <p style="color: #666; font-size: 14px;">This is a test email from LDC Shop.</p>
                     </div>
                 `
-            })
+            }), signal: AbortSignal.timeout(15000), redirect: 'manual',
         })
 
         if (!response.ok) {
-            const error = await response.text()
-            return { success: false, error }
+            return { success: false, error: `Email HTTP ${response.status}` }
         }
 
+        const result = await response.json()
+        if (!result || typeof result.id !== 'string' || !result.id.trim()) return { success: false, error: 'Email provider did not confirm delivery acceptance' }
         return { success: true }
-    } catch (e: any) {
-        return { success: false, error: e.message }
+    } catch {
+        return { success: false, error: 'Email request failed; check the configuration or try again later' }
     }
 }

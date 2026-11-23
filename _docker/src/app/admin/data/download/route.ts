@@ -1,3 +1,5 @@
+import type { SQL } from 'drizzle-orm'
+import { getErrorMessage } from '@/lib/errors'
 import { NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
 import { db } from "@/lib/db"
@@ -19,36 +21,26 @@ import {
   broadcastReads,
   wishlistItems,
   wishlistVotes,
-  inventoryImports,
+  inventoryImports, inventoryApiKeys, inventoryApiRequests, orderDeliveries, inventoryEvents, supplierRequests,
 } from "@/lib/db/schema"
 import { and, desc, eq, or, sql } from "drizzle-orm"
-import { getProducts, normalizeTimestampMs } from "@/lib/db/queries"
+import { getProducts, normalizeTimestampMs, ensureDatabaseInitialized } from "@/lib/db/queries"
+import { isAdminUsername } from '@/lib/admin-auth'
 
 function requireAdminUsername(username?: string | null) {
-  const adminUsers = process.env.ADMIN_USERS?.toLowerCase().split(",") || []
-  if (!username || !adminUsers.includes(username.toLowerCase())) {
+  if (!isAdminUsername(username)) {
     throw new Error("Unauthorized")
   }
 }
 
-function isMissingTable(error: any) {
-  const errorString = JSON.stringify(error)
-  return (
-    error?.message?.includes("does not exist") ||
-    error?.cause?.message?.includes("does not exist") ||
-    errorString.includes("42P01") ||
-    (errorString.includes("relation") && errorString.includes("does not exist"))
-  )
-}
-
-function csvEscape(value: any): string {
+function csvEscape(value: unknown): string {
   if (value === null || value === undefined) return ""
   const str = String(value)
   if (/[",\n]/.test(str)) return `"${str.replace(/"/g, '""')}"`
   return str
 }
 
-function toCsv(headers: string[], rows: Array<Record<string, any>>): string {
+function toCsv(headers: string[], rows: Array<Record<string, unknown>>): string {
   const lines: string[] = []
   lines.push(headers.map(csvEscape).join(","))
   for (const row of rows) {
@@ -70,7 +62,7 @@ function escapeString(val: string): string {
   return "'" + val.replace(/'/g, "''") + "'"
 }
 
-function formatSqlValue(val: any): string {
+function formatSqlValue(val: unknown): string {
   if (val === null || val === undefined) return "NULL"
   if (typeof val === "boolean") return val ? "1" : "0"
   if (val instanceof Date) {
@@ -79,11 +71,11 @@ function formatSqlValue(val: any): string {
     return "'" + val.toISOString().replace("T", " ").replace("Z", "") + "'"
   }
   if (typeof val === "number") return String(val)
-  if (typeof val === "string") return escapeString(val)
+  if (typeof val === "string") return val.split(/([\r\n])/).map(part => part === '\n' ? 'char(10)' : part === '\r' ? 'char(13)' : escapeString(part)).join(' || ')
   return escapeString(JSON.stringify(val))
 }
 
-function rowToInsertOrIgnore(table: string, row: Record<string, any>): string {
+function rowToInsertOrIgnore(table: string, row: Record<string, unknown>): string {
   const keys = Object.keys(row)
   const columns = keys.join(", ")
   const values = keys.map((k) => formatSqlValue(row[k])).join(", ")
@@ -104,7 +96,7 @@ export async function GET(req: Request) {
 
   try {
     if (type === "orders") {
-      const whereParts: any[] = []
+      const whereParts: Array<SQL | undefined> = []
       if (status !== 'all') whereParts.push(eq(orders.status, status))
       if (fulfillment === 'needsDelivery') whereParts.push(and(eq(orders.status, 'paid'), sql`${orders.cardKey} IS NULL`))
       if (q) {
@@ -123,7 +115,7 @@ export async function GET(req: Request) {
         where: whereExpr,
         orderBy: [desc(normalizeTimestampMs(orders.createdAt))],
       })
-      const mapped = orderRows.map((o: any) => ({
+      const mapped = orderRows.map((o) => ({
         orderId: o.orderId,
         username: o.username,
         email: includeSecrets ? o.email : null,
@@ -165,14 +157,14 @@ export async function GET(req: Request) {
           "deliveredAt",
           "userId",
         ]
-        const csv = toCsv(headers, mapped as any)
+        const csv = toCsv(headers, mapped)
         return csvResponse(csv, `orders${includeSecrets ? "-with-secrets" : ""}.csv`)
       }
     }
 
     if (type === "products") {
       const rows = await getProducts()
-      const mapped = rows.map((p: any) => ({
+      const mapped = rows.map((p) => ({
         id: p.id,
         name: p.name,
         description: p.description,
@@ -212,7 +204,7 @@ export async function GET(req: Request) {
           "stock",
           "sold",
         ]
-        const csv = toCsv(headers, mapped as any)
+        const csv = toCsv(headers, mapped)
         return csvResponse(csv, "products.csv")
       }
     }
@@ -221,7 +213,7 @@ export async function GET(req: Request) {
       const rows = await db.query.reviews.findMany({
         orderBy: [desc(reviews.createdAt)],
       })
-      const mapped = rows.map((r: any) => ({
+      const mapped = rows.map((r) => ({
         id: r.id,
         productId: r.productId,
         orderId: r.orderId,
@@ -251,7 +243,7 @@ export async function GET(req: Request) {
           "comment",
           "createdAt",
         ]
-        const csv = toCsv(headers, mapped as any)
+        const csv = toCsv(headers, mapped)
         return csvResponse(csv, "reviews.csv")
       }
     }
@@ -260,7 +252,7 @@ export async function GET(req: Request) {
       const rows = await db.query.settings.findMany({
         orderBy: [desc(settings.updatedAt)],
       })
-      const mapped = rows.map((s: any) => ({
+      const mapped = rows.map((s) => ({
         key: s.key,
         value: s.value,
         updatedAt: s.updatedAt,
@@ -273,35 +265,38 @@ export async function GET(req: Request) {
     }
 
     if (type === "full") {
-      const full: Record<string, any[]> = {}
-      const tables: Array<[string, () => Promise<any[]>]> = [
-        ["categories", async () => db.select().from(categories).all()],
-        ["products", async () => db.select().from(products).all()],
-        ["cards", async () => db.select().from(cards).all()],
-        ["inventory_imports", async () => db.select().from(inventoryImports).all()],
-        ["orders", async () => db.select().from(orders).all()],
-        ["reviews", async () => db.select().from(reviews).all()],
-        ["review_replies", async () => db.select().from(reviewReplies).all()],
-        ["settings", async () => db.select().from(settings).all()],
-        ["login_users", async () => db.select().from(loginUsers).all()],
-        ["user_notifications", async () => db.select().from(userNotifications).all()],
-        ["user_messages", async () => db.select().from(userMessages).all()],
-        ["admin_messages", async () => db.select().from(adminMessages).all()],
-        ["broadcast_messages", async () => db.select().from(broadcastMessages).all()],
-        ["broadcast_reads", async () => db.select().from(broadcastReads).all()],
-        ["wishlist_items", async () => db.select().from(wishlistItems).all()],
-        ["wishlist_votes", async () => db.select().from(wishlistVotes).all()],
-        ["refund_requests", async () => db.select().from(refundRequests).all()],
-        ["daily_checkins_v2", async () => db.select().from(dailyCheckins).all()],
-      ]
-
-      for (const [tableName, fetcher] of tables) {
-        try {
-          full[tableName] = await fetcher()
-        } catch (e: any) {
-          if (isMissingTable(e)) full[tableName] = []
-          else throw e
-        }
+      await ensureDatabaseInitialized()
+      const full: Record<string, Record<string, unknown>[]> = {}
+      const tables = [
+        ["categories", db.select().from(categories)],
+        ["products", db.select().from(products)],
+        ["cards", db.select().from(cards)],
+        ["inventory_imports", db.select().from(inventoryImports)],
+        ["orders", db.select().from(orders)],
+        ["inventory_api_keys", db.select().from(inventoryApiKeys)],
+        ["inventory_api_requests", db.select().from(inventoryApiRequests)],
+        ["order_deliveries", db.select().from(orderDeliveries)],
+        ["inventory_events", db.select().from(inventoryEvents)],
+        ["supplier_requests", db.select().from(supplierRequests)],
+        ["reviews", db.select().from(reviews)],
+        ["review_replies", db.select().from(reviewReplies)],
+        ["settings", db.select().from(settings)],
+        ["login_users", db.select().from(loginUsers)],
+        ["user_notifications", db.select().from(userNotifications)],
+        ["user_messages", db.select().from(userMessages)],
+        ["admin_messages", db.select().from(adminMessages)],
+        ["broadcast_messages", db.select().from(broadcastMessages)],
+        ["broadcast_reads", db.select().from(broadcastReads)],
+        ["wishlist_items", db.select().from(wishlistItems)],
+        ["wishlist_votes", db.select().from(wishlistVotes)],
+        ["refund_requests", db.select().from(refundRequests)],
+        ["daily_checkins_v2", db.select().from(dailyCheckins)],
+      ] as const
+      // D1 batch reads all tables in one transaction, including stock and its delivery receipts.
+      const [firstQuery, ...otherQueries] = tables.map(([, query]) => query)
+      const snapshot = await db.batch([firstQuery, ...otherQueries])
+      for (const [index, [tableName]] of tables.entries()) {
+        full[tableName] = snapshot[index] as Record<string, unknown>[]
       }
 
       if (format === "json") {
@@ -386,13 +381,42 @@ export async function GET(req: Request) {
           // Broadcast / admin messages
           targetType: 'target_type',
           targetValue: 'target_value',
+            tokenHash: 'token_hash',
+            tokenEncrypted: 'token_encrypted',
+            tokenPrefix: 'token_prefix',
+            productIds: 'product_ids',
+            canRead: 'can_read',
+            canWrite: 'can_write',
+            isEnabled: 'is_enabled',
+            lastUsedAt: 'last_used_at',
+            createdBy: 'created_by',
+            keyId: 'key_id',
+            addedCount: 'added_count',
+            durationMs: 'duration_ms',
+            attemptId: 'attempt_id',
+            eventId: 'event_id',
+            telegramSent: 'telegram_sent',
+            barkSent: 'bark_sent',
+            emailSent: 'email_sent',
+            replenishAttempted: 'replenish_attempted',
+            leaseToken: 'lease_token',
+            leaseUntil: 'lease_until',
+            nextAttemptAt: 'next_attempt_at',
+            completedAt: 'completed_at',
+
+            supplierRequestId: 'supplier_request_id',
+            requestId: 'request_id',
+            itemIndex: 'item_index',
+            serverUrl: 'server_url',
+            cardId: 'card_id',
+
         }
 
         for (const [tableName, rows] of Object.entries(full)) {
           if (!rows.length) continue
           for (const row of rows) {
             // Convert keys to snake_case
-            const sqlRow: Record<string, any> = {}
+            const sqlRow: Record<string, unknown> = {}
             for (const [key, val] of Object.entries(row)) {
               const sqlKey = columnMapping[key] || key
               sqlRow[sqlKey] = val
@@ -416,8 +440,8 @@ export async function GET(req: Request) {
     }
 
     return NextResponse.json({ error: "Bad Request" }, { status: 400 })
-  } catch (e: any) {
-    const message = e?.message || "Export failed"
+  } catch (e) {
+    const message = getErrorMessage(e) || "Export failed"
     return NextResponse.json({ error: message }, { status: message === "Unauthorized" ? 401 : 500 })
   }
 }

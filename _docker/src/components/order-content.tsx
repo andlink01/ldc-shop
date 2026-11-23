@@ -1,5 +1,7 @@
 'use client'
 
+import { getErrorMessage } from '@/lib/errors'
+
 import { useRef, useState } from "react"
 import { useI18n } from "@/lib/i18n/context"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
@@ -54,8 +56,8 @@ export function OrderContent({ order, canViewKey, isOwner, refundRequest }: Orde
             await requestRefund(order.orderId, reason)
             toast.success(t('refund.requested'))
             setConfirmOpen(false)
-        } catch (e: any) {
-            toast.error(e.message)
+        } catch (e) {
+            toast.error(getErrorMessage(e))
         } finally {
             setSubmitting(false)
             submitLock.current = false
@@ -78,7 +80,7 @@ export function OrderContent({ order, canViewKey, isOwner, refundRequest }: Orde
 
     const getStatusMessage = (status: string) => {
         switch (status) {
-            case 'paid': return isPayment ? t('payment.paidMessage') : t('order.stockDepleted')
+            case 'paid': return isPayment ? t('payment.paidMessage') : t('inventory.paidProcessing')
             case 'cancelled': return t('order.cancelledMessage')
             case 'refunded': return t('order.orderRefunded')
             default: return t('order.waitingPayment')
@@ -90,15 +92,14 @@ export function OrderContent({ order, canViewKey, isOwner, refundRequest }: Orde
 
     // Check status on mount and polling
     useEffect(() => {
-        if (order.status !== 'pending') return
+        if (order.status !== 'pending' && order.status !== 'paid') return
 
         let mounted = true
-        let intervalId: NodeJS.Timeout
 
         const check = async () => {
             try {
                 const result = await checkOrderStatus(order.orderId)
-                if (result.success && (result.status === 'paid' || result.status === 'delivered') && mounted) {
+                if (result.success && (result.status === 'delivered' || (order.status === 'pending' && result.status === 'paid')) && mounted) {
                     toast.success(t('order.paymentSuccess'))
                     router.refresh()
                 }
@@ -112,7 +113,7 @@ export function OrderContent({ order, canViewKey, isOwner, refundRequest }: Orde
 
         // Poll every 3s for 1 minute (20 times)
         let attempts = 0
-        intervalId = setInterval(() => {
+        const intervalId = setInterval(() => {
             if (attempts > 20) {
                 clearInterval(intervalId)
                 return
@@ -296,8 +297,8 @@ export function OrderContent({ order, canViewKey, isOwner, refundRequest }: Orde
                                                 } else {
                                                     toast.error(result.error ? t(result.error) : t('common.error'))
                                                 }
-                                            } catch (e: any) {
-                                                toast.error(e.message)
+                                            } catch (e) {
+                                                toast.error(getErrorMessage(e))
                                             } finally {
                                                 setSubmitting(false)
                                                 submitLock.current = false
@@ -332,8 +333,8 @@ export function OrderContent({ order, canViewKey, isOwner, refundRequest }: Orde
                                                 } else {
                                                     toast.error(result.error ? t(result.error) : t('common.error'))
                                                 }
-                                            } catch (e: any) {
-                                                toast.error(e.message)
+                                            } catch (e) {
+                                                toast.error(getErrorMessage(e))
                                             } finally {
                                                 setSubmitting(false)
                                                 submitLock.current = false

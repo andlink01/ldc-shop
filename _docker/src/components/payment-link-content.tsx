@@ -1,5 +1,7 @@
 'use client'
 
+import { getErrorMessage } from '@/lib/errors'
+
 import { useState } from "react"
 import { useI18n } from "@/lib/i18n/context"
 import { createPaymentOrder } from "@/actions/payment"
@@ -48,8 +50,8 @@ export function PaymentLinkContent({ payee }: { payee?: string | null }) {
 
             document.body.appendChild(form)
             form.submit()
-        } catch (e: any) {
-            toast.error(e.message || t('common.error'))
+        } catch (e) {
+            toast.error(getErrorMessage(e) || t('common.error'))
         } finally {
             setSubmitting(false)
         }

@@ -12,9 +12,9 @@ const entry = `
 import { db, dbRun } from '@/lib/db';
 import { sql } from 'drizzle-orm';
 import * as schema from '@/lib/db/schema';
-import { ensureDatabaseInitialized, setSetting } from '@/lib/db/queries';
+import { ensureDatabaseInitialized, setSetting, getProduct, getProductVariants } from '@/lib/db/queries';
 import { createOrder } from '@/actions/checkout';
-import { getBuyPageMeta } from '@/actions/buy';
+import { getBuyPageMeta, verifyPurchaseAnswers } from '@/actions/buy';
 import { proxyRefund } from '@/actions/refund';
 import { verifyOrderRefundStatus } from '@/actions/admin-orders';
 import { importData } from '@/actions/data';
@@ -56,6 +56,13 @@ export default { async fetch(request, env) {
       const input = await request.json();
       globalThis.__runtimeTrustLevel = input.trustLevel ?? 0;
       result = await createOrder(input.productId || 'product', input.quantity || 1, 'buyer@example.com', !!input.usePoints, input.answers);
+    } else if (url.pathname === '/question-verify') {
+      const input = await request.json();
+      globalThis.__runtimeTrustLevel = input.trustLevel ?? 0;
+      result = await verifyPurchaseAnswers(input.productId || 'product', input.answers);
+    } else if (url.pathname === '/product-questions') {
+      result = { product:await getProduct('product', {isLoggedIn:true,trustLevel:3}),
+        variants:await getProductVariants('question-group', {isLoggedIn:true,trustLevel:3}) };
     } else if (url.pathname === '/sql') {
       const queries = await request.json();
       result = await env.DB.batch(queries.map(({sql,params=[]})=>env.DB.prepare(sql).bind(...params)));
@@ -463,6 +470,28 @@ test('purchase questions reject malformed answers and invalid stored questions i
     assert.equal((await f.json('/checkout', { answers: [' correct '] })).success, true)
 })
 
+test('real workerd keeps every variant answer private and verifies questions without checkout side effects', async t => {
+    const questions = JSON.stringify([{ q: 'Runtime question?', a: 'PRIVATE-RUNTIME-ANSWER' }])
+    const f = await setup(t, { product: { visibilityLevel: 2, variantGroupId: 'question-group', purchaseQuestions: questions } })
+    await f.json('/sql', [{ sql: 'INSERT INTO products (id,name,price,variant_group_id,purchase_questions) VALUES (?,?,?,?,?)',
+        params: ['variant', 'Runtime variant', '3', 'question-group', JSON.stringify([{ q: 'Variant question?', a: 'PRIVATE-VARIANT-ANSWER' }])] }])
+    const publicData = await f.json('/product-questions')
+    assert.deepEqual(JSON.parse(publicData.product.purchaseQuestions), [{ q: 'Runtime question?' }])
+    assert.equal(publicData.variants.length, 2)
+    assert.ok(!JSON.stringify(publicData).includes('PRIVATE-'))
+    const verify = (answers, trustLevel = 2) => f.json('/question-verify', { answers, trustLevel })
+    assert.equal((await verify(['PRIVATE-RUNTIME-ANSWER'], 1)).error, 'buy.visibilityDenied')
+    assert.equal((await verify([{}])).error, 'buy.answersRequired')
+    assert.equal((await verify(['wrong'])).error, 'buy.questionsWrong')
+    assert.equal((await verify([' private-runtime-answer '])).success, true)
+    await f.json('/sql', [{ sql: 'UPDATE login_users SET is_blocked = 1 WHERE user_id = ?', params: ['user'] }])
+    assert.equal((await verify(['PRIVATE-RUNTIME-ANSWER'])).error, 'buy.userBlocked')
+    const state = await f.json('/snapshot')
+    assert.equal(state.orders.length, 0)
+    assert.equal(state.users[0].points, 20)
+    assert.ok(state.cards.every(card => !card.isUsed && !card.reservedOrderId))
+})
+
 test('automatic GET stock rejects used and expired values and concurrent duplicates in real D1', async t => {
     let cardKey = ' USED-CARD '
     const f = await setup(t, { restock: true, noCards: true }, request => {
@@ -537,6 +566,26 @@ test('global fulfillment moves past 50 unavailable old orders to another product
     const state = await f.json('/snapshot')
     assert.equal(state.orders.find(order => order.orderId === 'ready').status, 'delivered')
     assert.equal(state.orders.filter(order => order.status === 'paid').length, 50)
+})
+
+test('real D1 delivers full buyer reservations behind 50 missing-stock orders while protecting FIFO stock', async t => {
+    for (const productId of [undefined, 'product']) {
+        const f = await setup(t)
+        await f.json('/sql', [
+            ...Array.from({ length: 50 }, (_, i) => ({ sql: 'INSERT INTO orders (order_id,product_id,product_name,amount,status,quantity,user_id,paid_at) VALUES (?,?,?,?,?,?,?,?)',
+                params: ['old-' + String(i).padStart(2, '0'), 'product', 'Runtime product', '3', 'paid', 3, 'user', 1] })),
+            { sql: 'INSERT INTO orders (order_id,product_id,product_name,amount,status,quantity,user_id,paid_at) VALUES (?,?,?,?,?,?,?,?)', params: ['reserved', 'product', 'Runtime product', '3', 'paid', 2, 'user', 2] },
+            { sql: 'UPDATE cards SET reserved_order_id = ?, reserved_at = ?', params: ['reserved', 1] },
+            { sql: 'INSERT INTO cards (product_id,card_key) VALUES (?,?)', params: ['product', 'OLDER-STOCK'] },
+        ])
+        assert.equal((await f.json('/recover', { productId, limit: 50 })).delivered, 1)
+        assert.equal((await f.json('/recover', { productId, limit: 50 })).delivered, 0)
+        const state = await f.json('/snapshot')
+        assert.equal(state.orders.find(order => order.orderId === 'reserved').cardKey, 'STOCK-ONE\nSTOCK-TWO')
+        assert.equal(state.cards.find(card => card.cardKey === 'OLDER-STOCK').reservedOrderId, 'old-00')
+        assert.equal(state.orders.filter(order => order.status === 'paid').length, 50)
+        assert.equal(state.deliveries.length, 1)
+    }
 })
 
 test('a failed fulfillment transaction does not block another product in real D1', async t => {

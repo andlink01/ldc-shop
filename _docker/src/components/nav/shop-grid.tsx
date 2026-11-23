@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { startTransition, useEffect, useMemo, useRef, useState } from "react"
+import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { ShopLogo } from "@/components/nav/shop-logo"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -20,21 +20,21 @@ type NavigatorShop = {
 
 export function ShopGrid({ shops }: { shops: NavigatorShop[] }) {
     const { t } = useI18n()
-    const [visibleCount, setVisibleCount] = useState(() => Math.min(INITIAL_BATCH, shops.length))
+    const [pagination, setPagination] = useState(() => ({ shops, count: Math.min(INITIAL_BATCH, shops.length) }))
+    if (pagination.shops !== shops) {
+        setPagination({ shops, count: Math.min(INITIAL_BATCH, shops.length) })
+    }
+    const visibleCount = pagination.shops === shops ? pagination.count : Math.min(INITIAL_BATCH, shops.length)
     const sentinelRef = useRef<HTMLDivElement | null>(null)
     const hasMore = visibleCount < shops.length
 
-    useEffect(() => {
-        setVisibleCount(Math.min(INITIAL_BATCH, shops.length))
-    }, [shops])
-
     const visibleShops = useMemo(() => shops.slice(0, visibleCount), [shops, visibleCount])
 
-    const loadMore = () => {
+    const loadMore = useCallback(() => {
         startTransition(() => {
-            setVisibleCount((current) => Math.min(current + LOAD_BATCH, shops.length))
+            setPagination((current) => ({ ...current, count: Math.min(current.count + LOAD_BATCH, shops.length) }))
         })
-    }
+    }, [shops.length])
 
     useEffect(() => {
         if (!hasMore || !sentinelRef.current) return
@@ -51,7 +51,7 @@ export function ShopGrid({ shops }: { shops: NavigatorShop[] }) {
 
         observer.observe(sentinelRef.current)
         return () => observer.disconnect()
-    }, [hasMore, visibleCount, shops.length])
+    }, [hasMore, visibleCount, loadMore])
 
     return (
         <>

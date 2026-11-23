@@ -6,6 +6,7 @@ import { notFound } from "next/navigation"
 import { cookies } from "next/headers"
 import { OrderContent } from "@/components/order-content"
 import { getProductVariantLabels } from "@/lib/db/queries"
+import { isOrderOwner, canAccessOrder } from '@/lib/order-access'
 
 export default async function OrderPage({ params }: { params: Promise<{ id: string }> }) {
     const { id } = await params
@@ -19,17 +20,15 @@ export default async function OrderPage({ params }: { params: Promise<{ id: stri
     if (!order) return notFound()
 
     // Access Control
-    let canViewKey = false
-    const isOwner = !!(user && (user.id === order.userId || user.username === order.username))
-    if (isOwner) canViewKey = true
+    const isOwner = isOrderOwner(user, order)
 
     // Check Cookie
     const cookieStore = await cookies()
     const pending = cookieStore.get('ldc_pending_order')
-    if (pending?.value === id) canViewKey = true
+    const canViewKey = canAccessOrder(user, order, id, pending?.value)
 
     // Refund request status (best effort)
-    let refundRequest: any = null
+    let refundRequest: typeof refundRequests.$inferSelect | null | undefined = null
     if (user?.id) {
         try {
             refundRequest = await db.query.refundRequests.findFirst({
@@ -53,7 +52,7 @@ export default async function OrderPage({ params }: { params: Promise<{ id: stri
                 productVariantLabel,
                 amount: order.amount,
                 status: order.status || 'pending',
-                cardKey: order.cardKey,
+                cardKey: canViewKey ? order.cardKey : null,
                 payee: order.payee,
                 createdAt: order.createdAt,
                 paidAt: order.paidAt

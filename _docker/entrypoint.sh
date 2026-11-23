@@ -16,9 +16,9 @@ if [ ! -w /app/data ]; then
     echo "Fix: ensure the host volume directory is writable (chmod 777 ./data)"
 fi
 
-# Run database migrations
-echo "Running database migrations..."
-npx drizzle-kit push 2>&1 || echo "WARNING: drizzle-kit push failed, tables will be created at runtime"
+# The application performs the versioned, idempotent upgrade on its first request.
+# This preserves existing data and avoids an interactive drizzle-kit prompt at startup.
+echo "Database upgrades will run on the first application request."
 
 # Start the cron job in background
 echo "Starting cron scheduler..."
@@ -26,4 +26,4 @@ node cron.mjs &
 
 # Start the Next.js server
 echo "Starting Next.js server..."
-node server.js
+exec node server.js

@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation"
-import { auth } from "@/lib/auth"
+import { getStorefrontSession } from "@/lib/storefront"
 import { BuyContent } from "@/components/buy-content"
 import { BuyRestricted } from "@/components/buy-restricted"
 import { getProduct, getProductVisibility, getLiveCardStats, getProductVariants, type ProductVariantRow } from "@/lib/db/queries"
@@ -15,7 +15,7 @@ function mergeLiveStockIntoVariants(
 ): (ProductVariantRow & { stockCount: number; lockedCount: number })[] {
     return variants.map((v) => {
         const stat = liveStats.get(v.id) ?? { unused: 0, available: 0, locked: 0 }
-        const stockCount = v.isShared
+        const stockCount = v.isOnDemand ? INFINITE_STOCK : v.isShared
             ? (stat.unused > 0 ? INFINITE_STOCK : 0)
             : stat.available
         return { ...v, stockCount, lockedCount: stat.locked }
@@ -24,7 +24,7 @@ function mergeLiveStockIntoVariants(
 
 export default async function BuyPage({ params }: BuyPageProps) {
     const { id } = await params
-    const session = await auth()
+    const session = await getStorefrontSession()
     const isLoggedIn = !!session?.user?.id
     const trustLevel = Number.isFinite(Number(session?.user?.trustLevel)) ? Number(session?.user?.trustLevel) : 0
 
@@ -47,20 +47,13 @@ export default async function BuyPage({ params }: BuyPageProps) {
     }
 
     const variantGroupId = product.variantGroupId?.trim() || null
-    let variantsWithStock: (ProductVariantRow & { stockCount: number; lockedCount: number })[] = []
-
-    if (variantGroupId) {
-        const variants = await getProductVariants(variantGroupId, { isLoggedIn, trustLevel }).catch(() => [])
-        if (variants.length > 1) {
-            const variantIds = variants.map((v) => v.id)
-            const liveStats = await getLiveCardStats(variantIds).catch(() => new Map())
-            variantsWithStock = mergeLiveStockIntoVariants(variants, liveStats)
-        }
-    }
-
-    const liveStats = await getLiveCardStats([product.id]).catch(() => new Map())
+    const variants = variantGroupId
+        ? await getProductVariants(variantGroupId, { isLoggedIn, trustLevel }).catch(() => [])
+        : []
+    const liveStats = await getLiveCardStats([product.id, ...variants.map(v => v.id)]).catch(() => new Map())
+    const variantsWithStock = variants.length > 1 ? mergeLiveStockIntoVariants(variants, liveStats) : []
     const stat = liveStats.get(product.id) ?? { unused: 0, available: 0, locked: 0 }
-    const liveAvailable = product.isShared
+    const liveAvailable = product.isOnDemand ? INFINITE_STOCK : product.isShared
         ? (stat.unused > 0 ? INFINITE_STOCK : 0)
         : stat.available
     const liveLocked = stat.locked

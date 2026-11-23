@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { useI18n } from "@/lib/i18n/context"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -25,7 +25,7 @@ import { toast } from "sonner"
 import Image from "next/image"
 import Link from "next/link"
 import { INFINITE_STOCK } from "@/lib/constants"
-import { getBuyPageMeta } from "@/actions/buy"
+import { getBuyPageMeta, verifyPurchaseAnswers } from "@/actions/buy"
 import type { ProductVariantRow } from "@/lib/db/queries"
 import { buildProductImageGallery } from "@/lib/product-images"
 
@@ -109,7 +109,9 @@ export function BuyContent({
 
     const [questionAnswers, setQuestionAnswers] = useState<string[]>([])
     const [questionsVerified, setQuestionsVerified] = useState(false)
-    const [questionError, setQuestionError] = useState(false)
+    const [questionError, setQuestionError] = useState<string | null>(null)
+    const [questionsVerifying, setQuestionsVerifying] = useState(false)
+    const questionVerification = useRef({ sequence: 0, locked: false })
 
     const displayProduct = useMemo(() => {
         if (variants.length > 1 && selectedVariantId) {
@@ -165,12 +167,12 @@ export function BuyContent({
         return 0
     }, [product, variants, selectedVariantId])
 
-    const questions = useMemo<Array<{ q: string; a: string }>>(() => {
+    const questions = useMemo<Array<{ q: string }>>(() => {
         try {
             const raw = displayProduct.purchaseQuestions
             if (raw) {
                 const parsed = JSON.parse(raw)
-                if (Array.isArray(parsed) && parsed.length > 0) return parsed
+                if (Array.isArray(parsed) && parsed.length > 0 && parsed.every(item => item && typeof item.q === 'string')) return parsed
             }
         } catch { /* ignore */ }
         return []
@@ -182,22 +184,31 @@ export function BuyContent({
     )
 
     useEffect(() => {
+        questionVerification.current = { sequence: questionVerification.current.sequence + 1, locked: false }
         setQuestionAnswers(questions.map(() => ''))
         setQuestionsVerified(false)
-        setQuestionError(false)
-    }, [questions])
+        setQuestionError(null)
+        setQuestionsVerifying(false)
+    }, [displayProduct.id, questions])
 
-    const handleVerifyAnswers = () => {
-        const allCorrect = questions.every((q, i) => {
-            const userAnswer = (questionAnswers[i] || '').trim().toLowerCase()
-            const correctAnswer = q.a.trim().toLowerCase()
-            return userAnswer === correctAnswer
-        })
-        if (allCorrect) {
-            setQuestionsVerified(true)
-            setQuestionError(false)
-        } else {
-            setQuestionError(true)
+    const handleVerifyAnswers = async () => {
+        if (questionVerification.current.locked) return
+        const sequence = ++questionVerification.current.sequence
+        questionVerification.current.locked = true
+        setQuestionsVerifying(true)
+        setQuestionError(null)
+        try {
+            const result = await verifyPurchaseAnswers(displayProduct.id, questionAnswers)
+            if (sequence !== questionVerification.current.sequence) return
+            setQuestionsVerified(result.success)
+            setQuestionError(result.success ? null : result.error || 'buy.questionsUnavailable')
+        } catch {
+            if (sequence === questionVerification.current.sequence) setQuestionError('buy.questionsUnavailable')
+        } finally {
+            if (sequence === questionVerification.current.sequence) {
+                questionVerification.current.locked = false
+                setQuestionsVerifying(false)
+            }
         }
     }
 
@@ -584,11 +595,12 @@ export function BuyContent({
                                                 <label className="text-sm font-medium text-foreground">{q.q}</label>
                                                 <Input
                                                     value={questionAnswers[idx] || ''}
+                                                    disabled={questionsVerifying}
                                                     onChange={(e) => {
                                                         const next = [...questionAnswers]
                                                         next[idx] = e.target.value
                                                         setQuestionAnswers(next)
-                                                        setQuestionError(false)
+                                                        setQuestionError(null)
                                                     }}
                                                     placeholder={t('buy.answerPlaceholder')}
                                                     className="rounded-xl"
@@ -596,15 +608,16 @@ export function BuyContent({
                                             </div>
                                         ))}
                                         {questionError && (
-                                            <p className="text-sm font-medium text-destructive">{t('buy.questionsWrong')}</p>
+                                            <p className="text-sm font-medium text-destructive">{t(questionError)}</p>
                                         )}
                                         <Button
                                             type="button"
                                             size="sm"
                                             className="rounded-xl"
                                             onClick={handleVerifyAnswers}
-                                            disabled={questionAnswers.some((a) => !a.trim())}
+                                            disabled={questionsVerifying || questionAnswers.length !== questions.length || questionAnswers.some((a) => !a.trim())}
                                         >
+                                            {questionsVerifying && <Loader2 className="mr-2 h-3 w-3 animate-spin" />}
                                             {t('buy.verifyAnswers')}
                                         </Button>
                                     </div>
@@ -730,6 +743,10 @@ export function BuyContent({
                                                         autoOpen={warningConfirmed && !!displayProduct.purchaseWarning}
                                                         emailConfigured={emailConfiguredState}
                                                         answers={hasQuestions ? questionAnswers : undefined}
+                                                        onQuestionsInvalid={() => {
+                                                            setQuestionsVerified(false)
+                                                            setQuestionError('buy.questionsWrong')
+                                                        }}
                                                         className="h-11 flex-1 rounded-full bg-primary px-5 font-medium text-primary-foreground shadow-[0_16px_34px_-20px_rgba(15,23,42,0.55)] transition-all hover:bg-primary/90 hover:shadow-[0_18px_40px_-22px_rgba(15,23,42,0.6)]"
                                                     />
                                                     {renderShareButton(true)}

@@ -1,5 +1,9 @@
 'use client'
 
+import type { AdminOrderDetail } from '@/lib/admin-types'
+import { getErrorMessage } from '@/lib/errors'
+import { getDeliveryIssue } from '@/lib/delivery-issue'
+
 import Link from "next/link"
 import { useRef, useState } from "react"
 import { useRouter } from "next/navigation"
@@ -12,6 +16,7 @@ import { Label } from "@/components/ui/label"
 import { CopyButton } from "@/components/copy-button"
 import { ClientDate } from "@/components/client-date"
 import { RefundButton } from "@/components/admin/refund-button"
+import { retryOrderDelivery } from '@/actions/inventory'
 import { toast } from "sonner"
 import { markOrderDelivered, markOrderPaid, cancelOrder, updateOrderEmail, deleteOrder } from "@/actions/admin-orders"
 import { getDisplayUsername, getExternalProfileUrl } from "@/lib/user-profile-link"
@@ -26,7 +31,7 @@ function statusVariant(status: string | null) {
   }
 }
 
-export function AdminOrderDetailContent({ order }: { order: any }) {
+export function AdminOrderDetailContent({ order }: { order: AdminOrderDetail }) {
   const { t } = useI18n()
   const router = useRouter()
   const [email, setEmail] = useState(order.email || '')
@@ -40,11 +45,22 @@ export function AdminOrderDetailContent({ order }: { order: any }) {
   const canCancel = status === 'pending'
   const canDelete = true
 
-  const handleStatus = async (action: 'paid' | 'delivered' | 'cancel') => {
+  const handleStatus = async (action: 'paid' | 'delivered' | 'cancel' | 'retry') => {
     if (actionLock.current) return
     try {
       actionLock.current = true
       setActionLoading(true)
+      if (action === 'retry') {
+        const result = await retryOrderDelivery(order.orderId)
+        if (result.delivered) toast.success(t('common.success'))
+        else {
+          const issue = getDeliveryIssue(result.supplierError)
+          const message = t(`inventory.deliveryIssue.${issue.key}`, { status: issue.status ?? '' })
+          if (issue.severity === 'attention') toast.error(message)
+          else toast.info(message)
+        }
+        return
+      }
       if (action === 'paid') {
         if (!confirm(t('admin.orders.confirmMarkPaid'))) return
         await markOrderPaid(order.orderId)
@@ -62,9 +78,10 @@ export function AdminOrderDetailContent({ order }: { order: any }) {
         await cancelOrder(order.orderId)
         toast.success(t('common.success'))
       }
-    } catch (e: any) {
-      toast.error(e.message)
+    } catch (e) {
+      toast.error(getErrorMessage(e))
     } finally {
+      router.refresh()
       setActionLoading(false)
       actionLock.current = false
     }
@@ -75,8 +92,8 @@ export function AdminOrderDetailContent({ order }: { order: any }) {
     try {
       await updateOrderEmail(order.orderId, email)
       toast.success(t('common.success'))
-    } catch (e: any) {
-      toast.error(e.message)
+    } catch (e) {
+      toast.error(getErrorMessage(e))
     } finally {
       setSavingEmail(false)
     }
@@ -101,6 +118,9 @@ export function AdminOrderDetailContent({ order }: { order: any }) {
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle>{t('admin.orders.detail')}</CardTitle>
           <div className="flex items-center gap-2">
+            {status === 'paid' && !order.cardKey && order.productId !== 'payment_link' && (
+              <Button variant="outline" onClick={() => handleStatus('retry')} disabled={actionLoading}>{t('inventory.retryDelivery')}</Button>
+            )}
             {canMarkPaid && (
               <Button variant="outline" onClick={() => handleStatus('paid')} disabled={actionLoading}>{t('admin.orders.markPaid')}</Button>
             )}
@@ -122,10 +142,11 @@ export function AdminOrderDetailContent({ order }: { order: any }) {
                     await deleteOrder(order.orderId)
                     toast.success(t('common.success'))
                     router.push('/admin/orders')
-                  } catch (e: any) {
-                    toast.error(e.message)
+                  } catch (e) {
+                    toast.error(getErrorMessage(e))
                   } finally {
-                    setActionLoading(false)
+                    router.refresh()
+      setActionLoading(false)
                     actionLock.current = false
                   }
                 }}

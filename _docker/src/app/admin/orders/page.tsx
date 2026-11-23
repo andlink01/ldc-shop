@@ -1,10 +1,11 @@
-import { db } from "@/lib/db"
-import { loginUsers, orders } from "@/lib/db/schema"
-import { and, desc, eq, inArray, or, sql } from "drizzle-orm"
-import { AdminOrdersContent } from "@/components/admin/orders-content"
-import { normalizeTimestampMs, withOrderColumnFallback, getProductVariantLabels } from "@/lib/db/queries"
-import { PAYMENT_PRODUCT_ID } from "@/lib/payment"
-import { unstable_noStore } from "next/cache"
+import type { SQL } from 'drizzle-orm';
+import { db } from "@/lib/db";
+import { loginUsers, orders } from "@/lib/db/schema";
+import { and, desc, eq, inArray, or, sql } from "drizzle-orm";
+import { AdminOrdersContent } from "@/components/admin/orders-content";
+import { normalizeTimestampMs, withOrderColumnFallback, getProductVariantLabels } from "@/lib/db/queries";
+
+import { unstable_noStore } from "next/cache";
 
 const LOGIN_USER_LOOKUP_BATCH_SIZE = 50
 
@@ -37,7 +38,7 @@ export default async function AdminOrdersPage(props: {
     const page = parseIntParam(firstParam(searchParams.page), 1)
     const pageSize = Math.min(parseIntParam(firstParam(searchParams.pageSize), 50), 200)
 
-    const whereParts: any[] = []
+    const whereParts: Array<SQL | undefined> = []
     if (status !== 'all') {
         whereParts.push(eq(orders.status, status))
     }
@@ -57,7 +58,7 @@ export default async function AdminOrdersPage(props: {
     const offset = (page - 1) * pageSize
 
     const countQuery = db.select({ count: sql<number>`count(*)` }).from(orders)
-    const countResPromise = whereExpr ? countQuery.where(whereExpr as any) : countQuery
+    const countResPromise = whereExpr ? countQuery.where(whereExpr) : countQuery
 
     const [rows, countRes] = await withOrderColumnFallback(async () => {
         return await Promise.all([
@@ -73,7 +74,7 @@ export default async function AdminOrdersPage(props: {
 
     const orderUserIds = Array.from(new Set(
         rows
-            .map((o: any) => (typeof o.userId === "string" ? o.userId.trim() : ""))
+            .map((o) => (typeof o.userId === "string" ? o.userId.trim() : ""))
             .filter((id: string) => id.length > 0)
     ))
 
@@ -99,12 +100,12 @@ export default async function AdminOrdersPage(props: {
 
     const total = countRes[0]?.count || 0
 
-    const productIds = Array.from(new Set(rows.map((o: any) => o.productId).filter(Boolean)))
+    const productIds = Array.from(new Set(rows.map((o) => o.productId).filter(Boolean)))
     const productVariantLabels = productIds.length > 0 ? await getProductVariantLabels(productIds) : {}
 
     return (
         <AdminOrdersContent
-            orders={rows.map((o: any) => ({
+            orders={rows.map((o) => ({
                 orderId: o.orderId,
                 productId: o.productId,
                 userId: o.userId,

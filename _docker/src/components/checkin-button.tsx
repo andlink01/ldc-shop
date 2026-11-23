@@ -1,12 +1,12 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { Button } from "@/components/ui/button"
-import { checkIn, getUserPoints, getCheckinStatus } from "@/actions/points"
-import { toast } from "sonner"
-import { Gift, Coins } from "lucide-react"
-import { cn } from "@/lib/utils"
-import { useI18n } from "@/lib/i18n/context"
+import { useState, useEffect, useEffectEvent } from 'react';
+import { Button } from "@/components/ui/button";
+import { checkIn, getUserPoints, getCheckinStatus } from "@/actions/points";
+import { toast } from "sonner";
+import { Gift, Coins } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { useI18n } from "@/lib/i18n/context";
 
 export function CheckInButton({
     enabled = true,
@@ -28,22 +28,28 @@ export function CheckInButton({
     const [checkedIn, setCheckedIn] = useState(false)
     const [loading, setLoading] = useState(true)
     const [checkingIn, setCheckingIn] = useState(false)
+    const notifyInitialStatus = useEffectEvent((points: number, checkedIn: boolean) => {
+        onPointsChange?.(points)
+        onCheckedInChange?.(checkedIn)
+    })
 
     useEffect(() => {
+        let cancelled = false
         const init = async () => {
             try {
                 const [p, s] = await Promise.all([getUserPoints(), getCheckinStatus()])
+                if (cancelled) return
                 setPoints(p)
                 setCheckedIn(s.checkedIn)
-                onPointsChange?.(p)
-                onCheckedInChange?.(s.checkedIn)
+                notifyInitialStatus(p, s.checkedIn)
             } catch (e) {
                 console.error(e)
             } finally {
-                setLoading(false)
+                if (!cancelled) setLoading(false)
             }
         }
         init()
+        return () => { cancelled = true }
     }, [])
 
     const handleCheckIn = async () => {
@@ -52,11 +58,9 @@ export function CheckInButton({
             const res = await checkIn()
             if (res.success) {
                 toast.success(t('checkin.success', { points: res.points || 0 }))
-                setPoints(prev => {
-                    const next = prev + (res.points || 0)
-                    onPointsChange?.(next)
-                    return next
-                })
+                const nextPoints = points + (res.points || 0)
+                setPoints(nextPoints)
+                onPointsChange?.(nextPoints)
                 setCheckedIn(true)
                 onCheckedInChange?.(true)
             } else {
@@ -68,7 +72,7 @@ export function CheckInButton({
                     toast.error(res.error ? t(`checkin.${res.error}`) : t('checkin.failed'))
                 }
             }
-        } catch (e) {
+        } catch {
             toast.error(t('checkin.networkError'))
         } finally {
             setCheckingIn(false)

@@ -1,16 +1,18 @@
 'use client'
 
-import { useState, useEffect, useRef } from "react"
-import { createOrder } from "@/actions/checkout"
-import { getUserPoints } from "@/actions/points"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { Label } from "@/components/ui/label"
-import { Loader2, Coins } from "lucide-react"
-import { toast } from "sonner"
-import { useI18n } from "@/lib/i18n/context"
-import { cn } from "@/lib/utils"
+import { getErrorMessage } from '@/lib/errors';
+
+import { useState, useEffect, useRef, useCallback } from "react";
+import { createOrder } from "@/actions/checkout";
+import { getUserPoints } from "@/actions/points";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { Loader2, Coins } from "lucide-react";
+import { toast } from "sonner";
+import { useI18n } from "@/lib/i18n/context";
+import { cn } from "@/lib/utils";
 
 interface BuyButtonProps {
     productId: string
@@ -21,6 +23,7 @@ interface BuyButtonProps {
     autoOpen?: boolean
     emailConfigured?: boolean
     answers?: string[]
+    onQuestionsInvalid?: () => void
     className?: string
     maxPointsDiscount?: string | number | null
 }
@@ -44,7 +47,7 @@ function getMaxPointDeduction(totalAmount: number, quantity: number, maxPointsDi
     return Math.floor(Math.max(0, cappedAmount))
 }
 
-export function BuyButton({ productId, price, productName, disabled, quantity = 1, autoOpen = false, emailConfigured = false, answers, className, maxPointsDiscount }: BuyButtonProps) {
+export function BuyButton({ productId, price, productName, disabled, quantity = 1, autoOpen = false, emailConfigured = false, answers, onQuestionsInvalid, className, maxPointsDiscount }: BuyButtonProps) {
     const [loading, setLoading] = useState(false)
     const [open, setOpen] = useState(false)
     const [points, setPoints] = useState(0)
@@ -57,7 +60,7 @@ export function BuyButton({ productId, price, productName, disabled, quantity = 
 
     const numericalPrice = Number(price) * quantity
 
-    const openDialog = async () => {
+    const openDialog = useCallback(async () => {
         if (disabled) return
         setOpen(true)
         setPointsLoading(true)
@@ -71,22 +74,25 @@ export function BuyButton({ productId, price, productName, disabled, quantity = 
         } finally {
             setPointsLoading(false)
         }
-    }
+    }, [disabled])
 
     // Auto-open dialog when autoOpen is true (after warning confirmation)
     useEffect(() => {
         if (autoOpen && !hasAutoOpened && !disabled) {
-            setHasAutoOpened(true)
-            openDialog()
+            const timer = setTimeout(() => {
+                setHasAutoOpened(true)
+                void openDialog()
+            }, 0)
+            return () => clearTimeout(timer)
         }
-    }, [autoOpen, hasAutoOpened, disabled])
+    }, [autoOpen, hasAutoOpened, disabled, openDialog])
 
     const handleInitialClick = async () => {
         await openDialog()
     }
 
     const handleBuy = async () => {
-        if (isNavigatingRef.current) return
+        if (isNavigatingRef.current || loading || pointsLoading || disabled) return
 
         try {
             setLoading(true)
@@ -95,6 +101,7 @@ export function BuyButton({ productId, price, productName, disabled, quantity = 
             if (!result?.success) {
                 const message = result?.error ? t(result.error) : t('common.error')
                 toast.error(message)
+                if (result?.error && ['buy.questionsWrong', 'buy.answersRequired', 'buy.questionsUnavailable'].includes(result.error)) onQuestionsInvalid?.()
                 if (result?.error === 'common.loginRequired') {
                     window.location.href = `/login?callbackUrl=${encodeURIComponent(window.location.pathname + window.location.search)}`
                     return
@@ -128,7 +135,7 @@ export function BuyButton({ productId, price, productName, disabled, quantity = 
                 form.method = 'POST'
                 form.action = '/paying'
 
-                Object.entries(params as Record<string, any>).forEach(([k, v]) => {
+                Object.entries(params as Record<string, string>).forEach(([k, v]) => {
                     const input = document.createElement('input')
                     input.type = 'hidden'
                     input.name = k
@@ -141,9 +148,9 @@ export function BuyButton({ productId, price, productName, disabled, quantity = 
                 return
             }
 
-        } catch (e: any) {
+        } catch (e) {
             if (!isNavigatingRef.current) {
-                toast.error(e.message || "Failed to create order")
+                toast.error(getErrorMessage(e) || "Failed to create order")
                 setLoading(false)
             }
         }
@@ -163,7 +170,7 @@ export function BuyButton({ productId, price, productName, disabled, quantity = 
                     className
                 )}
                 onClick={handleInitialClick}
-                disabled={disabled}
+                disabled={disabled || loading || pointsLoading}
             >
                 {t('common.buyNow')}
             </Button>
@@ -200,6 +207,7 @@ export function BuyButton({ productId, price, productName, disabled, quantity = 
                                     type="checkbox"
                                     id="use-points"
                                     checked={usePoints}
+                                    disabled={pointsLoading || loading}
                                     onChange={(e) => setUsePoints(e.target.checked)}
                                     className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
                                 />
@@ -224,8 +232,8 @@ export function BuyButton({ productId, price, productName, disabled, quantity = 
                         <Button variant="outline" className="rounded-xl" onClick={() => setOpen(false)} disabled={loading}>
                             {t('common.cancel')}
                         </Button>
-                        <Button onClick={handleBuy} disabled={loading} className="rounded-xl bg-primary font-medium text-primary-foreground hover:bg-primary/90">
-                            {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                        <Button onClick={handleBuy} disabled={loading || pointsLoading || disabled} className="rounded-xl bg-primary font-medium text-primary-foreground hover:bg-primary/90">
+                            {(loading || pointsLoading) && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                             {finalPrice === 0 ? t('buy.modal.payWithPoints') : t('buy.modal.proceedPayment')}
                         </Button>
                     </DialogFooter>

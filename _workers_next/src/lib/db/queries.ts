@@ -7,6 +7,7 @@ import { eq, sql, desc, and, asc, or, inArray, lte, lt, isNull } from "drizzle-o
 import { updateTag, revalidatePath } from "next/cache";
 import { cache } from "react";
 import { ensureInventoryFeatureTables } from './inventory-schema';
+import { publicPurchaseQuestions } from '@/lib/purchase-questions';
 
 // Database initialization state
 let dbInitialized = false;
@@ -1147,7 +1148,7 @@ export async function getProduct(id: string, options?: { isLoggedIn?: boolean; t
         if (!product || product.isActive === false) {
             return null;
         }
-        return product;
+        return { ...product, purchaseQuestions: publicPurchaseQuestions(product.purchaseQuestions) };
     })
 }
 
@@ -1191,7 +1192,7 @@ export async function getProductVariants(
     options?: { isLoggedIn?: boolean; trustLevel?: number | null }
 ): Promise<ProductVariantRow[]> {
     return await withProductColumnFallback(async () => {
-        return await db.select({
+        const variants = await db.select({
             id: products.id,
             name: products.name,
             description: products.description,
@@ -1218,6 +1219,7 @@ export async function getProductVariants(
                 visibilityCondition(options?.isLoggedIn, options?.trustLevel)
             ))
             .orderBy(asc(products.sortOrder), desc(products.createdAt));
+        return variants.map(variant => ({ ...variant, purchaseQuestions: publicPurchaseQuestions(variant.purchaseQuestions) }));
     });
 }
 
@@ -2373,7 +2375,7 @@ export async function recordLoginUser(userId: string, username?: string | null, 
     }
 
     try {
-        const result = await db.insert(loginUsers).values({
+        const result = await dbRun(db.insert(loginUsers).values({
             userId,
             username: username || null,
             email: email || null,
@@ -2381,7 +2383,7 @@ export async function recordLoginUser(userId: string, username?: string | null, 
         }).onConflictDoUpdate({
             target: loginUsers.userId,
             set: { username: username || null, lastLoginAt: new Date() }
-        });
+        }).getSQL());
         if (result.meta?.changes === 1) {
             try {
                 updateTag('home:visitors');
@@ -2400,7 +2402,7 @@ export async function recordLoginUser(userId: string, username?: string | null, 
         if (isMissingTable(error) || getErrorCode(error) === '42703' || getErrorMessage(error)?.includes('column')) {
             await ensureLoginUsersSchema();
 
-            const result = await db.insert(loginUsers).values({
+            const result = await dbRun(db.insert(loginUsers).values({
                 userId,
                 username: username || null,
                 email: email || null,
@@ -2408,7 +2410,7 @@ export async function recordLoginUser(userId: string, username?: string | null, 
             }).onConflictDoUpdate({
                 target: loginUsers.userId,
                 set: { username: username || null, lastLoginAt: new Date() }
-            });
+            }).getSQL());
             if (result.meta?.changes === 1) {
                 try {
                     updateTag('home:visitors');

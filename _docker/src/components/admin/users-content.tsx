@@ -1,5 +1,7 @@
 'use client'
 
+import { getErrorMessage } from '@/lib/errors'
+
 import { useRef, useState } from "react"
 import { useI18n } from "@/lib/i18n/context"
 import { useRouter, useSearchParams } from "next/navigation"
@@ -84,8 +86,8 @@ export function UsersContent({ data }: UsersContentProps) {
             toast.success(t('common.success'))
             setEditingUser(null)
             router.refresh()
-        } catch (e: any) {
-            toast.error(e.message || t('common.error'))
+        } catch (e) {
+            toast.error(getErrorMessage(e) || t('common.error'))
         } finally {
             setSaving(false)
         }
@@ -102,8 +104,8 @@ export function UsersContent({ data }: UsersContentProps) {
             await toggleBlock(user.userId, !user.isBlocked)
             toast.success(t('common.success'))
             router.refresh()
-        } catch (e: any) {
-            toast.error(e.message || t('common.error'))
+        } catch (e) {
+            toast.error(getErrorMessage(e) || t('common.error'))
         } finally {
             setBlockingId(null)
             blockLock.current = null

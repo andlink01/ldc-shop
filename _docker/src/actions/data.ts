@@ -1,11 +1,13 @@
 "use server"
 
-import { db, dbRun } from "@/lib/db"
-import { sql } from "drizzle-orm"
-import { revalidatePath, updateTag } from "next/cache"
-import { checkAdmin } from "@/actions/admin"
-import { recalcProductAggregatesForMany } from "@/lib/db/queries"
-import { products } from "@/lib/db/schema"
+import { getErrorMessage } from '@/lib/errors';
+
+import { db, dbRun } from "@/lib/db";
+import { sql } from "drizzle-orm";
+import { revalidatePath, updateTag } from "next/cache";
+import { checkAdmin } from "@/actions/admin";
+import { recalcProductAggregatesForMany, ensureDatabaseInitialized } from "@/lib/db/queries";
+import { products } from "@/lib/db/schema";
 
 async function executeStatement(statement: string) {
     if (!statement.trim()) return
@@ -13,7 +15,7 @@ async function executeStatement(statement: string) {
         await dbRun(sql.raw(statement))
     } catch (e) {
         console.error('Import Error:', e)
-        throw new Error(`Failed to execute statement: ${statement.substring(0, 50)}... ${e instanceof Error ? e.message : String(e)}`)
+        throw new Error(`Failed to execute statement: ${statement.substring(0, 50)}... ${e instanceof Error ? getErrorMessage(e) : String(e)}`)
     }
 }
 
@@ -21,6 +23,11 @@ async function repairTimestamps() {
     const timestampColumns = [
         { table: 'products', cols: ['created_at'] },
         { table: 'cards', cols: ['created_at', 'reserved_at', 'expires_at', 'used_at'] },
+        { table: 'supplier_requests', cols: ['lease_until', 'created_at'] },
+        { table: 'inventory_api_keys', cols: ['expires_at', 'created_at', 'last_used_at'] },
+        { table: 'inventory_api_requests', cols: ['created_at'] },
+        { table: 'order_deliveries', cols: ['created_at'] },
+        { table: 'inventory_events', cols: ['lease_until', 'next_attempt_at', 'completed_at', 'created_at'] },
         { table: 'orders', cols: ['created_at', 'paid_at', 'delivered_at'] },
         { table: 'login_users', cols: ['created_at', 'last_login_at', 'last_checkin_at'] },
         { table: 'daily_checkins_v2', cols: ['created_at'] },
@@ -61,8 +68,8 @@ export async function repairDataAction() {
     try {
         await repairTimestamps()
         return { success: true }
-    } catch (e: any) {
-        return { success: false, error: e.message }
+    } catch (e) {
+        return { success: false, error: getErrorMessage(e) }
     }
 }
 
@@ -75,6 +82,7 @@ export async function importData(formData: FormData) {
     }
 
     try {
+        await ensureDatabaseInitialized()
         const text = await file.text()
         const lines = text.split('\n')
 
@@ -143,6 +151,34 @@ export async function importData(formData: FormData) {
             // Broadcast / admin messages
             targetType: 'target_type',
             targetValue: 'target_value',
+            tokenHash: 'token_hash',
+            tokenPrefix: 'token_prefix',
+            productIds: 'product_ids',
+            canRead: 'can_read',
+            canWrite: 'can_write',
+            isEnabled: 'is_enabled',
+            lastUsedAt: 'last_used_at',
+            createdBy: 'created_by',
+            keyId: 'key_id',
+            addedCount: 'added_count',
+            durationMs: 'duration_ms',
+            attemptId: 'attempt_id',
+            eventId: 'event_id',
+            telegramSent: 'telegram_sent',
+            barkSent: 'bark_sent',
+            emailSent: 'email_sent',
+            replenishAttempted: 'replenish_attempted',
+            leaseToken: 'lease_token',
+            leaseUntil: 'lease_until',
+            nextAttemptAt: 'next_attempt_at',
+            completedAt: 'completed_at',
+
+            supplierRequestId: 'supplier_request_id',
+            requestId: 'request_id',
+            itemIndex: 'item_index',
+            serverUrl: 'server_url',
+            cardId: 'card_id',
+
         }
 
         let successCount = 0
@@ -177,8 +213,8 @@ export async function importData(formData: FormData) {
                 try {
                     await executeStatement(newStatement)
                     successCount++
-                } catch (e: any) {
-                    const errorMsg = e?.message || String(e)
+                } catch (e) {
+                    const errorMsg = getErrorMessage(e) || String(e)
                     // Silently skip if table doesn't exist (Vercel export might have tables that Workers doesn't have)
                     if (errorMsg.includes('no such table') || errorMsg.includes('does not exist')) {
                         // Skip silently - this is expected for some tables
@@ -192,7 +228,7 @@ export async function importData(formData: FormData) {
                 try {
                     await executeStatement(trimmed)
                     successCount++
-                } catch (e) {
+                } catch {
                     errorCount++
                 }
             }
@@ -217,7 +253,7 @@ export async function importData(formData: FormData) {
         updateTag('home:product-categories')
         updateTag('home:visitors')
         return { success: true, count: successCount, errors: errorCount }
-    } catch (e: any) {
-        return { success: false, error: e.message }
+    } catch (e) {
+        return { success: false, error: getErrorMessage(e) }
     }
 }

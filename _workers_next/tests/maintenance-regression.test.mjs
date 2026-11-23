@@ -114,7 +114,7 @@ test('full backup remains internally consistent when delivery commits during exp
         assert.equal((await f.load('lib/fulfillment').fulfillPaidOrder('original')).delivered, true)
     }
     const originalSelect = f.db.select.bind(f.db)
-    f.db.select = (...args) => {
+    if (!f.isDocker) f.db.select = (...args) => {
         const selection = originalSelect(...args), originalFrom = selection.from.bind(selection)
         selection.from = table => {
             const query = originalFrom(table)
@@ -184,6 +184,71 @@ test('recovery keeps older orders first within one product and wraps its global 
     assert.equal((await f.load('lib/fulfillment').fulfillPendingOrders(undefined, 50)).delivered, 1)
     assert.equal((await f.db.query.orders.findFirst({ where: eq(f.schema.orders.orderId, 'older') })).status, 'delivered')
     assert.equal((await f.db.query.orders.findFirst({ where: eq(f.schema.orders.orderId, 'newer') })).status, 'paid')
+})
+
+test('complete buyer reservations recover beyond 50 missing-stock orders of the same product', async t => {
+    for (const productId of [undefined, 'product']) {
+        const f = await setup(t, { product: { price: '1' } })
+        await f.dbBatchRaw(Array.from({ length: 50 }, (_, i) => ({
+            sql: 'INSERT INTO orders (order_id,product_id,product_name,amount,status,quantity,paid_at,user_id) VALUES (?,?,?,?,?,?,?,?)',
+            params: ['older-' + String(i).padStart(2, '0'), 'product', 'Product', '1', 'paid', 3, 1, 'buyer'],
+        })))
+        await f.db.insert(f.schema.orders).values({ orderId: 'reserved', productId: 'product', productName: 'Product', amount: '1', status: 'paid', quantity: 2, paidAt: new Date(2), userId: 'buyer' })
+        await f.db.update(f.schema.cards).set({ reservedOrderId: 'reserved', reservedAt: new Date(1) })
+        await f.db.insert(f.schema.cards).values([
+            { productId: 'product', cardKey: 'RESERVED-SECOND', reservedOrderId: 'reserved', reservedAt: new Date(1) },
+            { productId: 'product', cardKey: 'OLDER-STOCK' },
+        ])
+        const recover = f.load('lib/fulfillment').fulfillPendingOrders
+        for (let attempt = 0; attempt < 3; attempt++) await recover(productId, 50)
+        const delivered = await f.db.query.orders.findFirst({ where: eq(f.schema.orders.orderId, 'reserved') })
+        assert.equal(delivered.status, 'delivered', 'A full reservation must not be starved by missing-stock orders')
+        assert.deepEqual(delivered.cardKey.split('\n').sort(), ['RESERVED-SECOND', 'TEST-CARD'])
+        assert.equal((await f.db.query.cards.findFirst({ where: eq(f.schema.cards.cardKey, 'OLDER-STOCK') })).reservedOrderId, 'older-00')
+        assert.equal((await f.db.select().from(f.schema.orderDeliveries)).length, 1)
+    }
+})
+
+test('partial or expired buyer reservations do not jump the queue for unreserved stock', async t => {
+    const f = await setup(t, { product: { price: '1' } })
+    await f.db.insert(f.schema.orders).values([
+        { orderId: 'older', productId: 'product', productName: 'Product', amount: '1', status: 'paid', paidAt: new Date(1), userId: 'buyer' },
+        { orderId: 'partial', productId: 'product', productName: 'Product', amount: '1', status: 'paid', quantity: 2, paidAt: new Date(2), userId: 'buyer' },
+    ])
+    await f.db.insert(f.schema.cards).values([
+        { productId: 'product', cardKey: 'PARTIAL-RESERVED', reservedOrderId: 'partial', reservedAt: new Date(1) },
+        { productId: 'product', cardKey: 'EXPIRED-RESERVED', reservedOrderId: 'partial', reservedAt: new Date(1), expiresAt: new Date(0) },
+    ])
+    assert.equal((await f.load('lib/fulfillment').fulfillPendingOrders('product', 1)).delivered, 1)
+    assert.equal((await f.db.query.orders.findFirst({ where: eq(f.schema.orders.orderId, 'older') })).cardKey, 'TEST-CARD')
+    assert.equal((await f.db.query.orders.findFirst({ where: eq(f.schema.orders.orderId, 'partial') })).status, 'paid')
+    assert.equal((await f.db.query.cards.findFirst({ where: eq(f.schema.cards.cardKey, 'PARTIAL-RESERVED') })).isUsed, false)
+})
+
+test('a reservation released before commit rejoins the queue instead of taking older buyers stock', async t => {
+    const f = await setup(t, { product: { price: '1' } })
+    await f.db.insert(f.schema.orders).values([
+        { orderId: 'older', productId: 'product', productName: 'Product', amount: '1', status: 'paid', paidAt: new Date(1), userId: 'buyer' },
+        { orderId: 'reserved', productId: 'product', productName: 'Product', amount: '1', status: 'paid', paidAt: new Date(2), userId: 'buyer' },
+    ])
+    await f.db.update(f.schema.cards).set({ reservedOrderId: 'reserved', reservedAt: new Date(1) })
+    const driver = f.load('lib/db/index'), originalBatch = driver.dbBatchRaw
+    let released = false
+    driver.dbBatchRaw = async statements => {
+        if (!released && statements.some(({ sql }) => sql.includes('INSERT INTO order_deliveries'))) {
+            released = true
+            await f.db.update(f.schema.cards).set({ reservedOrderId: null, reservedAt: null })
+        }
+        return originalBatch(statements)
+    }
+    const fulfillment = f.load('lib/fulfillment')
+    assert.equal((await fulfillment.fulfillPaidOrder('reserved', { reservationOnly: true })).delivered, false)
+    assert.equal(released, true)
+    assert.equal((await f.db.select().from(f.schema.cards))[0].isUsed, false)
+    assert.equal((await f.db.select().from(f.schema.orderDeliveries)).length, 0)
+    assert.equal((await fulfillment.fulfillPendingOrders('product', 1)).delivered, 1)
+    assert.equal((await f.db.query.orders.findFirst({ where: eq(f.schema.orders.orderId, 'older') })).status, 'delivered')
+    assert.equal((await f.db.query.orders.findFirst({ where: eq(f.schema.orders.orderId, 'reserved') })).status, 'paid')
 })
 
 test('one failed delivery does not prevent another product from recovering', async t => {

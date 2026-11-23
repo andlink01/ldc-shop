@@ -7,6 +7,7 @@
 
 Serverless virtual goods store built with **Next.js 16**, **Cloudflare Workers** (OpenNext), **D1 Database**, and **Shadcn UI**.
 
+
 ## 🛠 Technical Architecture
 
 This version adopts the cutting-edge **Next.js on Workers** approach, rather than a traditional single-file Worker:
@@ -32,7 +33,7 @@ This architecture aims to combine the development efficiency of Next.js with the
     - 📢 **Announcement Banner**: Configurable homepage announcements.
     - 📝 **Markdown Descriptions**: Rich product descriptions.
     - ⚠️ **Purchase Warning**: Optional pre-purchase warning modal.
-    - ❓ **Pre-Purchase Questions**: Admins can set multiple Q&A questions per product; buyers must answer all correctly before ordering (dual client + server validation).
+    - ❓ **Pre-Purchase Questions**: Admins can set multiple questions per product. Buyers receive only the questions; the server verifies answers and checks them again when creating the order.
     - 🔒 **Product Visibility**: Products can be restricted by user trust level (0–3); users below the level see a “login or upgrade” message.
     - 🔥 **Hot & Discounts**: Hot tag and original/discount price display.
     - ⭐ **Ratings & Reviews**: Verified buyers can rate and review.
@@ -117,7 +118,7 @@ No command line needed—everything in the Cloudflare Dashboard.
 2. Choose **Connect to Git**, link your GitHub/GitLab repo
 3. Configure build settings:
    - **Path**: `_workers_next`
-   - **Build command**: `npm install && npx opennextjs-cloudflare build`
+   - **Build command**: `npm ci && npx opennextjs-cloudflare build`
    - **Deploy command**: `npx wrangler deploy`
 
 4. Click **Deploy**
@@ -130,7 +131,7 @@ If code is pushed but Cloudflare doesn't start a new build:
 2. Confirm the monitored Git branch matches your push branch (e.g. both `main`).
 3. Confirm changes are inside **Path = `_workers_next`** (changes outside may not trigger this project).
 4. Confirm build/deploy commands are:
-   - Build: `npm install && npx opennextjs-cloudflare build`
+   - Build: `npm ci && npx opennextjs-cloudflare build`
    - Deploy: `npx wrangler deploy`
 5. If everything looks correct, try disconnecting and reconnecting Git authorization in the Dashboard.
 

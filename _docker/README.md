@@ -4,9 +4,8 @@
 
 本版本基于 `_workers_next`（Cloudflare Workers 版）改造，将数据库从 Cloudflare D1 替换为本地 SQLite（`better-sqlite3`），适用于 VPS / 自托管部署。
 
-本仓库当前两版业务版本均为 **1.4.3**，共享商品多规格、购买答题、多图、评价回复、登录校验和固定卡密管理 API。更新检查读取本仓库 `andlink01/ldc-shop` 的 `main` 分支中 Docker 目录的版本。数据库驱动、Docker 数据卷及启动脚本分别保留。接口配置与批量导入示例见 [卡密管理 API](../docs/inventory-api.md)。
 
-使用本仓库定制功能需要从本仓库自行构建；下文的上游预构建镜像不会自动包含本仓库的修改：
+使用这些功能需要从本仓库自行构建镜像：
 
 ```bash
 git clone https://github.com/andlink01/ldc-shop.git
@@ -26,37 +25,12 @@ docker compose up -d --build
 
 ---
 
-## 部署方式一：拉取预构建镜像（推荐）
-
-无需克隆代码，直接使用已发布的 Docker 镜像。
-
-### 一键脚本
-
-```bash
-mkdir ldc-shop && cd ldc-shop
-curl -fsSL https://raw.githubusercontent.com/chatgptuk/ldc-shop/main/_docker/pull-setup.sh -o setup.sh
-chmod +x setup.sh
-./setup.sh
-```
-
-脚本会交互式引导你输入所有配置项（站点 URL、OAuth、支付、GitHub 登录等），自动生成 `.env` 和 `docker-compose.yml`，拉取镜像并启动。
-
-### 更新镜像
-
-```bash
-docker compose pull && docker compose up -d
-```
-
----
-
-## 部署方式二：自行构建镜像
-
-适合需要修改源码或自定义构建的场景。
+## 从本仓库部署
 
 ### 方法 A：一键脚本（交互式）
 
 ```bash
-git clone https://github.com/chatgptuk/ldc-shop.git
+git clone https://github.com/andlink01/ldc-shop.git
 cd ldc-shop/_docker
 chmod +x setup.sh
 ./setup.sh
@@ -67,16 +41,29 @@ chmod +x setup.sh
 ### 方法 B：手动构建
 
 ```bash
-git clone https://github.com/chatgptuk/ldc-shop.git
+git clone https://github.com/andlink01/ldc-shop.git
 cd ldc-shop/_docker
 ```
 
-编辑 `.env` 文件（参考上方"拉取镜像"部分的 `.env` 模板），然后：
+编辑 `docker-compose.yml` 中的站点、认证、支付和管理员配置，保留 `./data:/app/data` 数据卷，然后：
 
 ```bash
 mkdir -p data && chmod 777 data
 docker compose up -d --build
 ```
+
+### 更新已有部署
+
+在保留数据库目录和已有配置的情况下获取本仓库更新并重新构建：
+
+```bash
+git pull --ff-only origin main
+docker compose up -d --build
+```
+
+旧结构 22 在首次应用请求时自动升级到 25，保留商品、卡密、订单、积分及导入回执；不再在启动时运行交互式 `drizzle-kit push`。保持原认证 Secret，后台密钥密文才能在重建后继续查看。仓库保留的 `pull-setup.sh` 拉取上游镜像，不能用于获取本次定制更新。
+
+接口配置见 [卡密管理 API](../docs/inventory-api.md) 与 [付款后采购接口](../docs/supplier-api.md)。
 
 ---
 
@@ -132,6 +119,8 @@ your-domain.com {
 | `DATABASE_PATH` | 否 | SQLite 路径，默认 `/app/data/ldc-shop.sqlite` |
 | `GITHUB_ID` | 否 | GitHub OAuth Client ID |
 | `GITHUB_SECRET` | 否 | GitHub OAuth Client Secret |
+| `INVENTORY_API_KEY` | 否 | 独立的环境补货密钥；也可直接在后台创建商品范围及权限不同的密钥 |
+| `CRON_CLEANUP_TOKEN` | 否 | 定时任务鉴权，未配置时使用 `OAUTH_CLIENT_SECRET`；仅 GitHub 登录时需单独配置 |
 
 > Telegram 通知、Bark 推送、邮件通知等可选功能在管理后台中配置，无需设置环境变量。
 
@@ -156,22 +145,34 @@ your-domain.com {
 
 ## 数据持久化与备份
 
-SQLite 数据库文件存储在 `./data/ldc-shop.sqlite`，通过 Docker volume 挂载持久化。
+SQLite 数据库文件存储在 `./data/ldc-shop.sqlite`，通过 Docker volume 挂载持久化。运行中的备份可在后台“数据管理”下载全量 SQL，所有表在同一个读取快照中导出。
+
+备份整个 SQLite 目录时，先停止应用，连同 WAL 等文件一起复制：
 
 ```bash
-# 备份
-cp -r ./data ./data-backup-$(date +%Y%m%d)
-
-# 恢复
-cp -r ./data-backup-20260304 ./data
-docker restart ldc-shop
+docker compose stop app
+cp -a ./data ./data-backup-$(date +%Y%m%d-%H%M%S)
+docker compose start app
 ```
+
+恢复目录备份时同样先停止应用；先保存现有目录，再将备份作为整个数据目录恢复，避免旧 WAL 混入：
+
+```bash
+docker compose stop app
+mv ./data ./data-before-restore-$(date +%Y%m%d-%H%M%S)
+cp -a ./data-backup-20261124-120000 ./data
+docker compose start app
+```
+
+将示例备份目录替换为实际路径。认证 Secret 需另行保留，SQL 导出和 SQLite 数据目录不包含部署环境变量。
 
 ## 定时任务
 
 容器内置 cron 定时任务（每分钟执行），自动处理：
 - 超时未支付订单的清理
 - 过期卡密预留的释放
+- 已付款订单自动补发与付款后采购恢复
+- 持久通知事件重试与到期提醒
 
 ## 修改环境变量后生效方式
 

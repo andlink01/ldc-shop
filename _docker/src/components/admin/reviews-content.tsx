@@ -1,5 +1,7 @@
 'use client'
 
+import { getErrorMessage } from '@/lib/errors'
+
 import { useMemo, useRef, useState } from "react"
 import { useI18n } from "@/lib/i18n/context"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
@@ -66,8 +68,8 @@ export function AdminReviewsContent({ reviews }: { reviews: ReviewRow[] }) {
       await deleteReview(id)
       setItems((prev) => prev.filter((r) => r.id !== id))
       toast.success(t('common.success'))
-    } catch (e: any) {
-      toast.error(e.message)
+    } catch (e) {
+      toast.error(getErrorMessage(e))
     } finally {
       setDeletingId(null)
       deletingRef.current = null
@@ -87,8 +89,8 @@ export function AdminReviewsContent({ reviews }: { reviews: ReviewRow[] }) {
           : review
       )))
       toast.success(t('common.success'))
-    } catch (e: any) {
-      toast.error(e.message)
+    } catch (e) {
+      toast.error(getErrorMessage(e))
     } finally {
       setDeletingId(null)
       deletingRef.current = null

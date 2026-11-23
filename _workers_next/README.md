@@ -2,6 +2,7 @@
 
 基于 **Next.js 16**、**Cloudflare Workers** (OpenNext)、**D1 Database** 和 **Shadcn UI** 构建的无服务器虚拟商品商店。
 
+
 ## 🛠 技术架构 (Technical Architecture)
 
 本版本采用 **Next.js on Workers** 的前沿技术路线，而非传统的单文件 Worker：
@@ -25,7 +26,7 @@
     - 📢 **公告栏**: 首页公告配置与展示。
     - 📝 **Markdown 描述**: 商品支持富文本展示。
     - ⚠️ **购买前提醒**: 支持购买前弹窗提示。
-    - ❓ **购买前验证问题**: 管理员可为商品设置多道问答题，用户必须全部答对才能下单（前后端双重校验）。
+    - ❓ **购买前验证问题**: 管理员可为商品设置多道问答题，用户必须全部答对才能下单；买家只收到题目，正确答案仅在服务器校验，下单时再次复核。
     - 🔒 **商品可见级别**: 可按用户信任等级（0–3）限制商品可见，未达标用户见「需登录或升级」提示。
     - 🔥 **热门与折扣**: 支持热门标记与原价/折扣价展示。
     - ⭐ **评分与评论**: 已购用户可评分/评论，列表展示评分。
@@ -110,7 +111,7 @@
 2. 选择 **Connect to Git**，连接你的 GitHub/GitLab 仓库
 3. 配置构建设置：
    - **Path**: `_workers_next`
-   - **Build command**: `npm install && npx opennextjs-cloudflare build`
+   - **Build command**: `npm ci && npx opennextjs-cloudflare build`
    - **Deploy command**: `npx wrangler deploy`
 
 4. 点击 **Deploy**
@@ -123,7 +124,7 @@
 2. 确认 Git 仓库监听分支与实际推送分支一致（例如都为 `main`）。
 3. 确认改动发生在 **Path = `_workers_next`** 目录内（路径外改动可能不会触发此项目构建）。
 4. 确认构建命令/部署命令仍为：
-   - Build: `npm install && npx opennextjs-cloudflare build`
+   - Build: `npm ci && npx opennextjs-cloudflare build`
    - Deploy: `npx wrangler deploy`
 5. 若以上都正确仍未触发，可在 Cloudflare Dashboard 里断开并重新连接一次 Git 仓库授权。
 

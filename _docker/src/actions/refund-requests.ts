@@ -1,5 +1,7 @@
 'use server'
 
+import { getErrorMessage } from '@/lib/errors'
+
 import { auth } from "@/lib/auth"
 import { db, dbExecRaw } from "@/lib/db"
 import { orders, refundRequests } from "@/lib/db/schema"
@@ -139,9 +141,9 @@ export async function adminApproveRefund(requestId: number, adminNote?: string) 
     if (result?.processed) {
       return { ok: true, processed: true }
     }
-    return { ok: true, processed: false, error: result?.message || 'refund_failed' }
-  } catch (e: any) {
-    return { ok: true, processed: false, error: e?.message || 'refund_failed' }
+    return { ok: true, processed: false, error: result?.messageKey || result?.message || 'refund_failed' }
+  } catch (e) {
+    return { ok: true, processed: false, error: getErrorMessage(e) || 'refund_failed' }
   }
 }
 

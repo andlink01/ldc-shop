@@ -1,8 +1,30 @@
 'use server'
 
 import { auth } from "@/lib/auth"
-import { canUserReview, getProductReviews } from "@/lib/db/queries"
+import { canUserReview, getProductReviews, ensureDatabaseInitialized } from "@/lib/db/queries"
 import { getEmailSettings } from "@/lib/email"
+import { db } from '@/lib/db'
+import { products, loginUsers } from '@/lib/db/schema'
+import { eq } from 'drizzle-orm'
+import { validatePurchaseAnswers } from '@/lib/purchase-questions'
+
+export async function verifyPurchaseAnswers(productId: string, answers?: unknown) {
+    const session = await auth()
+    if (!session?.user?.id) return { success: false, error: 'common.loginRequired' }
+    if (typeof productId !== 'string' || !productId.trim()) return { success: false, error: 'buy.productNotFound' }
+    try {
+        await ensureDatabaseInitialized()
+        const product = await db.query.products.findFirst({ where: eq(products.id, productId),
+            columns: { isActive: true, visibilityLevel: true, purchaseQuestions: true } })
+        if (!product || product.isActive === false) return { success: false, error: 'buy.productNotFound' }
+        const trustLevel = Math.max(0, Number.isFinite(Number(session.user.trustLevel)) ? Number(session.user.trustLevel) : 0)
+        if (Number(product.visibilityLevel ?? -1) > trustLevel) return { success: false, error: 'buy.visibilityDenied' }
+        const user = await db.query.loginUsers.findFirst({ where: eq(loginUsers.userId, session.user.id), columns: { isBlocked: true } })
+        if (user?.isBlocked) return { success: false, error: 'buy.userBlocked' }
+        const error = validatePurchaseAnswers(product.purchaseQuestions, answers)
+        return error ? { success: false, error } : { success: true }
+    } catch { return { success: false, error: 'buy.questionsUnavailable' } }
+}
 
 interface BuyMetaReview {
     id: number

@@ -7,6 +7,7 @@ import { PHASE_PRODUCTION_BUILD, PHASE_EXPORT } from 'next/constants';
 import { SQLiteSyncDialect } from 'drizzle-orm/sqlite-core';
 import type { SQL } from 'drizzle-orm';
 import type { RawResult, SqlStatement } from './contracts';
+import { INVENTORY_FEATURE_SCHEMA } from './inventory-schema-definition';
 
 let sqliteInstance: Database.Database;
 
@@ -23,7 +24,7 @@ const BUILD_TIME_SCHEMA = `
     CREATE TABLE IF NOT EXISTS cards (
         id INTEGER PRIMARY KEY AUTOINCREMENT, product_id TEXT NOT NULL, card_key TEXT NOT NULL,
         is_used INTEGER DEFAULT 0, reserved_order_id TEXT, reserved_at INTEGER,
-        expires_at INTEGER, used_at INTEGER, created_at INTEGER
+        expires_at INTEGER, used_at INTEGER, created_at INTEGER, supplier_request_id TEXT
     );
     CREATE TABLE IF NOT EXISTS orders (
         order_id TEXT PRIMARY KEY, product_id TEXT NOT NULL, product_name TEXT NOT NULL,
@@ -97,12 +98,29 @@ const BUILD_TIME_SCHEMA = `
     );
 `;
 
+type SnapshotQuery = { all: () => unknown[] };
+type SnapshotResults<T extends readonly SnapshotQuery[]> = { [K in keyof T]: ReturnType<T[K]['all']> };
+
+function createOrm(client: Database.Database) {
+    return Object.assign(drizzle(client, { schema }), {
+        async batch<T extends readonly SnapshotQuery[]>(queries: T): Promise<SnapshotResults<T>> {
+            // Keep the native synchronous reads inside one SQLite snapshot.
+            return client.transaction(() => queries.map(query => {
+                const rows = query.all();
+                if (!Array.isArray(rows)) throw new Error('Snapshot queries must use synchronous SQLite reads');
+                return rows;
+            })).deferred() as SnapshotResults<T>;
+        },
+    });
+}
+
 function createDb() {
     const phase = process.env.NEXT_PHASE;
     if (phase === PHASE_PRODUCTION_BUILD || phase === PHASE_EXPORT) {
         sqliteInstance = new Database(':memory:');
         sqliteInstance.exec(BUILD_TIME_SCHEMA);
-        return drizzle(sqliteInstance, { schema });
+        sqliteInstance.exec(INVENTORY_FEATURE_SCHEMA);
+        return createOrm(sqliteInstance);
     }
 
     const dbPath = process.env.DATABASE_PATH || path.join(process.cwd(), 'data', 'ldc-shop.sqlite');
@@ -111,7 +129,7 @@ function createDb() {
     sqliteInstance = new Database(dbPath);
     sqliteInstance.pragma('journal_mode = WAL');
     sqliteInstance.pragma('foreign_keys = ON');
-    return drizzle(sqliteInstance, { schema });
+    return createOrm(sqliteInstance);
 }
 
 export const db = createDb();

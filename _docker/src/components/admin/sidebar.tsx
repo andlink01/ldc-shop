@@ -1,15 +1,15 @@
 'use client'
 
-import type { ReactNode } from "react"
-import Link from "next/link"
-import { useEffect, useState } from "react"
-import { usePathname } from "next/navigation"
-import { Button } from "@/components/ui/button"
-import { Sheet, SheetContent, SheetTrigger, SheetClose } from "@/components/ui/sheet"
-import { Package, CreditCard, Megaphone, Star, Download, Tags, RotateCcw, Users, Settings, QrCode, Bell, Menu, MessageSquare } from "lucide-react"
-import { useI18n } from "@/lib/i18n/context"
-import { getPendingRefundRequestCount } from "@/actions/refund-requests"
-import { getUnreadUserMessageCount } from "@/actions/user-messages"
+import type { ReactNode } from "react";
+import Link from "next/link";
+import { useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
+import { Button } from "@/components/ui/button";
+import { Sheet, SheetContent, SheetTrigger, SheetClose } from "@/components/ui/sheet";
+import { Package, CreditCard, Megaphone, Star, Download, Tags, RotateCcw, Users, Settings, QrCode, Bell, Menu, MessageSquare } from "lucide-react";
+import { useI18n } from "@/lib/i18n/context";
+import { getPendingRefundRequestCount } from "@/actions/refund-requests";
+import { getUnreadUserMessageCount } from "@/actions/user-messages";
 
 interface NavLinkProps {
     href: string
@@ -50,7 +50,7 @@ interface SidebarContentProps {
     t: (key: string) => string
 }
 
-function SidebarContent({ closeOnNavigate = false, showTitle = true, username, t }: SidebarContentProps) {
+function SidebarContent({ closeOnNavigate = false, showTitle = true, t }: SidebarContentProps) {
     const pathname = usePathname()
     const [pendingRefunds, setPendingRefunds] = useState(0)
     const [unreadMessages, setUnreadMessages] = useState(0)
@@ -127,7 +127,9 @@ function SidebarContent({ closeOnNavigate = false, showTitle = true, username, t
             )}
             <nav className="flex flex-col gap-2">
                 <NavLink href="/admin/settings" icon={<Settings className="mr-2 h-4 w-4" />} label={t('common.storeSettings')} closeOnNavigate={closeOnNavigate} />
+                <NavLink href="/admin/inventory-api" icon={<Package className="mr-2 h-4 w-4" />} label={t('inventory.apiTitle')} closeOnNavigate={closeOnNavigate} />
                 <NavLink href="/admin/products" icon={<Package className="mr-2 h-4 w-4" />} label={t('common.productManagement')} closeOnNavigate={closeOnNavigate} />
+                <NavLink href="/admin/fulfillment" icon={<CreditCard className="mr-2 h-4 w-4" />} label={t('inventory.pendingDelivery')} closeOnNavigate={closeOnNavigate} />
                 <NavLink href="/admin/orders" icon={<CreditCard className="mr-2 h-4 w-4" />} label={t('common.ordersRefunds')} closeOnNavigate={closeOnNavigate} />
                 <NavLink href="/admin/refunds" icon={<RotateCcw className="mr-2 h-4 w-4" />} label={t('common.refundRequests')} badge={refundBadge} closeOnNavigate={closeOnNavigate} />
                 <NavLink href="/admin/messages" icon={<MessageSquare className="mr-2 h-4 w-4" />} label={t('common.adminMessages')} badge={messageBadge} closeOnNavigate={closeOnNavigate} />

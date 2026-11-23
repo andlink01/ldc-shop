@@ -49,6 +49,8 @@ if (!write) {
     const dl = JSON.parse(readFileSync(path.join(docker, 'package-lock.json'), 'utf8'));
     const mismatch = (name) => { console.error(`Version mismatch: ${name}`); process.exitCode = 1; };
     if (w.version !== d.version) mismatch('package version');
+    if (w.version !== wl.version || w.version !== wl.packages['']?.version) mismatch('Workers lockfile root');
+    if (d.version !== dl.version || d.version !== dl.packages['']?.version) mismatch('Docker lockfile root');
     for (const group of ['dependencies', 'devDependencies']) {
         for (const [name, version] of Object.entries(w[group] || {})) {
             if (!d[group]?.[name]) continue;

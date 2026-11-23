@@ -90,7 +90,7 @@ export default async function ProfilePage() {
             contentKey: n.contentKey,
             data: n.data,
             isRead: n.isRead,
-            createdAt: n.createdAt ? new Date(n.createdAt as any).getTime() : null
+            createdAt: n.createdAt ? new Date(n.createdAt).getTime() : null
         }))
     } catch {
         notifications = []
@@ -112,7 +112,7 @@ export default async function ProfilePage() {
             id: r.id,
             title: r.title,
             body: r.body,
-            createdAt: r.createdAt ? new Date(r.createdAt as any).getTime() : null
+            createdAt: r.createdAt ? new Date(r.createdAt).getTime() : null
         }))
     } catch {
         sentMessages = []

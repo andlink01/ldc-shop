@@ -1,11 +1,11 @@
-import { getSetting } from "@/lib/db/queries"
+import { getStorefrontSettings } from "@/lib/storefront"
 import { FooterContent } from "./footer-content"
 import { APP_VERSION } from "@/lib/version"
 
 export async function SiteFooter() {
     let shopFooter: string | null = null
     try {
-        shopFooter = await getSetting('shop_footer')
+        shopFooter = (await getStorefrontSettings()).shop_footer ?? null
     } catch {
         shopFooter = null
     }

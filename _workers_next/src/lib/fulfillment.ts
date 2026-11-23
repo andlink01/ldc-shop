@@ -21,7 +21,7 @@ export async function queuePaymentNotification(orderId: string) {
         FROM orders WHERE order_id = ${orderId} AND status IN ('paid', 'delivered')`)
 }
 
-export async function fulfillPaidOrder(orderId: string): Promise<{ delivered: boolean; replayed: boolean; reason?: string }> {
+export async function fulfillPaidOrder(orderId: string, { reservationOnly = false } = {}): Promise<{ delivered: boolean; replayed: boolean; reason?: string }> {
     await ensureDatabaseInitialized()
     for (let attempt = 0; attempt < 3; attempt++) {
         const order = await db.query.orders.findFirst({ where: eq(orders.orderId, orderId) })
@@ -34,10 +34,11 @@ export async function fulfillPaidOrder(orderId: string): Promise<{ delivered: bo
         if (!product) return { delivered: false, replayed: false, reason: 'product_not_found' }
         const now = Date.now(), cutoff = now - RESERVATION_TTL_MS
         const shared = Boolean(product.isShared)
+        if (reservationOnly && shared) return { delivered: false, replayed: false, reason: 'reservation_changed' }
         const selected = await db.select({ id: cards.id, cardKey: cards.cardKey }).from(cards).where(and(
             eq(cards.productId, order.productId), or(eq(cards.isUsed, false), isNull(cards.isUsed)),
             or(isNull(cards.expiresAt), gt(cards.expiresAt, new Date(now))),
-            shared ? undefined : sql`(${cards.reservedOrderId} = ${orderId} OR
+            reservationOnly ? eq(cards.reservedOrderId, orderId) : shared ? undefined : sql`(${cards.reservedOrderId} = ${orderId} OR
                 ((${cards.reservedAt} IS NULL OR ${cards.reservedAt} < ${cutoff})
                 AND NOT EXISTS (SELECT 1 FROM orders holding WHERE holding.order_id = ${cards.reservedOrderId} AND holding.status = 'paid')))`,
         )).orderBy(
@@ -46,6 +47,9 @@ export async function fulfillPaidOrder(orderId: string): Promise<{ delivered: bo
             sql`${cards.expiresAt} IS NULL`, asc(cards.expiresAt), asc(cards.id),
         ).limit(shared ? 1 : quantity)
         if (selected.length < (shared ? 1 : quantity)) {
+            // A reservation that changed after the scan must rejoin the normal
+            // queue rather than take unreserved stock ahead of older buyers.
+            if (reservationOnly) return { delivered: false, replayed: false, reason: 'reservation_changed' }
             await dbRun(sql`INSERT OR IGNORE INTO inventory_events (event_id, kind, order_id, product_id, created_at)
                 SELECT ${`supplier:${orderId}`}, 'supplier', order_id, product_id, ${Date.now()} FROM orders
                 WHERE order_id = ${orderId} AND status = 'paid' AND COALESCE(card_key, '') = ''
@@ -79,11 +83,12 @@ export async function fulfillPaidOrder(orderId: string): Promise<{ delivered: bo
                 AND EXISTS (SELECT 1 FROM products WHERE id = ? AND COALESCE(is_shared, 0) = ?)
                 AND (SELECT COUNT(*) FROM cards WHERE product_id = ? AND instr(',' || ? || ',', ',' || id || ',') > 0
                     AND COALESCE(is_used, 0) = 0 AND (expires_at IS NULL OR expires_at > ?)
+                    AND (? = 0 OR reserved_order_id = ?)
                     AND (? = 1 OR reserved_order_id = ? OR ((reserved_at IS NULL OR reserved_at < ?)
                         AND NOT EXISTS (SELECT 1 FROM orders holding WHERE holding.order_id = cards.reserved_order_id AND holding.status = 'paid')))) = ?
                 ON CONFLICT(order_id) DO NOTHING`,
             params: [token, ids, keys, Number(shared), now, orderId, order.productId, quantity,
-                order.productId, Number(shared), order.productId, ids, deliveryNow, Number(shared), orderId, cutoff, expected],
+                order.productId, Number(shared), order.productId, ids, deliveryNow, Number(reservationOnly), orderId, Number(shared), orderId, cutoff, expected],
         }, {
             sql: `UPDATE cards SET is_used = 1, used_at = ?, reserved_order_id = NULL, reserved_at = NULL
                 WHERE product_id = ? AND instr(',' || ? || ',', ',' || id || ',') > 0
@@ -124,20 +129,25 @@ export async function fulfillPendingOrders(productId?: string, limit = 10) {
     const previousCursor = productId ? null : (await db.query.settings.findFirst({
         where: eq(settings.key, cursorKey), columns: { value: true },
     }))?.value ?? null
-    const query = (after: string | null) => db.select({ orderId: orders.orderId, productId: orders.productId }).from(orders).where(and(
+    const reservationReady = sql<number>`CASE WHEN ${orders.quantity} BETWEEN 1 AND 10000
+        AND EXISTS (SELECT 1 FROM products WHERE id = ${orders.productId} AND COALESCE(is_shared, 0) = 0)
+        AND (SELECT COUNT(*) FROM cards WHERE product_id = ${orders.productId} AND reserved_order_id = ${orders.orderId}
+            AND COALESCE(is_used, 0) = 0 AND (expires_at IS NULL OR expires_at > ${Date.now()})) >= ${orders.quantity}
+        THEN 1 ELSE 0 END`.as('reservation_ready')
+    const query = (after: string | null) => db.select({ orderId: orders.orderId, productId: orders.productId, reservationReady }).from(orders).where(and(
         eq(orders.status, 'paid'), or(isNull(orders.cardKey), eq(orders.cardKey, '')),
         productId ? eq(orders.productId, productId) : undefined,
         !productId && after ? gt(orders.productId, after) : undefined,
         // Payment links collect money without delivering stock.
         sql`${orders.productId} != ${PAYMENT_PRODUCT_ID}`,
-    )).orderBy(...(productId ? [] : [asc(orders.productId)]), asc(orders.paidAt), asc(orders.createdAt), asc(orders.orderId))
+    )).orderBy(...(productId ? [] : [asc(orders.productId)]), sql`reservation_ready DESC`, asc(orders.paidAt), asc(orders.createdAt), asc(orders.orderId))
         .limit(Math.min(50, Math.max(1, limit)))
     let waiting = await query(previousCursor)
     if (!waiting.length && !productId && previousCursor) waiting = await query(null)
     let delivered = 0, failed = 0
-    for (const { orderId } of waiting) {
+    for (const { orderId, reservationReady } of waiting) {
         try {
-            const result = await fulfillPaidOrder(orderId)
+            const result = await fulfillPaidOrder(orderId, { reservationOnly: reservationReady === 1 })
             if (result.delivered && !result.replayed) delivered++
         } catch {
             failed++
@@ -146,7 +156,8 @@ export async function fulfillPendingOrders(productId?: string, limit = 10) {
     }
     if (!productId && waiting.length) {
         try {
-            // Rotate products between runs; keep the oldest orders first inside each product.
+            // Rotate products between runs; complete reservations can be delivered
+            // independently, while unreserved stock stays in payment order.
             // A stale concurrent scan cannot overwrite newer progress.
             await dbRun(sql`INSERT INTO settings (key, value, updated_at)
                 VALUES (${cursorKey}, ${waiting[waiting.length - 1].productId}, ${Date.now()})

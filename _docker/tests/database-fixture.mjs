@@ -51,33 +51,41 @@ function d1Binding(sqlite) {
     };
 }
 
-export function fixture(t, { env: overrides = {}, initialize = true } = {}) {
+export function fixture(t, { env: overrides = {}, initialize = true, fetch: initialFetch, mocks: extraMocks = {}, globals = {} } = {}) {
     const directory = mkdtempSync(path.join(tmpdir(), 'ldc-db-test-'));
     const sqlite = isDocker ? null : new DatabaseSync(':memory:');
     sqlite?.exec('PRAGMA foreign_keys = ON');
     const binding = sqlite ? d1Binding(sqlite) : null;
     const env = {
-        NODE_ENV: 'production', DATABASE_PATH: path.join(directory, 'test.sqlite'),
+        NODE_ENV: 'production', AUTH_SECRET: 'isolated-test-auth-secret', DATABASE_PATH: path.join(directory, 'test.sqlite'),
         INVENTORY_API_KEY: API_KEY, NEXT_PUBLIC_APP_URL: 'https://shop.example', ...overrides,
     };
     const invalidations = [];
+    let networkFetch = initialFetch || (() => { throw new Error('Network disabled in database tests'); });
     const modules = new Map();
     const mocks = {
         '@opennextjs/cloudflare': { getCloudflareContext: () => ({ env: { DB: binding } }) },
         'next/cache': {
             revalidatePath: (value) => invalidations.push(value), revalidateTag: (value) => invalidations.push(value),
             updateTag() {}, unstable_cache: (fn) => fn,
+            unstable_noStore() {},
         },
         react: { cache: (fn) => fn },
+        'next/server': { after() {} },
+        ...extraMocks,
     };
     function load(relative) {
-        const resolved = ['.ts', '.tsx', '/index.ts'].map((suffix) => path.join(root, 'src', relative + suffix)).find(existsSync);
+        const resolved = (relative.endsWith('.json') ? [''] : ['.ts', '.tsx', '/index.ts']).map((suffix) => path.join(root, 'src', relative + suffix)).find(existsSync);
         if (!resolved) throw new Error(`Missing test module ${relative}`);
         if (modules.has(resolved)) return modules.get(resolved).exports;
         const loadedModule = { exports: {} };
         modules.set(resolved, loadedModule);
+        if (resolved.endsWith('.json')) {
+            loadedModule.exports = JSON.parse(readFileSync(resolved, 'utf8'));
+            return loadedModule.exports;
+        }
         const { outputText } = ts.transpileModule(readFileSync(resolved, 'utf8'), {
-            compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true },
+            compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true, jsx: ts.JsxEmit.ReactJSX },
         });
         vm.runInNewContext(outputText, {
             module: loadedModule, exports: loadedModule.exports,
@@ -89,7 +97,11 @@ export function fixture(t, { env: overrides = {}, initialize = true } = {}) {
             },
             process: { env, cwd: () => root }, console: { log() {}, warn() {}, error() {} },
             crypto: globalThis.crypto, TextEncoder, TextDecoder, Request, Response, URL, Date,
-            setTimeout, clearTimeout, Buffer,
+            fetch: (...args) => {
+                if (args[1]?.redirect === 'error') throw new TypeError('Workers fetch supports only follow or manual redirects');
+                return networkFetch(...args);
+            }, AbortSignal,
+            setTimeout, clearTimeout, setInterval, clearInterval, atob, btoa, Buffer, URLSearchParams, ...globals,
         }, { filename: resolved });
         return loadedModule.exports;
     }
@@ -102,7 +114,8 @@ export function fixture(t, { env: overrides = {}, initialize = true } = {}) {
         rmSync(directory, { recursive: true, force: true });
     });
     return {
-        ...driver, schema, queries, load, env, invalidations,
+        ...driver, schema, queries, load, env, invalidations, isDocker,
+        setFetch(fn) { networkFetch = fn; },
         reload(relative) {
             modules.delete(path.join(root, 'src', relative + '.ts'));
             return load(relative);

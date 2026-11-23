@@ -454,20 +454,35 @@ test('production checkout rejects a direct trust-level bypass without spending p
 
 test('production Server Actions reject malformed answers while a correct answer still buys normally', async t => {
     const f = await setup(t)
-    const questions = JSON.stringify([{ q: 'Answer?', a: 'Correct' }])
-    await f.database.prepare('UPDATE products SET purchase_questions = ? WHERE id = ?').bind(questions, 'product').run()
+    const answer = 'PRIVATE-PRODUCTION-ANSWER'
+    const questions = JSON.stringify([{ q: 'Answer?', a: answer }])
+    await f.database.prepare('UPDATE products SET purchase_questions = ?, variant_group_id = ? WHERE id = ?').bind(questions, 'question-group', 'product').run()
+    await f.database.prepare('INSERT INTO products (id,name,price,variant_group_id,purchase_questions) VALUES (?,?,?,?,?)')
+        .bind('question-variant', 'Question variant', '3', 'question-group', JSON.stringify([{ q: 'Variant question?', a: 'PRIVATE-VARIANT-ANSWER' }])).run()
+    for (const headers of [{ Cookie: f.sessionCookie }, { Cookie: f.sessionCookie, RSC: '1' }]) {
+        const page = await f.request('/buy/product', { headers })
+        const html = await page.text()
+        assert.equal(page.status, 200)
+        assert.ok(html.includes('Answer?') && html.includes('Variant question?'))
+        assert.ok(!html.includes(answer) && !html.includes('PRIVATE-VARIANT-ANSWER'))
+    }
     await f.database.prepare('INSERT INTO cards (product_id,card_key) VALUES (?,?)').bind('product', 'ANSWER-PRODUCTION-CARD').run()
-    for (const answers of [[{}], [null], { 0: 'Correct', length: 1 }]) {
+    for (const answers of [[{}], [null], { 0: answer, length: 1 }]) {
         const denied = await f.action('createOrder', '/buy/product', ['product', 1, '', false, answers], f.sessionCookie)
         assert.equal(denied.result?.success, false, denied.body)
         assert.equal(denied.result?.error, 'buy.answersRequired')
+        assert.equal((await f.action('verifyPurchaseAnswers', '/buy/product', ['product', answers], f.sessionCookie)).result?.error, 'buy.answersRequired')
     }
+    assert.equal((await f.action('verifyPurchaseAnswers', '/buy/product', ['product', ['wrong']], f.sessionCookie)).result?.error, 'buy.questionsWrong')
+    assert.equal((await f.action('verifyPurchaseAnswers', '/buy/product', ['product', [' private-production-answer ']], f.sessionCookie)).result?.success, true)
     assert.equal((await f.database.prepare('SELECT count(*) AS count FROM orders').bind().all()).results[0].count, 0)
+    assert.equal((await f.database.prepare('SELECT points FROM login_users WHERE user_id = ?').bind('owner').all()).results[0].points, 20)
+    assert.equal((await f.database.prepare('SELECT reserved_order_id FROM cards').bind().all()).results[0].reserved_order_id, null)
     await f.database.prepare('UPDATE products SET purchase_questions = ? WHERE id = ?').bind('invalid-json', 'product').run()
-    const invalid = await f.action('createOrder', '/buy/product', ['product', 1, '', false, ['Correct']], f.sessionCookie)
+    const invalid = await f.action('createOrder', '/buy/product', ['product', 1, '', false, [answer]], f.sessionCookie)
     assert.equal(invalid.result?.error, 'buy.questionsUnavailable', invalid.body)
     await f.database.prepare('UPDATE products SET purchase_questions = ? WHERE id = ?').bind(questions, 'product').run()
-    const allowed = await f.action('createOrder', '/buy/product', ['product', 1, '', false, [' correct ']], f.sessionCookie)
+    const allowed = await f.action('createOrder', '/buy/product', ['product', 1, '', false, [' private-production-answer ']], f.sessionCookie)
     assert.equal(allowed.result?.success, true, allowed.body)
 })
 
@@ -545,6 +560,24 @@ test('the production cleanup route rotates beyond 50 missing-stock orders withou
     assert.equal((await cleanup()).fulfillment.delivered, 1)
     assert.equal((await f.database.prepare("SELECT count(*) AS count FROM orders WHERE status = 'paid'").bind().all()).results[0].count, 50)
     assert.equal((await f.database.prepare('SELECT status FROM orders WHERE order_id = ?').bind('ready-order').all()).results[0].status, 'delivered')
+})
+
+test('the production Worker delivers complete reservations after 50 missing-stock orders of the same product', async t => {
+    const f = await setup(t)
+    for (let i = 0; i < 50; i++) await f.database.prepare('INSERT INTO orders (order_id,product_id,product_name,amount,status,quantity,user_id,paid_at) VALUES (?,?,?,?,?,?,?,?)')
+        .bind('old-' + String(i).padStart(2, '0'), 'product', 'Production test product', '3', 'paid', 3, 'owner', 1).run()
+    await f.database.prepare('INSERT INTO orders (order_id,product_id,product_name,amount,status,quantity,user_id,paid_at) VALUES (?,?,?,?,?,?,?,?)')
+        .bind('reserved', 'product', 'Production test product', '3', 'paid', 2, 'owner', 2).run()
+    for (const cardKey of ['RESERVED-ONE', 'RESERVED-TWO']) await f.database.prepare('INSERT INTO cards (product_id,card_key,reserved_order_id,reserved_at) VALUES (?,?,?,?)')
+        .bind('product', cardKey, 'reserved', 1).run()
+    await f.database.prepare('INSERT INTO cards (product_id,card_key) VALUES (?,?)').bind('product', 'OLDER-STOCK').run()
+    const response = await f.request('/api/internal/cron/cleanup', { method: 'POST', headers: { 'X-Cron-Cleanup-Token': 'isolated-production-oauth' } })
+    assert.equal(response.status, 200, await response.clone().text())
+    assert.equal((await response.json()).fulfillment.delivered, 1)
+    assert.equal((await f.database.prepare('SELECT card_key FROM orders WHERE order_id = ?').bind('reserved').all()).results[0].card_key, 'RESERVED-ONE\nRESERVED-TWO')
+    assert.equal((await f.database.prepare('SELECT reserved_order_id FROM cards WHERE card_key = ?').bind('OLDER-STOCK').all()).results[0].reserved_order_id, 'old-00')
+    assert.equal((await f.database.prepare('SELECT count(*) AS count FROM order_deliveries').bind().all()).results[0].count, 1)
+    assert.equal((await f.database.prepare("SELECT count(*) AS count FROM orders WHERE status = 'paid'").bind().all()).results[0].count, 50)
 })
 
 async function productionRefundSetup(t, provider) {

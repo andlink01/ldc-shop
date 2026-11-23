@@ -114,7 +114,7 @@ export function fixture(t, { env: overrides = {}, initialize = true, fetch: init
         rmSync(directory, { recursive: true, force: true });
     });
     return {
-        ...driver, schema, queries, load, env, invalidations,
+        ...driver, schema, queries, load, env, invalidations, isDocker,
         setFetch(fn) { networkFetch = fn; },
         reload(relative) {
             modules.delete(path.join(root, 'src', relative + '.ts'));

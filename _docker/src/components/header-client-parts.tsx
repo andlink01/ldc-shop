@@ -1,5 +1,7 @@
 'use client'
 
+import NextImage from 'next/image'
+
 import Link from "next/link"
 import { useI18n } from "@/lib/i18n/context"
 import { DropdownMenuItem } from "@/components/ui/dropdown-menu"
@@ -20,7 +22,7 @@ export function HeaderLogo({ adminName, shopNameOverride, shopLogoVersion }: { a
 
     return (
         <Link href="/" className="flex items-center gap-2 min-w-0 group text-muted-foreground hover:text-primary transition-colors duration-200 hover:-translate-y-0.5">
-            <img src={logoUrl} alt="Logo" className="h-8 w-8 rounded-lg object-cover shadow-sm transition-all duration-300 group-hover:shadow-md" />
+            <NextImage unoptimized width={32} height={32} src={logoUrl} alt="Logo" className="h-8 w-8 rounded-lg object-cover shadow-sm transition-all duration-300 group-hover:shadow-md" />
             <span className="text-xs sm:text-sm font-semibold tracking-tight truncate max-w-[160px] sm:max-w-[220px] md:max-w-none">
                 {override || shopName}
             </span>
@@ -142,7 +144,8 @@ export function HeaderUnreadBadge({ initialCount = 0, desktopEnabled = false, cl
     }, [desktopEnabled, t])
 
     useEffect(() => {
-        refresh()
+        const timer = window.setTimeout(() => void refresh(), 0)
+        return () => window.clearTimeout(timer)
     }, [pathname, refresh])
 
     useEffect(() => {

@@ -91,10 +91,10 @@ export async function getMyNotifications() {
         contentKey: n.contentKey,
         data: n.data,
         isRead: n.isRead,
-        createdAt: n.createdAt ? new Date(n.createdAt as any).getTime() : null
+        createdAt: n.createdAt ? new Date(n.createdAt).getTime() : null
     }))
 
-    let broadcastItems: any[] = []
+    let broadcastItems: typeof directItems = []
     try {
         await ensureBroadcastTables()
         const clearedAt = await getBroadcastClearedAt(userId)
@@ -140,7 +140,7 @@ export async function getMyNotifications() {
                     contentKey: "profile.notifications.adminMessageBody",
                     data: JSON.stringify({ title: b.title, body: b.body }),
                     isRead: readSet.has(bid),
-                    createdAt: b.createdAt ? new Date(b.createdAt as any).getTime() : null
+                    createdAt: b.createdAt ? new Date(b.createdAt).getTime() : null
                 })
             })
         }

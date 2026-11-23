@@ -1,9 +1,9 @@
 'use client'
 
-import { createContext, useContext, useState, useEffect, ReactNode } from 'react'
+import { createContext, useContext, useState, useEffect, useSyncExternalStore, ReactNode } from 'react'
 import en from '@/locales/en.json'
 import zh from '@/locales/zh.json'
-import { isLocale, type Locale } from './shared'
+import { getNestedTranslation, isLocale, type Locale } from './shared'
 import { resolveCurrencyUnit } from '@/lib/currency-unit'
 
 type Translations = typeof en
@@ -18,8 +18,13 @@ interface I18nContextType {
 
 const I18nContext = createContext<I18nContextType | null>(null)
 
-function getNestedValue(obj: any, path: string): string {
-    return path.split('.').reduce((acc, part) => acc?.[part], obj) || path
+function readStoredLocale(): Locale | null {
+    try { const saved = localStorage.getItem('ldc-locale'); return isLocale(saved) ? saved : null } catch { return null }
+}
+function subscribeLocale(listener: () => void) {
+    window.addEventListener('storage', listener)
+    window.addEventListener('ldc:locale-changed', listener)
+    return () => { window.removeEventListener('storage', listener); window.removeEventListener('ldc:locale-changed', listener) }
 }
 
 function interpolate(text: string, params?: Record<string, string | number>): string {
@@ -38,28 +43,23 @@ export function I18nProvider({
     initialLocale?: Locale
     currencyUnit?: string | null
 }) {
-    const [locale, setLocaleState] = useState<Locale>(initialLocale)
+    const [selection, setLocaleState] = useState<{ source: Locale | null; value: Locale }>({ source: null, value: initialLocale })
 
-    useEffect(() => {
-        const saved = localStorage.getItem('ldc-locale')
-        const resolved = isLocale(saved) ? saved : initialLocale
-
-        if (resolved !== locale) {
-            setLocaleState(resolved)
-            return
-        }
-        localStorage.setItem('ldc-locale', resolved)
-        document.cookie = `ldc-locale=${resolved}; path=/; max-age=31536000`
-    }, [initialLocale, locale])
-
+    const storedLocale = useSyncExternalStore(subscribeLocale, readStoredLocale, () => null)
+    if (selection.source !== storedLocale) {
+        setLocaleState({ source: storedLocale, value: storedLocale || initialLocale })
+    }
+    const locale = selection.source === storedLocale ? selection.value : storedLocale || initialLocale
+    useEffect(() => { document.cookie = `ldc-locale=${locale}; path=/; max-age=31536000` }, [locale])
     const setLocale = (newLocale: Locale) => {
-        setLocaleState(newLocale)
-        localStorage.setItem('ldc-locale', newLocale)
+        try { localStorage.setItem('ldc-locale', newLocale) } catch { /* Memory state remains usable without storage. */ }
+        setLocaleState({ source: readStoredLocale(), value: newLocale })
+        window.dispatchEvent(new Event('ldc:locale-changed'))
         document.cookie = `ldc-locale=${newLocale}; path=/; max-age=31536000`
     }
 
     const t = (key: string, params?: Record<string, string | number>): string => {
-        const text = getNestedValue(translations[locale], key)
+        const text = getNestedTranslation(translations[locale], key)
         return interpolate(text, { currencyUnit: resolveCurrencyUnit(locale, currencyUnit), ...params })
     }
 
@@ -78,7 +78,7 @@ export function useI18n() {
             locale: 'en' as Locale,
             setLocale: () => { },
             t: (key: string, params?: Record<string, string | number>) => {
-                const text = getNestedValue(en, key)
+                const text = getNestedTranslation(en, key)
                 return interpolate(text, { currencyUnit: resolveCurrencyUnit('en', null), ...params })
             }
         }

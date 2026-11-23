@@ -61,7 +61,7 @@ export async function createPaymentOrder(amountInput: number | string, payeeInpu
     cookieStore.set('ldc_pending_order', orderId, { secure: true, path: '/', sameSite: 'lax' })
 
     const baseUrl = getAppBaseUrl() || 'http://localhost:3000'
-    const payParams: Record<string, any> = {
+    const payParams: Record<string, string> = {
         pid: process.env.MERCHANT_ID!,
         type: 'epay',
         out_trade_no: orderId,

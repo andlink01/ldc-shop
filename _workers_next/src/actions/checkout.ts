@@ -14,6 +14,7 @@ import { updateTag } from "next/cache"
 import { getProductCardApiConfig } from '@/lib/card-api'
 import { commitCheckoutOrder } from "@/lib/checkout-inventory"
 import { INFINITE_STOCK, RESERVATION_TTL_MS } from "@/lib/constants"
+import { validatePurchaseAnswers } from '@/lib/purchase-questions'
 
 const MAX_ORDER_QUANTITY = 10000
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -45,13 +46,6 @@ function getMaxPointDeduction(totalAmount: number, quantity: number, maxPointsDi
 function isValidEmail(value: string | null | undefined) {
     if (!value) return false
     return EMAIL_REGEX.test(value.trim())
-}
-
-function isPurchaseQuestion(value: unknown): value is { q: string; a: string } {
-    if (!value || typeof value !== 'object') return false
-    const question = value as Record<string, unknown>
-    return typeof question.q === 'string' && Boolean(question.q.trim())
-        && typeof question.a === 'string' && Boolean(question.a.trim())
 }
 
 export async function createOrder(productId: string, quantity: number = 1, email?: string, usePoints: boolean = false, answers?: string[]) {
@@ -102,23 +96,8 @@ export async function createOrder(productId: string, quantity: number = 1, email
         return { success: false, error: 'buy.visibilityDenied' }
     }
 
-    if (product.purchaseQuestions) {
-        let questions: unknown
-        try {
-            questions = JSON.parse(product.purchaseQuestions)
-        } catch { return { success: false, error: 'buy.questionsUnavailable' } }
-        if (!Array.isArray(questions) || !questions.every(isPurchaseQuestion)) {
-            return { success: false, error: 'buy.questionsUnavailable' }
-        }
-        if (questions.length > 0) {
-            if (!Array.isArray(answers) || answers.length !== questions.length || answers.some(answer => typeof answer !== 'string')) {
-                return { success: false, error: 'buy.answersRequired' }
-            }
-            if (!questions.every((question, i) => answers[i].trim().toLowerCase() === question.a.trim().toLowerCase())) {
-                return { success: false, error: 'buy.questionsWrong' }
-            }
-        }
-    }
+    const answerError = validatePurchaseAnswers(product.purchaseQuestions, answers)
+    if (answerError) return { success: false, error: answerError }
 
     const purchaseLimit = product.purchaseLimit && product.purchaseLimit > 0 ? product.purchaseLimit : null
     const maxQuantity = purchaseLimit ?? MAX_ORDER_QUANTITY

@@ -1,5 +1,8 @@
 'use client'
 
+import type { AdminRefundRequest } from '@/lib/admin-types'
+import { getErrorMessage } from '@/lib/errors'
+
 import { useMemo, useRef, useState } from "react"
 import { useI18n } from "@/lib/i18n/context"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
@@ -21,7 +24,7 @@ function statusVariant(status: string | null) {
   }
 }
 
-export function AdminRefundsContent({ requests }: { requests: any[] }) {
+export function AdminRefundsContent({ requests }: { requests: AdminRefundRequest[] }) {
   const { t } = useI18n()
   const [query, setQuery] = useState("")
   const [processingId, setProcessingId] = useState<number | null>(null)
@@ -56,7 +59,7 @@ export function AdminRefundsContent({ requests }: { requests: any[] }) {
         } else {
           toast.success(t('admin.refunds.autoRefundPending'))
           if (result?.error) {
-            toast.error(result.error)
+            toast.error(t(result.error))
           }
         }
       } else {
@@ -66,8 +69,8 @@ export function AdminRefundsContent({ requests }: { requests: any[] }) {
       if (typeof window !== "undefined") {
         window.dispatchEvent(new CustomEvent("ldc:refunds-updated"))
       }
-    } catch (e: any) {
-      toast.error(e.message)
+    } catch (e) {
+      toast.error(getErrorMessage(e))
     } finally {
       setProcessingId(null)
       processingRef.current = null
@@ -135,7 +138,7 @@ export function AdminRefundsContent({ requests }: { requests: any[] }) {
                         orderId: r.orderId,
                         tradeNo: r.tradeNo,
                         amount: r.amount,
-                        status: r.orderStatus,
+                        status: r.orderStatus || undefined,
                         cardKey: r.cardKey
                       }} />
                     )}

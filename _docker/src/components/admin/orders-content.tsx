@@ -1,5 +1,7 @@
 'use client'
 
+import { getErrorMessage } from '@/lib/errors'
+
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useI18n } from "@/lib/i18n/context"
 import Link from "next/link"
@@ -196,8 +198,8 @@ export function AdminOrdersContent({
                                 toast.success(t('common.success'))
                                 setSelected({})
                                 router.refresh()
-                            } catch (e: any) {
-                                toast.error(e.message)
+                            } catch (e) {
+                                toast.error(getErrorMessage(e))
                             } finally {
                                 setDeleting(false)
                                 deleteLock.current = false
@@ -250,7 +252,7 @@ export function AdminOrdersContent({
             </div>
 
             <div className="rounded-md border bg-card">
-                <Table>
+                <Table className="[&_code]:whitespace-nowrap">
                     <TableHeader>
                         <TableRow>
                             <TableHead className="w-[44px]">

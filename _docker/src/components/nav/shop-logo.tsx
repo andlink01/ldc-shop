@@ -1,6 +1,8 @@
 'use client'
 
-import { useEffect, useMemo, useState } from "react"
+import NextImage from 'next/image'
+
+import { useMemo, useState } from "react"
 import { buildDefaultLogoDataUrl } from "@/lib/default-logo"
 import { isLikelyLinuxDoAvatarUrl } from "@/lib/shop-logo"
 import { cn } from "@/lib/utils"
@@ -21,8 +23,6 @@ function getOrigin(url: string) {
 }
 
 export function ShopLogo({ name, url, logo, updatedAt }: ShopLogoProps) {
-    const [error, setError] = useState(false)
-    const [index, setIndex] = useState(0)
     const candidates = useMemo(() => {
         const list: string[] = []
         const trimmedLogo = (logo || "").trim()
@@ -40,11 +40,12 @@ export function ShopLogo({ name, url, logo, updatedAt }: ShopLogoProps) {
         return Array.from(new Set(list))
     }, [logo, name, updatedAt, url])
 
-    useEffect(() => {
-        setError(false)
-        setIndex(0)
-    }, [candidates.join("|")])
+    return <LogoCandidates key={candidates.join('|')} name={name} url={url} candidates={candidates} />
+}
 
+function LogoCandidates({ name, url, candidates }: { name: string; url: string; candidates: string[] }) {
+    const [error, setError] = useState(false)
+    const [index, setIndex] = useState(0)
     const src = candidates[index] || ""
 
     return (
@@ -55,7 +56,7 @@ export function ShopLogo({ name, url, logo, updatedAt }: ShopLogoProps) {
             )}
         >
             {src && !error ? (
-                <img
+                <NextImage unoptimized width={48} height={48}
                     src={src}
                     alt={name}
                     className="h-12 w-12 rounded-xl object-cover"
@@ -72,7 +73,7 @@ export function ShopLogo({ name, url, logo, updatedAt }: ShopLogoProps) {
                     }}
                 />
             ) : (
-                <img
+                <NextImage unoptimized width={48} height={48}
                     src={buildDefaultLogoDataUrl(`${name}|${url}`)}
                     alt={name}
                     className="h-12 w-12 rounded-xl object-cover"

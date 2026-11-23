@@ -1,11 +1,17 @@
 'use server'
 
+import { getErrorMessage } from '@/lib/errors'
+
+import { cancelPendingOrder as cancelInventoryOrder } from '@/lib/order-transitions'
+import { fulfillPaidOrder } from '@/lib/fulfillment'
+import { scheduleInventoryEvents } from '@/lib/inventory-events'
+import { canAccessOrder } from '@/lib/order-access'
 import { auth } from "@/lib/auth"
 import { queryOrderStatus } from "@/lib/epay"
 import { processOrderFulfillment } from "@/lib/order-processing"
 import { revalidatePath } from "next/cache"
 import { db } from "@/lib/db"
-import { orders, cards } from "@/lib/db/schema"
+import { orders } from "@/lib/db/schema"
 import { eq } from "drizzle-orm"
 import { withOrderColumnFallback, recalcProductAggregates } from "@/lib/db/queries"
 import { cookies } from "next/headers"
@@ -19,26 +25,25 @@ export async function checkOrderStatus(orderId: string) {
     const order = await withOrderColumnFallback(async () => {
         return await db.query.orders.findFirst({
             where: eq(orders.orderId, orderId),
-            columns: { userId: true, status: true, amount: true, currentPaymentId: true }
+            columns: { userId: true, username: true, status: true, amount: true, currentPaymentId: true, productId: true, cardKey: true }
         })
     })
 
     if (!order) return { success: false, error: 'Order not found' }
-    if (order.status === 'paid' || order.status === 'delivered') {
-        return { success: true, status: order.status }
-    }
-
     const cookieStore = await cookies()
     const pending = cookieStore.get('ldc_pending_order')?.value
-    const hasPendingCookie = pending === orderId
-
-    // Allow checking if user owns it OR if they have the pending cookie
-    if (order.userId) {
-        if (order.userId !== session.user.id && !hasPendingCookie) {
-            return { success: false, error: 'Unauthorized' }
-        }
-    } else if (!hasPendingCookie) {
+    if (!canAccessOrder(session.user, order, orderId, pending)) {
         return { success: false, error: 'Unauthorized' }
+    }
+
+    if (order.status === 'paid' || order.status === 'delivered') {
+        if (order.status === 'paid' && !order.cardKey && order.productId !== 'payment_link') {
+            await fulfillPaidOrder(orderId)
+            scheduleInventoryEvents()
+            const refreshed = await db.query.orders.findFirst({ where: eq(orders.orderId, orderId), columns: { status: true } })
+            return { success: true, status: refreshed?.status || order.status }
+        }
+        return { success: true, status: order.status }
     }
 
     try {
@@ -50,8 +55,12 @@ export async function checkOrderStatus(orderId: string) {
             // trade_no might be in result.data or result.trade_no?
             // queryOrderStatus returns { ..., data: fullResponse }
 
-            const tradeNo = result.data?.trade_no || result.data?.transaction_id || `MANUAL_CHECK_${Date.now()}`
-            const paidAmount = parseFloat(result.data?.money || order.amount)
+            const tradeNo = result.data?.trade_no || result.data?.transaction_id
+            const money = result.data?.money
+            const paidAmount = typeof money === 'number' || (typeof money === 'string' && money.trim()) ? Number(money) : NaN
+            if (typeof tradeNo !== 'string' || !tradeNo.trim() || !Number.isFinite(paidAmount)) {
+                return { success: false, error: 'order.paymentVerificationFailed' }
+            }
 
             await processOrderFulfillment(orderId, paidAmount, tradeNo)
 
@@ -61,9 +70,9 @@ export async function checkOrderStatus(orderId: string) {
 
         return { success: false, status: 'pending' }
 
-    } catch (e: any) {
+    } catch (e) {
         console.error("Check order status failed", e)
-        return { success: false, error: e.message }
+        return { success: false, error: getErrorMessage(e) }
     }
 }
 
@@ -84,15 +93,7 @@ export async function cancelPendingOrder(orderId: string) {
     if (order.status !== 'pending') return { success: false, error: 'order.cannotCancel' }
 
     try {
-        // Release reserved cards
-        await db.update(cards)
-            .set({ reservedOrderId: null, reservedAt: null })
-            .where(eq(cards.reservedOrderId, orderId))
-
-        // Update order status
-        await db.update(orders)
-            .set({ status: 'cancelled' })
-            .where(eq(orders.orderId, orderId))
+        await cancelInventoryOrder(orderId)
 
         revalidatePath(`/order/${orderId}`)
         revalidatePath('/orders')
@@ -110,7 +111,7 @@ export async function cancelPendingOrder(orderId: string) {
         }
         
         return { success: true }
-    } catch (e: any) {
+    } catch (e) {
         console.error("Cancel order failed", e)
         return { success: false, error: 'common.error' }
     }

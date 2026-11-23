@@ -23,6 +23,7 @@ interface BuyButtonProps {
     autoOpen?: boolean
     emailConfigured?: boolean
     answers?: string[]
+    onQuestionsInvalid?: () => void
     className?: string
     maxPointsDiscount?: string | number | null
 }
@@ -46,7 +47,7 @@ function getMaxPointDeduction(totalAmount: number, quantity: number, maxPointsDi
     return Math.floor(Math.max(0, cappedAmount))
 }
 
-export function BuyButton({ productId, price, productName, disabled, quantity = 1, autoOpen = false, emailConfigured = false, answers, className, maxPointsDiscount }: BuyButtonProps) {
+export function BuyButton({ productId, price, productName, disabled, quantity = 1, autoOpen = false, emailConfigured = false, answers, onQuestionsInvalid, className, maxPointsDiscount }: BuyButtonProps) {
     const [loading, setLoading] = useState(false)
     const [open, setOpen] = useState(false)
     const [points, setPoints] = useState(0)
@@ -100,6 +101,7 @@ export function BuyButton({ productId, price, productName, disabled, quantity = 
             if (!result?.success) {
                 const message = result?.error ? t(result.error) : t('common.error')
                 toast.error(message)
+                if (result?.error && ['buy.questionsWrong', 'buy.answersRequired', 'buy.questionsUnavailable'].includes(result.error)) onQuestionsInvalid?.()
                 if (result?.error === 'common.loginRequired') {
                     window.location.href = `/login?callbackUrl=${encodeURIComponent(window.location.pathname + window.location.search)}`
                     return

@@ -46,28 +46,43 @@ function compareVersions(a: ReturnType<typeof parseVersion>, b: ReturnType<typeo
 
 // Releases and tags inherited from upstream do not describe this fork's main branch.
 export async function checkRepositoryForUpdates(currentVersion: string): Promise<UpdateCheckResult> {
-    try {
-        const response = await fetch(
-            `https://raw.githubusercontent.com/${SHOP_REPOSITORY}/main/${APP_DIRECTORY}/package.json`,
-            { headers: { Accept: 'application/json' }, cache: 'no-store' },
-        )
-        if (!response.ok) throw new Error(`Update check HTTP ${response.status}`)
-        const manifest: unknown = await response.json()
-        if (!manifest || typeof manifest !== 'object' || Array.isArray(manifest) || !('version' in manifest)) {
-            throw new Error('invalid_version_manifest')
-        }
-        const latest = parseVersion(manifest.version)
-        const current = parseVersion(currentVersion)
-        return {
-            hasUpdate: compareVersions(latest, current) > 0,
-            currentVersion,
-            latestVersion: latest.version,
-            releaseUrl: `${SHOP_REPOSITORY_URL}/tree/main/${APP_DIRECTORY}`,
-        }
-    } catch (error: unknown) {
-        return {
-            hasUpdate: false, currentVersion, latestVersion: null, releaseUrl: null,
-            error: error instanceof Error ? error.message : 'update_check_failed',
+    const urls = [
+        `https://raw.githubusercontent.com/${SHOP_REPOSITORY}/main/${APP_DIRECTORY}/package.json`,
+        `https://api.github.com/repos/${SHOP_REPOSITORY}/contents/${APP_DIRECTORY}/package.json?ref=main`,
+    ]
+    let failure = 'update.networkFailed'
+    for (const url of urls) {
+        try {
+            const response = await fetch(
+                url,
+                { headers: { Accept: 'application/vnd.github.raw+json', 'User-Agent': 'ldc-shop-update-check' },
+                    cache: 'no-store', redirect: 'manual', signal: AbortSignal.timeout(8000) },
+            )
+            if (!response.ok) {
+                failure = response.status === 403 || response.status === 429 ? 'update.rateLimited' : 'update.sourceUnavailable'
+                continue
+            }
+            const manifest: unknown = await response.json()
+            let latest: ReturnType<typeof parseVersion>, current: ReturnType<typeof parseVersion>
+            try {
+                if (!manifest || typeof manifest !== 'object' || Array.isArray(manifest) || !('version' in manifest)) throw new Error('invalid_version_manifest')
+                latest = parseVersion(manifest.version)
+                current = parseVersion(currentVersion)
+            } catch {
+                failure = 'update.invalidManifest'
+                continue
+            }
+            return {
+                hasUpdate: compareVersions(latest, current) > 0,
+                currentVersion,
+                latestVersion: latest.version,
+                releaseUrl: `${SHOP_REPOSITORY_URL}/tree/main/${APP_DIRECTORY}`,
+            }
+        } catch (error: unknown) {
+            const name = error !== null && typeof error === 'object' && 'name' in error ? error.name : ''
+            failure = name === 'TimeoutError' || name === 'AbortError' ? 'update.timedOut'
+                : name === 'SyntaxError' ? 'update.invalidManifest' : 'update.networkFailed'
         }
     }
+    return { hasUpdate: false, currentVersion, latestVersion: null, releaseUrl: null, error: failure }
 }

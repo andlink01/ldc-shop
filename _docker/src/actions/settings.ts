@@ -1,5 +1,7 @@
 'use server'
 
+import { getErrorCode, getErrorMessage, getErrorText } from '@/lib/errors'
+
 import { setSetting, getSetting } from "@/lib/db/queries"
 import { revalidatePath, updateTag } from "next/cache"
 import { dbRun } from "@/lib/db"
@@ -75,11 +77,11 @@ export async function saveAnnouncement(config: AnnouncementConfig) {
     const payload = JSON.stringify({ content, startAt, endAt, popupEnabled, popupTitle, popupContent, updatedAt })
     try {
         await setSetting('announcement', payload)
-    } catch (error: any) {
+    } catch (error) {
         // If settings table doesn't exist, create it
-        if (error.message?.includes('does not exist') ||
-            error.code === '42P01' ||
-            JSON.stringify(error).includes('42P01')) {
+        if (getErrorMessage(error)?.includes('does not exist') ||
+            getErrorCode(error) === '42P01' ||
+            getErrorText(error).includes('42P01')) {
             await dbRun(sql`
                 CREATE TABLE IF NOT EXISTS settings (
                     key TEXT PRIMARY KEY,

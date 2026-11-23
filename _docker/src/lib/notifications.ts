@@ -1,3 +1,4 @@
+import { getErrorMessage, getErrorText } from '@/lib/errors'
 import { db } from "./db"
 import { settings } from "./db/schema"
 import { inArray } from "drizzle-orm"
@@ -15,8 +16,8 @@ async function getSettingsUncached(keys: string[]): Promise<Record<string, strin
             map[row.key] = row.value || ""
         }
         return map
-    } catch (error: any) {
-        const text = `${error?.message || ""}${JSON.stringify(error || {})}`.toLowerCase()
+    } catch (error) {
+        const text = getErrorText(error).toLowerCase()
         if (text.includes("no such table") && text.includes("settings")) {
             return {}
         }
@@ -28,11 +29,13 @@ function toAbsoluteUrl(input: string, baseUrl: string) {
     const raw = (input || "").trim()
     if (!raw) return ""
     try {
-        return new URL(raw).toString()
+        const url = new URL(raw)
+        return ['http:', 'https:'].includes(url.protocol) && !url.username && !url.password ? url.toString() : ''
     } catch {
         if (!baseUrl) return ""
         try {
-            return new URL(raw, baseUrl).toString()
+            const url = new URL(raw, baseUrl)
+            return ['http:', 'https:'].includes(url.protocol) && !url.username && !url.password ? url.toString() : ''
         } catch {
             return ""
         }
@@ -76,9 +79,9 @@ export async function getNotificationSettings() {
     const appBaseUrl = getAppBaseUrl()
     const shopLogo = resolveEffectiveShopLogo(values.shop_logo || "", values.shop_logo_source || "").effectiveLogo
     const shopLogoUpdatedAt = (values.shop_logo_updated_at || "").trim()
-    const barkIconUrl = shopLogo
-        ? toAbsoluteUrl(shopLogo, appBaseUrl)
-        : (appBaseUrl ? `${appBaseUrl}/favicon${shopLogoUpdatedAt ? `?v=${encodeURIComponent(shopLogoUpdatedAt)}` : ""}` : "")
+    const logoUrl = toAbsoluteUrl(shopLogo, appBaseUrl)
+    const barkIconUrl = logoUrl && logoUrl.length <= 2048 ? logoUrl
+        : (appBaseUrl ? `${appBaseUrl}/favicon${shopLogoUpdatedAt ? `?v=${encodeURIComponent(shopLogoUpdatedAt.slice(0, 100))}` : ""}` : "")
 
     return {
         token,
@@ -118,19 +121,26 @@ export async function sendTelegramMessage(text: string) {
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify(body)
+            body: JSON.stringify(body), signal: AbortSignal.timeout(15_000), redirect: 'manual',
         })
 
         if (!response.ok) {
-            const error = await response.text()
-            console.error('[Notification] Telegram API Error:', error)
-            return { success: false, error }
+            if (response.status >= 300 && response.status < 400) {
+                return { success: false, error: `Telegram HTTP ${response.status}: server redirect was not followed` }
+            }
+            return { success: false, error: `Telegram HTTP ${response.status}` }
         }
-
+        let result: unknown
+        try { result = await response.json() }
+        catch { return { success: false, error: 'Telegram returned an invalid JSON response' } }
+        if (!result || typeof result !== 'object' || !('ok' in result) || result.ok !== true) {
+            return { success: false, error: 'Telegram rejected the message; check the bot token and chat ID' }
+        }
         return { success: true }
-    } catch (e: any) {
-        console.error('[Notification] Send Error:', e)
-        return { success: false, error: e.message }
+    } catch (e) {
+        console.error('[Notification] Telegram request failed')
+        const name = e !== null && typeof e === 'object' && 'name' in e ? e.name : undefined
+        return { success: false, error: name === 'TimeoutError' || name === 'AbortError' ? 'Telegram request timed out' : 'Telegram network error; try again later' }
     }
 }
 
@@ -138,63 +148,72 @@ function normalizeBarkServerUrl(raw: string) {
     const trimmed = (raw || "").trim()
     const withProtocol = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`
     const parsed = new URL(withProtocol)
+    if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password || parsed.search || parsed.hash) throw new Error('Invalid Bark server address')
     const pathname = parsed.pathname.replace(/\/+$/, "")
     return `${parsed.origin}${pathname}`
 }
 
-export async function sendBarkMessage(
-    title: string,
-    body: string,
-    options?: { url?: string; group?: string }
-) {
-    try {
-        const { barkEnabled, barkServerUrl, barkDeviceKey, barkIconUrl } = await getNotificationSettings()
-
-        if (!barkEnabled) {
-            console.log('[Notification] Bark skipped: disabled')
-            return { success: false, error: 'Bark disabled' }
-        }
-
-        if (!barkDeviceKey) {
-            console.log('[Notification] Bark skipped: missing device key')
-            return { success: false, error: 'Missing Bark device key' }
-        }
-
-        const baseUrl = normalizeBarkServerUrl(barkServerUrl || 'https://api.day.app')
-        const safeTitle = (title || 'LDC Shop').trim() || 'LDC Shop'
-        const safeBody = (body || '-').trim() || '-'
-
-        let requestUrl = `${baseUrl}/${encodeURIComponent(barkDeviceKey)}/${encodeURIComponent(safeTitle)}/${encodeURIComponent(safeBody)}`
-        const query = new URLSearchParams()
-        if (options?.url) query.set('url', options.url)
-        if (options?.group) query.set('group', options.group)
-        if (barkIconUrl) query.set('icon', barkIconUrl)
-        const queryString = query.toString()
-        if (queryString) {
-            requestUrl += `?${queryString}`
-        }
-
-        const response = await fetch(requestUrl, {
-            method: 'GET',
-            headers: {
-                Accept: 'application/json, text/plain;q=0.9, */*;q=0.8'
-            },
-            cache: 'no-store'
-        })
-
-        if (!response.ok) {
-            const error = await response.text()
-            console.error('[Notification] Bark API Error:', error)
-            return { success: false, error }
-        }
-
-        return { success: true }
-    } catch (e: any) {
-        console.error('[Notification] Bark Send Error:', e)
-        return { success: false, error: e.message }
+function truncatePushText(value: string, maxBytes: number) {
+    const encoder = new TextEncoder()
+    let bytes = 0, result = ''
+    for (const character of value) {
+        const size = encoder.encode(character).length
+        if (bytes + size > maxBytes) break
+        bytes += size
+        result += character
     }
+    return result
 }
 
+export async function sendBarkMessage(title: string, body: string, options?: { url?: string; group?: string }) {
+    try {
+        const { barkEnabled, barkServerUrl, barkDeviceKey, barkIconUrl } = await getNotificationSettings()
+        if (!barkEnabled) return { success: false, error: 'Bark disabled' }
+        if (!barkDeviceKey) return { success: false, error: 'Missing Bark device key' }
+        let baseUrl: string
+        try { baseUrl = normalizeBarkServerUrl(barkServerUrl || 'https://api.day.app') }
+        catch { return { success: false, error: 'Invalid Bark server address' } }
+        const push = {
+            device_key: barkDeviceKey,
+            title: truncatePushText((title || 'LDC Shop').trim() || 'LDC Shop', 256),
+            body: truncatePushText((body || '-').trim() || '-', 2400),
+            ...(options?.group ? { group: truncatePushText(options.group, 100) } : {}),
+            ...(options?.url && toAbsoluteUrl(options.url, '').length <= 1000 ? { url: toAbsoluteUrl(options.url, '') } : {}),
+            ...(barkIconUrl ? { icon: barkIconUrl } : {}),
+        }
+        // JSON escaping and optional URLs also consume the APNs payload budget.
+        while (new TextEncoder().encode(JSON.stringify(push)).length > 3500 && push.body.length > 1) {
+            push.body = Array.from(push.body).slice(0, -100).join('') || '-'
+        }
+        if (new TextEncoder().encode(JSON.stringify(push)).length > 3500) delete push.icon
+        if (new TextEncoder().encode(JSON.stringify(push)).length > 3500) delete push.url
+        const response = await fetch(`${baseUrl}/push`, {
+            method: 'POST',
+            headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+            body: JSON.stringify(push),
+            cache: 'no-store', signal: AbortSignal.timeout(15_000), redirect: 'manual',
+        })
+        if (!response.ok) {
+            console.error('[Notification] Bark HTTP error:', response.status)
+            return { success: false, error: `Bark HTTP ${response.status}${response.status >= 500 ? ' (服务暂时不可用，请稍后重试)' : ''}` }
+        }
+        let payload: unknown
+        try { payload = await response.json() }
+        catch { return { success: false, error: 'Bark server returned an invalid JSON response' } }
+        if (!payload || typeof payload !== 'object' || !('code' in payload) || payload.code !== 200) {
+            const code = payload && typeof payload === 'object' && 'code' in payload && typeof payload.code === 'number' && Number.isSafeInteger(payload.code) ? ` (code ${payload.code})` : ''
+            return { success: false, error: `Bark rejected the push${code}; check the device key and server address` }
+        }
+        return { success: true }
+    } catch (error) {
+        // Never log the request URL, JSON body or device key.
+        console.error('[Notification] Bark request failed')
+        const name = error !== null && typeof error === 'object' && 'name' in error ? error.name : undefined
+        if (name === 'TimeoutError' || name === 'AbortError') return { success: false, error: 'Bark request timed out after 15 seconds' }
+        if (getErrorMessage(error, '').includes('Invalid redirect value')) return { success: false, error: 'Bark request rejected by Workers: unsupported redirect mode' }
+        return { success: false, error: 'Bark network error; check the server address and try again' }
+    }
+}
 // 消息模板
 const messages = {
     zh: {
@@ -242,18 +261,18 @@ export async function notifyAdminPaymentSuccess(order: {
     email?: string | null,
     username?: string | null,
     tradeNo?: string | null
-}) {
+}, channels?: { telegram?: boolean; bark?: boolean }) {
     const { language } = await getNotificationSettings()
     const t = messages[language as keyof typeof messages] || messages.zh
 
     const telegramText = `
 <b>${t.paymentTitle}</b>
 
-<b>${t.order}:</b> <code>${order.orderId}</code>
-<b>${t.product}:</b> ${order.productName}
-<b>${t.amount}:</b> ${order.amount}
-<b>${t.user}:</b> ${order.username || t.guest} (${order.email || t.noEmail})
-<b>${t.tradeNo}:</b> <code>${order.tradeNo || 'N/A'}</code>
+<b>${t.order}:</b> <code>${escapeHtml(order.orderId)}</code>
+<b>${t.product}:</b> ${escapeHtml(order.productName)}
+<b>${t.amount}:</b> ${escapeHtml(order.amount)}
+<b>${t.user}:</b> ${escapeHtml(order.username || t.guest)} (${escapeHtml(order.email || t.noEmail)})
+<b>${t.tradeNo}:</b> <code>${escapeHtml(order.tradeNo || 'N/A')}</code>
 `.trim()
 
     const barkBody = [
@@ -265,15 +284,18 @@ export async function notifyAdminPaymentSuccess(order: {
     ].join('\n')
 
     const [telegramResult, barkResult] = await Promise.allSettled([
-        sendTelegramMessage(telegramText),
-        sendBarkMessage(t.paymentTitle, barkBody, { group: 'LDC Shop' })
+        channels?.telegram === false ? Promise.resolve({ success: true }) : sendTelegramMessage(telegramText),
+        channels?.bark === false ? Promise.resolve({ success: true }) : sendBarkMessage(t.paymentTitle, barkBody, { group: 'LDC Shop' })
     ])
 
     const success =
         (telegramResult.status === 'fulfilled' && telegramResult.value.success) ||
         (barkResult.status === 'fulfilled' && barkResult.value.success)
 
-    return { success }
+    return { success,
+        telegram: telegramResult.status === 'fulfilled' && telegramResult.value.success,
+        bark: barkResult.status === 'fulfilled' && barkResult.value.success,
+    }
 }
 
 export async function notifyAdminRefundRequest(order: {

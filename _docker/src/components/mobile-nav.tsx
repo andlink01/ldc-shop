@@ -1,10 +1,10 @@
 'use client'
 
-import Link from "next/link"
-import { usePathname } from "next/navigation"
-import { useI18n } from "@/lib/i18n/context"
-import { Compass, Home, Package, Settings, User } from "lucide-react"
-import { cn } from "@/lib/utils"
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { useI18n } from "@/lib/i18n/context";
+import { Compass, Home, Settings, User } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 interface MobileNavProps {
     isLoggedIn: boolean

@@ -1,5 +1,6 @@
 "use server"
 
+import { getErrorText } from '@/lib/errors'
 import { auth } from "@/lib/auth"
 import { db, dbRun, dbExecRaw } from "@/lib/db"
 import { loginUsers } from "@/lib/db/schema"
@@ -10,8 +11,8 @@ import { getSetting } from "@/lib/db/queries"
 async function safeAddColumn(table: string, column: string, definition: string) {
     try {
         await dbRun(sql.raw(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`))
-    } catch (e: any) {
-        const errorString = (JSON.stringify(e) + String(e)).toLowerCase()
+    } catch (e) {
+        const errorString = getErrorText(e).toLowerCase()
         if (!errorString.includes("duplicate column")) throw e
     }
 }
@@ -86,12 +87,12 @@ export async function submitWishlistItem(title: string, description?: string) {
     }
 
     await ensureWishlistTables()
-    const result: any = await dbRun(sql`
+    const result = await dbRun<{ id: number }>(sql`
         INSERT INTO wishlist_items (title, description, user_id, username, created_at)
         VALUES (${cleanTitle}, ${cleanDesc || null}, ${userId}, ${username}, (unixepoch() * 1000))
         RETURNING id
     `)
-    const rows = result?.results || result?.rows || []
+    const rows = result.results
     let id = Number(rows[0]?.id || 0)
 
     // Fallback to meta.last_row_id if RETURNING didn't work (older D1 behavior)
@@ -140,12 +141,12 @@ export async function toggleWishlistVote(itemId: number) {
 
     await ensureWishlistTables()
 
-    const existing: any = await dbRun(sql`
+    const existing = await dbRun<{ id: number }>(sql`
         SELECT id FROM wishlist_votes
         WHERE item_id = ${id} AND user_id = ${userId}
         LIMIT 1
     `)
-    const existingRows = existing?.results || existing?.rows || []
+    const existingRows = existing.results
     const hasVote = existingRows.length > 0
 
     if (hasVote) {
@@ -160,10 +161,10 @@ export async function toggleWishlistVote(itemId: number) {
         `)
     }
 
-    const countResult: any = await dbRun(sql`
+    const countResult = await dbRun<{ count: number }>(sql`
         SELECT COUNT(*) AS count FROM wishlist_votes WHERE item_id = ${id}
     `)
-    const countRows = countResult?.results || countResult?.rows || []
+    const countRows = countResult.results
     const count = Number(countRows[0]?.count || 0)
 
     revalidatePath("/")

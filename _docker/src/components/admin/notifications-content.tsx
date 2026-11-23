@@ -1,15 +1,17 @@
 'use client'
 
-import { useState } from "react"
-import { useI18n } from "@/lib/i18n/context"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/components/ui/card"
-import { Label } from "@/components/ui/label"
-import { toast } from "sonner"
-import type { FormEvent } from "react"
-import { saveNotificationSettings, testBarkNotification, testEmailNotification, testNotification } from "@/actions/admin"
-import { Bell, CreditCard, RotateCcw, MessageSquare, ExternalLink, Mail, Smartphone } from "lucide-react"
+import { getErrorMessage } from '@/lib/errors';
+
+import { useState } from "react";
+import { useI18n } from "@/lib/i18n/context";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/components/ui/card";
+import { Label } from "@/components/ui/label";
+import { toast } from "sonner";
+import type { FormEvent } from "react";
+import { saveNotificationSettings, testBarkNotification, testEmailNotification, testNotification } from "@/actions/admin";
+import { Bell, CreditCard, RotateCcw, MessageSquare, ExternalLink, Mail, Smartphone } from "lucide-react";
 
 interface NotificationsContentProps {
     settings: {
@@ -69,8 +71,8 @@ export function NotificationsContent({ settings }: NotificationsContentProps) {
             setResendFromName(saved.resendFromName || '')
             setEmailLanguage(saved.emailLanguage || 'zh')
             toast.success(t('common.success'))
-        } catch (e: any) {
-            toast.error(e.message || t('common.error'))
+        } catch (e) {
+            toast.error(getErrorMessage(e) || t('common.error'))
         } finally {
             setIsLoading(false)
         }
@@ -88,9 +90,9 @@ export function NotificationsContent({ settings }: NotificationsContentProps) {
             if (res.success) {
                 toast.success(t('admin.settings.notifications.testSuccess'))
             } else {
-                toast.error(t('admin.settings.notifications.testFailed', { error: res.error }))
+                toast.error(t('admin.settings.notifications.testFailed', { error: res.error || t('common.error') }))
             }
-        } catch (e: any) {
+        } catch {
             toast.error(t('common.error'))
         } finally {
             setIsTesting(false)
@@ -108,9 +110,9 @@ export function NotificationsContent({ settings }: NotificationsContentProps) {
             if (res.success) {
                 toast.success(t('admin.settings.email.testSuccess'))
             } else {
-                toast.error(t('admin.settings.email.testFailed', { error: res.error }))
+                toast.error(t('admin.settings.email.testFailed', { error: res.error || t('common.error') }))
             }
-        } catch (e: any) {
+        } catch {
             toast.error(t('common.error'))
         } finally {
             setIsTestingEmail(false)
@@ -124,7 +126,7 @@ export function NotificationsContent({ settings }: NotificationsContentProps) {
             if (res.success) {
                 toast.success(t('admin.settings.notifications.barkTestSuccess'))
             } else {
-                toast.error(t('admin.settings.notifications.barkTestFailed', { error: res.error }))
+                toast.error(t('admin.settings.notifications.barkTestFailed', { error: res.error || t('common.error') }))
             }
         } catch {
             toast.error(t('common.error'))

@@ -27,6 +27,9 @@ jobs:
       - run: npm run lint
       - run: npx tsc --noEmit
       - run: npm run test:auth
+      - run: npm run test:inventory
+      - run: npm run test:db
+      - run: npm run test:update
       - run: npm run test:client
       - run: npm run test:card-config
       - run: npm run test:features

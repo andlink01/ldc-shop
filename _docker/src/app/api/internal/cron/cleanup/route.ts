@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
-import { cancelExpiredOrders, cleanupExpiredCardsIfNeeded } from "@/lib/db/queries";
+import { cancelExpiredOrders, cleanupExpiredCardsIfNeeded, ensureDatabaseInitialized } from "@/lib/db/queries";
+import { fulfillPendingOrders } from '@/lib/fulfillment'
+import { enqueueExpiryAlerts, processInventoryEvents } from '@/lib/inventory-events'
 
 const CRON_TOKEN_HEADER = "x-cron-cleanup-token";
 const CARD_CLEANUP_THROTTLE_MS = 60 * 1000;
@@ -33,6 +35,7 @@ export async function POST(request: Request) {
     }
 
     const startedAt = Date.now();
+    await ensureDatabaseInitialized();
     const [cardsResult, ordersResult] = await Promise.allSettled([
         cleanupExpiredCardsIfNeeded(CARD_CLEANUP_THROTTLE_MS),
         cancelExpiredOrders(),
@@ -54,8 +57,11 @@ export async function POST(request: Request) {
 
     return NextResponse.json({
         success: true,
-        durationMs,
+        durationMs: Date.now() - startedAt,
         cardsCleanupRan: cardsResult.value,
         cancelledOrderCount: ordersResult.value.length,
+        fulfillment: await fulfillPendingOrders(undefined, 50),
+        expiryAlerts: await enqueueExpiryAlerts(),
+        notifications: await processInventoryEvents(),
     });
 }

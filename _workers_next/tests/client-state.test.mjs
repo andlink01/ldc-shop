@@ -542,3 +542,64 @@ test('a rejected or active refund keeps the compact controls and never suggests 
     assert.equal(buttons()[1].props.disabled, false)
     assert.match(messages[1], /rejected the refund/i)
 })
+
+const emptyBuyMeta = { reviews: [], averageRating: 0, reviewCount: 0, canReview: false, emailConfigured: false }
+const questionProduct = { id: 'product', name: 'Product', price: '1', description: null, image: null, category: null,
+    purchaseQuestions: JSON.stringify([{ q: 'Question?' }]) }
+
+function questionClient(t, verifyPurchaseAnswers) {
+    return setup(t, {
+        '@/lib/auth': { auth: async () => null },
+        '@/actions/buy': { getBuyPageMeta: async () => emptyBuyMeta, verifyPurchaseAnswers },
+        '@/actions/points': { getUserPoints: async () => 0 },
+        '@/actions/checkout': { createOrder: async () => ({ success: false, error: 'buy.questionsWrong' }) },
+        '@/components/ui/dialog': { ...dialog, DialogTrigger: host('span') },
+    }, { window: { location: { href: 'https://shop.example/buy/product', pathname: '/buy/product', search: '' } } })
+}
+
+test('purchase questions wait for the server, prevent duplicate verification and reopen after checkout rejection', async t => {
+    let release
+    const calls = []
+    const f = questionClient(t, async (id, answers) => { calls.push({ id, answers: Array.from(answers) }); return new Promise(resolve => { release = resolve }) })
+    const { BuyContent } = f.load('components/buy-content')
+    const { BuyButton } = f.load('components/buy-button')
+    const view = await mount(t, React.createElement(BuyContent, { product: questionProduct, stockCount: 1, isLoggedIn: true }))
+    const answer = () => view.root.findAllByType('input').find(node => node.props.placeholder === 'Enter your answer')
+    const verify = () => view.root.findAllByType('button').find(node => buttonName(node) === 'Verify Answers')
+    await act(async () => answer().props.onChange({ target: { value: 'My answer' } }))
+    await act(async () => { verify().props.onClick(); verify().props.onClick() })
+    assert.deepEqual(calls, [{ id: 'product', answers: ['My answer'] }])
+    assert.equal(verify().props.disabled, true)
+    assert.equal(answer().props.disabled, true)
+    assert.equal(view.root.findAllByType(BuyButton).length, 0)
+    await act(async () => release({ success: false, error: 'buy.questionsWrong' }))
+    assert.equal(verify().props.disabled, false)
+    await act(async () => { verify().props.onClick() })
+    await act(async () => release({ success: true }))
+    const buy = view.root.findByType(BuyButton)
+    await act(async () => buy.findAllByType('button')[0].props.onClick())
+    await act(async () => buy.findAllByType('button').find(node => buttonName(node) === 'Proceed to Payment').props.onClick())
+    assert.equal(view.root.findAllByType(BuyButton).length, 0)
+    assert.equal(answer().props.disabled, false)
+    assert.equal(answer().props.value, 'My answer')
+})
+
+test('verification for an old variant cannot unlock the newly selected variant', async t => {
+    let release
+    const f = questionClient(t, async () => new Promise(resolve => { release = resolve }))
+    const { BuyContent } = f.load('components/buy-content')
+    const { BuyButton } = f.load('components/buy-button')
+    const variants = [
+        { ...questionProduct, variantLabel: 'First', stockCount: 1, lockedCount: 0 },
+        { ...questionProduct, id: 'second', name: 'Second', variantLabel: 'Second', stockCount: 1, lockedCount: 0 },
+    ]
+    const view = await mount(t, React.createElement(BuyContent, { product: questionProduct, variants, stockCount: 1, isLoggedIn: true }))
+    const answer = () => view.root.findAllByType('input').find(node => node.props.placeholder === 'Enter your answer')
+    await act(async () => answer().props.onChange({ target: { value: 'First answer' } }))
+    await act(async () => { view.root.findAllByType('button').find(node => buttonName(node) === 'Verify Answers').props.onClick() })
+    await act(async () => view.root.findAllByType('button').find(node => buttonName(node) === 'Second').props.onClick())
+    await act(async () => release({ success: true }))
+    assert.equal(view.root.findAllByType(BuyButton).length, 0)
+    assert.equal(answer().props.value, '')
+    assert.equal(answer().props.disabled, false)
+})

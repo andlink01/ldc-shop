@@ -1,5 +1,7 @@
 'use client'
 
+import { getErrorMessage } from '@/lib/errors'
+
 import { useRef, useState } from "react"
 import { useI18n } from "@/lib/i18n/context"
 import Link from "next/link"
@@ -49,8 +51,8 @@ export function AdminProductsContent({ products, lowStockThreshold }: AdminProdu
             await deleteProduct(id)
             toast.success(t('common.success'))
             router.refresh()
-        } catch (e: any) {
-            toast.error(e.message)
+        } catch (e) {
+            toast.error(getErrorMessage(e))
         } finally {
             setBusy(false)
             busyRef.current = false
@@ -65,8 +67,8 @@ export function AdminProductsContent({ products, lowStockThreshold }: AdminProdu
             await toggleProductStatus(id, !currentStatus)
             toast.success(t('common.success'))
             router.refresh()
-        } catch (e: any) {
-            toast.error(e.message)
+        } catch (e) {
+            toast.error(getErrorMessage(e))
         } finally {
             setBusy(false)
             busyRef.current = false
@@ -93,8 +95,8 @@ export function AdminProductsContent({ products, lowStockThreshold }: AdminProdu
             await reorderProduct(target.id, idx)
             toast.success(t('common.success'))
             router.refresh()
-        } catch (e: any) {
-            toast.error(e.message)
+        } catch (e) {
+            toast.error(getErrorMessage(e))
         } finally {
             setBusy(false)
             busyRef.current = false

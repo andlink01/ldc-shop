@@ -31,12 +31,12 @@ A virtual goods shop built with **Next.js 16** and **Shadcn UI**, with separate 
 
 ## ✨ Feature overview
 
-The current **Workers edition** includes (full list in [_workers_next/README.md](./_workers_next/README.md)):
+Both editions include (full list in [_workers_next/README.md](./_workers_next/README.md)):
 
 - **Stack**: Next.js 16 (App Router), Tailwind CSS, TypeScript; edge runtime **Cloudflare Workers + D1**.
 - **Linux DO**: OIDC login, EasyPay; optional GitHub login.
 - **Storefront**: Search and categories, dedicated search page, wishlist and voting, announcements, Markdown descriptions, purchase warnings, **product visibility by trust level**, hot and discount, ratings and reviews, stock/sold, shared card keys, purchase limits, quantity selection, custom store name, **product variants (multi-spec)**.
-- **Orders**: Payment callback verification, auto card-key delivery, multi-key display, default recipient email, stock reservation, timeout cancel, order center (with variant labels), pending-order reminder, refund requests and auto-refund, payment QR.
+- **Orders**: Payment callback verification, transactional delivery, payment-triggered procurement and recovery, multi-key display, stock reservation, recovery of complete reservations, timeout cancellation, order center, persistent refund recovery, and payment QR.
 - **Admin**: Sales stats, low-stock alerts, product management (visibility and variants), categories, card keys, orders, order cleanup, reviews, export/import, announcements, customers, messages, refund settings, nav settings, store and theme (name, description, logo, favicon, colors, font, footer, noindex), check-in settings, update check.
 - **Points**: Daily check-in (configurable on/off and reward), point deduction, full payment with points.
 - **I18n & theme**: English/Chinese, light/dark/system.

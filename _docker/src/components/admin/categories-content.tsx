@@ -1,5 +1,7 @@
 'use client'
 
+import { getErrorMessage } from '@/lib/errors'
+
 import { useMemo, useRef, useState } from "react"
 import { useI18n } from "@/lib/i18n/context"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -37,8 +39,8 @@ export function AdminCategoriesContent({ categories }: { categories: CategoryRow
       setName("")
       setIcon("")
       setSortOrder("0")
-    } catch (e: any) {
-      toast.error(e.message)
+    } catch (e) {
+      toast.error(getErrorMessage(e))
     } finally {
       setSaving(false)
     }
@@ -53,8 +55,8 @@ export function AdminCategoriesContent({ categories }: { categories: CategoryRow
       formData.set('sortOrder', String(next.sortOrder ?? row.sortOrder ?? 0))
       await saveCategory(formData)
       toast.success(t('common.success'))
-    } catch (e: any) {
-      toast.error(e.message)
+    } catch (e) {
+      toast.error(getErrorMessage(e))
     }
   }
 
@@ -141,8 +143,8 @@ export function AdminCategoriesContent({ categories }: { categories: CategoryRow
                       try {
                         await deleteCategory(c.id)
                         toast.success(t('common.success'))
-                      } catch (e: any) {
-                        toast.error(e.message)
+                      } catch (e) {
+                        toast.error(getErrorMessage(e))
                       } finally {
                         setDeletingId(null)
                         deleteLock.current = null
