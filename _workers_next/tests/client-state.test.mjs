@@ -299,6 +299,49 @@ test('key list supports view, clipboard fallback and reset without deleting its 
     assert.equal(field().props.value, 'RESET-TEST-KEY')
 })
 
+test('key deletion requires confirmation, shows failures and blocks duplicate clicks while clearing its log filter', async t => {
+    const errors = [], deleted = [], navigated = []
+    let release, fail = true
+    const f = setup(t, {
+        '@/actions/inventory': { deleteInventoryKey: async id => {
+            deleted.push(id)
+            if (fail) return { success: false, error: 'inventory.keyDeleteFailed' }
+            return new Promise(resolve => { release = resolve })
+        } },
+        'next/navigation': { useRouter: () => ({ refresh() {}, replace: url => navigated.push(url) }) },
+        sonner: { toast: { success() {}, error: message => errors.push(message) } },
+    })
+    const { InventoryApiContent } = f.load('components/admin/inventory-api-content')
+    const view = await mount(t, React.createElement(InventoryApiContent, {
+        keysData: [{ id: 'key', name: 'Tool', prefix: 'ldc_inv_test', productIds: '[]', canRead: true, canWrite: true, enabled: true, expiresAt: null, lastUsedAt: null, recoverable: true }],
+        products: [], logs: [], page: 3, hasNext: false, keyFilter: 'key', statusFilter: 'error', alertMinutes: 60,
+    }))
+    const open = () => view.root.findAllByType('button').find(node => node.children.join('') === 'Delete').props.onClick()
+    const active = () => view.root.findAllByType('dialog').find(node => node.props.open)
+    const button = label => active().findAllByType('button').find(node => node.children.join('') === label)
+    await act(async () => open())
+    assert.deepEqual(deleted, [])
+    await act(async () => button('Cancel').props.onClick())
+    assert.equal(active(), undefined)
+    assert.deepEqual(deleted, [])
+    await act(async () => open())
+    await act(async () => button('Confirm').props.onClick())
+    assert.deepEqual(deleted, ['key'])
+    assert.match(errors.at(-1), /Could not delete/)
+    assert.ok(active())
+    fail = false
+    await act(async () => button('Confirm').props.onClick())
+    assert.equal(button('Confirm').props.disabled, true)
+    await act(async () => button('Confirm').props.onClick())
+    assert.deepEqual(deleted, ['key', 'key'])
+    await act(async () => release({ success: true }))
+    assert.equal(active(), undefined)
+    const url = new URL(navigated[0], 'https://shop.example')
+    assert.equal(url.searchParams.get('key'), '')
+    assert.equal(url.searchParams.get('status'), 'error')
+    assert.equal(url.searchParams.get('page'), '1')
+})
+
 test('manual restocking shows provider failure messages without a success toast', async t => {
     const errors = []
     const f = setup(t, {

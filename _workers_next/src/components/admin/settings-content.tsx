@@ -338,7 +338,7 @@ export function AdminSettingsContent({ stats, shopName, shopDescription, shopLog
             const result = await checkForUpdatesClient(currentVersion)
             setUpdateInfo(result)
             if (result.error) {
-                toast.error(t('update.checkFailed'))
+                toast.error(t(result.error))
                 return
             }
             toast.success(result.hasUpdate ? t('update.available') : t('update.upToDate'))
@@ -834,7 +834,7 @@ export function AdminSettingsContent({ stats, shopName, shopDescription, shopLog
                     {updateInfo && (
                         <div className="text-sm">
                             <p className={updateInfo.error ? "text-destructive" : updateInfo.hasUpdate ? "text-orange-600" : "text-green-600"}>
-                                {updateInfo.error ? t('update.checkFailed') : updateInfo.hasUpdate ? t('update.available') : t('update.upToDate')}
+                                {updateInfo.error ? t(updateInfo.error) : updateInfo.hasUpdate ? t('update.available') : t('update.upToDate')}
                             </p>
                             {updateInfo.latestVersion ? (
                                 <p className="text-xs text-muted-foreground">

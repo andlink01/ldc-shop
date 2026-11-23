@@ -4,7 +4,7 @@ import { checkAdmin } from '@/actions/admin'
 import { db } from '@/lib/db'
 import { inventoryApiKeys } from '@/lib/db/schema'
 import { ensureDatabaseInitialized, setSetting } from '@/lib/db/queries'
-import { createManagedInventoryKey, readManagedInventoryToken, resetManagedInventoryToken, changeCardExpiry, type InventoryKeyInput } from '@/lib/inventory-management'
+import { createManagedInventoryKey, readManagedInventoryToken, resetManagedInventoryToken, deleteManagedInventoryKey, changeCardExpiry, type InventoryKeyInput } from '@/lib/inventory-management'
 import { InventoryTokenError } from '@/lib/inventory-token'
 import { fulfillPaidOrder, invalidateInventory } from '@/lib/fulfillment'
 import { scheduleInventoryEvents } from '@/lib/inventory-events'
@@ -52,6 +52,19 @@ export async function resetInventoryKey(id: string) {
     } catch (error) {
         if (error instanceof InventoryTokenError) return { success: false as const, error: error.code }
         throw error
+    }
+}
+
+export async function deleteInventoryKey(id: string) {
+    await checkAdmin()
+    try {
+        await deleteManagedInventoryKey(id)
+        revalidatePath('/admin/inventory-api')
+        return { success: true as const }
+    } catch (error) {
+        if (error instanceof InventoryTokenError) return { success: false as const, error: error.code }
+        console.error('[inventory] key deletion failed')
+        return { success: false as const, error: 'inventory.keyDeleteFailed' }
     }
 }
 

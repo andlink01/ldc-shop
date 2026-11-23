@@ -80,7 +80,48 @@ test('view and reset require administrator authentication before accessing token
     f.deny()
     await assert.rejects(f.viewInventoryKey(key.id), /Unauthorized/)
     await assert.rejects(f.resetInventoryKey(key.id), /Unauthorized/)
+    await assert.rejects(f.deleteInventoryKey(key.id), /Unauthorized/)
     assert.equal((await f.db.select().from(f.schema.inventoryApiKeys))[0].tokenHash, key.tokenHash)
+})
+
+test('deleting a key revokes it permanently and keeps imports, cards and audit records', async t => {
+    const f = await setup(t)
+    const issued = await f.createManagedInventoryKey({ ...input, canWrite: true }, 'admin')
+    const [key] = await f.db.select().from(f.schema.inventoryApiKeys)
+    const imported = await f.addInventoryCards(new Request('https://shop.example/api/v1/products/product/cards', {
+        method: 'POST', headers: { Authorization: `Bearer ${issued.token}`, 'Content-Type': 'application/json', 'Idempotency-Key': 'kept-batch' },
+        body: JSON.stringify({ cards: ['PRESERVED-CARD'] }),
+    }), { params: Promise.resolve({ productId: 'product' }) })
+    assert.equal(imported.status, 201)
+    const receipts = await f.db.select().from(f.schema.inventoryImports)
+    const logs = await f.db.select().from(f.schema.inventoryApiRequests)
+    assert.ok(logs.length > 0)
+    const result = await f.deleteInventoryKey(key.id)
+    assert.equal(result.success, true)
+    assert.equal((await f.db.select().from(f.schema.inventoryApiKeys)).length, 0)
+    const history = await f.db.select().from(f.schema.inventoryApiRequests)
+    assert.equal(history.length, logs.length)
+    assert.ok(history.every(log => log.keyId === null))
+    assert.deepEqual(await f.db.select().from(f.schema.inventoryImports), receipts)
+    assert.equal((await f.db.select().from(f.schema.cards))[0].cardKey, 'PRESERVED-CARD')
+    assert.equal((await f.listInventoryProducts(request(issued.token))).status, 401)
+    assert.equal((await f.viewInventoryKey(key.id)).error, 'inventory.keyNotFound')
+    assert.equal((await f.resetInventoryKey(key.id)).error, 'inventory.keyNotFound')
+    assert.equal((await f.deleteInventoryKey(key.id)).error, 'inventory.keyNotFound')
+    assert.equal((await f.deleteInventoryKey('')).error, 'inventory.keyNotFound')
+})
+
+test('a failed deletion returns a readable error and leaves the key and request history intact', async t => {
+    const f = await setup(t)
+    const issued = await f.createManagedInventoryKey(input, 'admin')
+    const [key] = await f.db.select().from(f.schema.inventoryApiKeys)
+    await f.listInventoryProducts(request(issued.token))
+    const logs = await f.db.select().from(f.schema.inventoryApiRequests)
+    await f.dbRun(sql.raw("CREATE TRIGGER deny_key_delete BEFORE DELETE ON inventory_api_keys BEGIN SELECT RAISE(ABORT, 'PRIVATE-DB-ERROR'); END;"))
+    assert.equal((await f.deleteInventoryKey(key.id)).error, 'inventory.keyDeleteFailed')
+    assert.deepEqual(await f.db.select().from(f.schema.inventoryApiRequests), logs)
+    assert.equal((await f.viewInventoryKey(key.id)).token, issued.token)
+    assert.equal((await f.listInventoryProducts(request(issued.token))).status, 200)
 })
 
 test('schema 24 upgrades preserve legacy keys, card stock and request history', async t => {

@@ -64,6 +64,10 @@ test('imports recover paid orders and retries log zero new cards with separate k
     const logs = await f.db.select().from(f.schema.inventoryApiRequests)
     assert.deepEqual(logs.map(l => l.addedCount), [1, 0])
     assert.ok(!JSON.stringify(logs).includes('PRIVATE-CARD'))
+    const [key] = await f.db.select().from(f.schema.inventoryApiKeys)
+    const reset = await f.resetManagedInventoryToken(key.id)
+    assert.equal((await f.addInventoryCards(request(reset.token, { cards: ['PRIVATE-CARD'] }), context('one'))).status, 200)
+    assert.equal((await f.db.select().from(f.schema.cards)).length, 1)
     const another = await f.createManagedInventoryKey(keyInput(), 'admin')
     assert.equal((await f.addInventoryCards(request(another.token, { cards: ['another'] }), context('one'))).status, 201)
 })
@@ -100,7 +104,7 @@ test('extending an expired unused card recovers a paid order; cleanup retains us
 test('inventory actions reject non-admin callers before touching storage', async t => {
     const f = fixture(t, { initialize: false, mocks: { '@/actions/admin': { checkAdmin: async () => { throw new Error('Unauthorized') } } } })
     const actions = f.load('actions/inventory')
-    for (const [name, args] of [['createInventoryKey', [keyInput()]], ['setInventoryKeyEnabled', ['id', true]], ['updateCardsExpiry', ['one', [1], null]], ['retryOrderDelivery', ['paid']], ['saveExpiryAlertMinutes', [60]]]) {
+    for (const [name, args] of [['createInventoryKey', [keyInput()]], ['setInventoryKeyEnabled', ['id', true]], ['deleteInventoryKey', ['id']], ['updateCardsExpiry', ['one', [1], null]], ['retryOrderDelivery', ['paid']], ['saveExpiryAlertMinutes', [60]]]) {
         await assert.rejects(actions[name](...args), /Unauthorized/)
     }
     assert.equal((await f.dbRun(sql`SELECT COUNT(*) AS count FROM sqlite_master WHERE type = 'table'`)).results[0].count, 0)

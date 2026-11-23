@@ -153,6 +153,7 @@
 | `MERCHANT_ID` | Secret | EPay 商户 ID |
 | `MERCHANT_KEY` | Secret | EPay 商户 Key |
 | `AUTH_SECRET` | Secret | 登录会话加密密钥（原有配置，可用 `openssl rand -base64 32` 生成）；已有 `NEXTAUTH_SECRET` 或 `OAUTH_CLIENT_SECRET` 时可沿用回退值 |
+| `CRON_CLEANUP_TOKEN` | Secret | 定时清理和采购重试的鉴权值（可选）；未设置时沿用 `OAUTH_CLIENT_SECRET`。仅使用 GitHub 登录且无该 OAuth Secret 时需要配置 |
 | `ADMIN_USERS` | Secret | 管理员用户名列表（支持 Linux DO 用户名和 GitHub 用户名 `gh_GitHub用户名`），逗号分隔。例如: `zhangsan,gh_octocat` |
 | `NEXT_PUBLIC_APP_URL` | **Text** | 你的 Workers 域名 (如 `https://ldc-shop.xxx.workers.dev`) |
 
@@ -240,6 +241,7 @@
 | `MERCHANT_ID` | EPay 商户 ID（建议 Secret） |
 | `MERCHANT_KEY` | EPay 商户 Key（Secret） |
 | `AUTH_SECRET` | NextAuth 加密密钥（Secret） |
+| `CRON_CLEANUP_TOKEN` | 定时任务鉴权（Secret）；回退为 `OAUTH_CLIENT_SECRET`，不回退到 `AUTH_SECRET` |
 | `ADMIN_USERS` | 管理员用户名列表，支持 Linux DO 用户名和 GitHub `gh_GitHub用户名` 用户名，逗号分隔。例如: `zhangsan,gh_octocat` |
 | `NEXT_PUBLIC_APP_URL` | 部署后的完整 URL (用于回调，必须 Text) |
 
@@ -247,7 +249,7 @@
 
 ## 🔌 卡密自动补货 API 对接
 
-**外部脚本主动给商城补卡**：使用固定的 `POST /api/v1/products/<商品编码>/cards`，独立密钥鉴权，支持批量导入、有效期和安全重试。完整配置与 Windows 示例见 [卡密管理 API 文档](../docs/inventory-api.md)。下面介绍商城主动拉卡的“库存补货”模式；无需预存卡密的“付款后采购”模式见 [第三方取卡接口规范](../docs/supplier-api.md)。
+**外部脚本主动给商城补卡**：使用固定的 `POST /api/v1/products/<商品编码>/cards`，独立密钥鉴权，支持批量导入、有效期和安全重试。完整配置、查询与导入响应、去重范围、错误码和 Windows 示例见 [卡密管理 API 文档](../docs/inventory-api.md)。下面介绍商城主动拉卡的“库存补货”模式；无需预存卡密的“付款后采购”模式及第三方实现、重试和验收规则见 [第三方取卡接口规范](../docs/supplier-api.md)。
 
 在管理后台的 `卡密管理` 页面可为单个商品配置“卡密 API 自动补货”。
 

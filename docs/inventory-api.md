@@ -1,12 +1,20 @@
 # 卡密管理 API
 
-Workers 和 Docker 提供相同的固定接口。商品编码是商品链接 `/buy/<商品编码>` 或后台 `/admin/cards/<商品编码>` 中的值，例如 `invitationcode`。`next-action` 是 Next.js 构建生成的操作标识，可能在更新后变化；这些接口不需要它，也不需要登录 Cookie、路由状态或 D1 数据库 UUID。
+这是**外部补货程序调用商城**的接口。Workers 和 Docker 提供相同的三个固定路径，鉴权、库存锁定及付款后采购支持有差异，见下文。本文按 Workers 1.5.5（结构版本 25）和 Docker 1.4.3（结构版本 22）的实际代码核对。
+
+将示例中的 `https://shop.example.com` 替换为你的商城地址。商品编码是商品链接 `/buy/<商品编码>` 或后台 `/admin/cards/<商品编码>` 中的值，例如 `invitationcode`；只允许字母、数字、下划线和连字符，长度 1–200。多规格商品每个规格有独立商品编码。
+
+接口不需要 `next-action`、登录 Cookie、路由状态或 D1 数据库 UUID。它只查询商品和库存、添加卡密，不支持读取卡密原文、删除卡密或管理密钥。密钥管理在后台操作。
 
 ## 配置密钥
 
 Workers 推荐在后台“补货接口”创建密钥，选择可操作的商品、查询或补卡权限及到期时间，无需配置 `INVENTORY_API_KEY`。创建后在列表点击“查看”或“复制”即可再次取出密钥；浏览器禁止自动复制时，弹窗内可选中密钥手动复制。
 
 忘记旧版密钥时可点击“重置”，确认后生成新值，原记录的名称、商品范围、权限、期限、启停状态和请求记录保留，旧值立即失效。重置后将新值填写到补货程序。旧版只保存哈希，不能还原原值；新建或重置的密钥保存哈希和加密原值，不保存明文。查看与重置均要求管理员登录。
+
+Workers 1.5.5 可在列表点击“删除”，确认后移除该密钥，之后的请求无法再用它鉴权。删除不可恢复；已导入的卡密、导入回执与历史请求记录保留，历史记录不再关联原密钥名称，显示为“部署密钥或已删除密钥”。暂时不用请选择“停用”，停用后可以再次启用。已通过鉴权的执行中请求可能继续完成。
+
+创建时至少选择一种权限，最多指定 50 个商品，留空到期时间表示永久有效。“全部商品”包含以后新建的商品；“指定商品”只允许选中的商品。重置不改变原权限、范围、到期时间和启停状态，也不会让已过期的密钥重新有效。
 
 Docker 1.4.3 尚无后台密钥管理；两版均继续支持环境变量密钥：
 
@@ -19,7 +27,9 @@ node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"
 - Cloudflare：在当前 Worker 的 **Settings → Variables and Secrets** 添加 Secret，名称为 `INVENTORY_API_KEY`，值为生成的密钥。保存并重新部署。
 - Docker：在 Compose 的 `environment` 中设置 `INVENTORY_API_KEY`，重新创建容器。无需更换数据库或卷。
 
-环境变量密钥必须为 32–512 个非空白字符，允许查询全店商品及为任意商品补卡。所有接口使用 `Authorization: Bearer <密钥>`。Workers 后台密钥按指定范围和权限鉴权，停用或过期后无法使用；旧哈希密钥升级后继续有效。环境变量密钥未配置且请求未使用后台密钥时，API 返回 `503 api_not_configured`；配置后缺少或错误的密钥返回 `401 unauthorized`。
+环境变量密钥必须为 32–512 个非空白字符，允许查询全店商品及为任意商品补卡。Workers 的 `ldc_inv_` 前缀保留给后台生成的密钥，不要用它作为环境密钥的前缀。所有接口使用 `Authorization: Bearer <密钥>`，不能将密钥放进 URL 或正文。后台创建的密钥与环境密钥独立生效；删除后台密钥不会撤销环境密钥，环境密钥需在部署环境修改或删除。
+
+Workers 后台密钥按指定范围和权限鉴权，停用或过期返回 `401 key_disabled_or_expired`；旧哈希密钥升级后继续有效。环境密钥未配置或格式无效，且请求未使用 `ldc_inv_` 后台密钥时，返回 `503 api_not_configured`。请求使用不存在的后台密钥返回 `401 unauthorized`；环境密钥已配置但请求缺少或使用错误密钥也返回该错误。
 
 ## 接口
 
@@ -29,11 +39,68 @@ node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"
 | GET | `/api/v1/products/<商品编码>/cards` | 查询单个商品及实时库存，不返回卡密内容 |
 | POST | `/api/v1/products/<商品编码>/cards` | 批量导入卡密 |
 
-商品列表支持 `limit`（1–200，默认 50）、`cursor`（上一页的 `nextCursor`）和 `q`（商品名称搜索，最多 100 字符）。`nextCursor: null` 表示没有下一页。多规格商品每个规格有各自商品编码，补卡时填写对应规格的编码。
+Workers 两个 GET 需要“查询商品和库存”权限，POST 需要“添加卡密”权限。仅有添加权限的程序仍可向已知商品编码补卡，不能执行 GET。列表只返回密钥允许访问的商品；直接查询或补卡到范围外的商品返回 `403 product_forbidden`，缺少操作权限返回 `403 permission_denied`。
 
-`stock` 中的 `unused` 为未使用且未过期的卡密数；`locked` 为有效支付锁定数量；`available` 为当前可分配数量。共享商品可通过 `isShared` 识别，前台仍按共享商品规则显示无限库存。
+### 查询商品列表
 
-Workers 另返回 `fulfillmentMode`，值为 `stock` 或 `on_demand`。付款后采购商品可在没有预存卡密时下单，接口中的库存数仍表示实际卡密数量。第三方取卡配置见 [付款后采购接口规范](supplier-api.md)，此处的补货密钥用于外部程序调用商城，与商城调用供应商时使用的 Token 分别配置。
+`GET /api/v1/products` 的可选查询参数：
+
+| 参数 | 规则 |
+|---|---|
+| `limit` | 整数 1–200，默认 50 |
+| `cursor` | 上一页返回的 `nextCursor`，第一页省略；保持相同搜索条件 |
+| `q` | 商品名称模糊搜索，去掉首尾空白后最多 100 字符；`%` 和 `_` 按 LIKE 通配符处理 |
+
+商品按编码升序返回，包含下架商品，不按前台展示或用户等级过滤。`nextCursor: null` 表示没有下一页。示例 HTTP 200（Workers）：
+
+```json
+{
+  "success": true,
+  "data": {
+    "products": [
+      {
+        "id": "invitationcode",
+        "name": "示例商品",
+        "price": "3.00",
+        "isActive": true,
+        "isShared": false,
+        "variantGroupId": null,
+        "variantLabel": null,
+        "fulfillmentMode": "stock",
+        "stock": { "unused": 10, "available": 8, "locked": 2 }
+      }
+    ],
+    "nextCursor": null
+  }
+}
+```
+
+### 查询单个商品库存
+
+`GET /api/v1/products/invitationcode/cards` 无需正文，HTTP 200 的 `data` 直接是商品对象，没有 `products` 或 `nextCursor`：
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": "invitationcode",
+    "name": "示例商品",
+    "price": "3.00",
+    "isActive": true,
+    "isShared": false,
+    "variantGroupId": null,
+    "variantLabel": null,
+    "fulfillmentMode": "stock",
+    "stock": { "unused": 10, "available": 8, "locked": 2 }
+  }
+}
+```
+
+`price` 是字符串，`isActive`、`isShared` 是布尔值，规格字段可为 `null` 或空字符串，库存字段是非负整数。Docker 返回相同结构但**没有 `fulfillmentMode` 字段**。所有 JSON 响应带 `Cache-Control: no-store`、`Vary: Authorization`。
+
+`stock.unused` 是未使用且未过期的卡密总数，`locked` 是其中被订单锁定的数量，`available = unused - locked`。Workers 的锁定包含五分钟付款锁，以及已付款待发货订单的预留卡密；已付款预留不会因超过五分钟而转为可用。Docker 1.4.3 只统计原有五分钟付款锁。共享商品也返回真实卡密条数，不返回“无限库存”数值；前台按共享商品规则展示。
+
+Workers 的 `fulfillmentMode` 为 `on_demand` 时，表示非共享商品的付款后采购已启用且配置了地址，允许零预存卡密下单；停用或空地址时返回 `stock`。它不表示商品已上架或供应商当前一定可用，库存数仍表示实际卡密数量。第三方取卡配置见 [付款后采购接口规范](supplier-api.md)，此处的补货密钥与商城调用供应商时使用的 Token 分别配置。
 
 ## 导入与有效期
 
@@ -61,18 +128,28 @@ curl.exe "https://shop.example.com/api/v1/products?limit=50" --header "Authoriza
 curl.exe "https://shop.example.com/api/v1/products/invitationcode/cards" --header "Authorization: Bearer 替换为你的密钥"
 ```
 
-每次允许 1–500 条非空字符串，每条最多 4096 字符，请求体最多 256 KiB。会去掉卡密首尾空白；保留内部换行。可直接导入已下架商品的库存。
+POST 必须发送 UTF-8 JSON 对象，`Content-Type: application/json`（可带 `charset=utf-8`）。每次允许 1–500 条非空字符串，去掉首尾空白后每条最多 4096 字符，不含 NUL；保留内部换行。请求体最多 256 KiB，因此 500 条很长的卡密需要分批。可直接导入已下架商品的库存。
 
 有效期二选一：
 
 - `expiresInSeconds`：正整数，最多 31,536,000 秒（365 天）。
-- `expiresAt`：带时区的 ISO 时间，例如 `"2026-12-01T22:30:00+08:00"`，首次导入时必须晚于当前时间。
+- `expiresAt`：带时区且包含秒的 ISO 时间，例如 `"2026-12-01T22:30:00+08:00"`，首次导入时必须晚于当前时间。格式为 `YYYY-MM-DDTHH:mm:ss[.SSS]Z` 或带 `±HH:mm` 时区，小数秒可为 1–3 位；不接受 Unix 时间戳或无时区时间。
 
 两项都省略或为 `null` 时不过期。同一批次的卡密使用相同有效期。
 
 ## 重试与返回
 
-每一批卡密使用一个独立的 `Idempotency-Key`；失败重试保持同一个 Key 和相同正文，新批次更换 Key。Key 允许字母、数字及 `._:-`，长度 1–128，全店共享同一命名空间。
+每一批卡密使用一个独立的 `Idempotency-Key`；网络失败、超时或 5xx 后重试保持同一密钥、同一 Key 和相同正文，新批次更换 Key。Key 允许字母、数字及 `._:-`，长度 1–128。
+
+去重范围按实际鉴权方式区分：
+
+| 鉴权方式 | `Idempotency-Key` 的范围 |
+|---|---|
+| Workers 后台密钥 | 同一密钥记录内跨商品共用；不同密钥记录分别去重 |
+| Workers 环境密钥 | 整个环境密钥入口共用，与后台密钥隔离；更换环境密钥值仍沿用已有回执 |
+| Docker 环境密钥 | 全店共用；更换密钥值仍沿用已有回执 |
+
+Workers 原地重置后台密钥保留记录 ID，重试仍能命中旧回执。删除再创建或改用另一条密钥会进入新的去重范围，**不要用新密钥重放已经成功的批次**，否则可能重复入库。
 
 首次成功返回 HTTP 201：
 
@@ -91,13 +168,36 @@ curl.exe "https://shop.example.com/api/v1/products/invitationcode/cards" --heade
 
 相同 Key 和相同内容再次请求返回 HTTP 200、`replayed: true`，不会再次插入，也不会延长相对有效期。Key 相同但商品或内容不同返回 HTTP 409 `idempotency_conflict`。导入记录、卡密和库存数量在同一数据库事务提交；发生错误时整批回滚。
 
+正文指纹按商品编码、去除首尾空白后的卡密数组（包括顺序）和有效期参数计算；相同正文仅改变 JSON 排版不产生冲突。将相对有效期改为绝对有效期、改变卡密顺序或商品编码则产生冲突。已成功导入的批次即使到期后重试，仍返回原回执。
+
+重放响应中的 `added` 是首次导入条数，并非本次新增条数；程序统计实际补入时须同时判断 `replayed`。后台“实际补入”对重放记为 0。Workers 导入成功后自动尝试恢复该商品已付款待发货订单，恢复失败不改变已经提交的导入结果；Docker 1.4.3 没有这套自动补发机制。
+
 不传 Key 时服务器为本次请求生成一个 Key，但网络失败后无法据此安全重试。建议脚本始终显式传入 Key。商城当前允许重复卡密文本；不同 Key 可以导入相同文本，去重重试依靠 Key，而不是卡密文本。
 
-错误返回格式为 `{"success":false,"error":"错误编码"}`。常见状态：400 参数/有效期错误，401 鉴权失败，404 商品不存在，409 重试内容冲突，413 请求过大，415 非 JSON 请求，500 导入失败，503 未配置密钥。错误响应不包含卡密或数据库原始错误。
+错误返回格式为 `{"success":false,"error":"错误编码"}`，不包含卡密或数据库原始错误：
+
+| HTTP | `error` | 处理方式 |
+|---|---|---|
+| 400 | `invalid_product_id`、`invalid_pagination` | 检查商品编码、分页或搜索参数 |
+| 400 | `invalid_json`、`invalid_body` | 检查 UTF-8 编码及 JSON 对象格式 |
+| 400 | `cards_must_contain_1_to_500_items`、`invalid_card` | 检查卡密数组、条数、长度和空白字符 |
+| 400 | `invalid_expiry`、`invalid_idempotency_key` | 检查有效期及批次编号 |
+| 401 | `unauthorized` | 检查 Bearer 密钥，已删除或重置的旧值无效 |
+| 401 | `key_disabled_or_expired` | 后台密钥已停用或到期（Workers） |
+| 403 | `permission_denied`、`product_forbidden` | 检查操作权限及商品范围（Workers） |
+| 403 | `invalid_key_scope` | 密钥范围记录无效，需管理员处理（Workers） |
+| 404 | `product_not_found` | 检查商品是否存在 |
+| 409 | `idempotency_conflict` | 恢复原请求正文；不要换 Key 强行重试同一批次 |
+| 413 | `body_too_large` | 拆成更小批次，每批独立 Key |
+| 415 | `json_required` | 使用 `application/json` |
+| 500 | `import_failed`、`internal_error` | 保持原密钥、Key 和正文重试，持续失败检查运行日志 |
+| 503 | `api_not_configured` | 配置有效环境密钥，或使用 Workers 后台密钥 |
+
+请求通过鉴权后，Workers 尽力记录结果，包括权限错误、参数错误和去重重试；停用或过期的已识别密钥也记录失败。未知密钥或环境鉴权失败没有可关联的密钥记录，不保证出现在后台。商城没有为该接口实现应用层限流、`Retry-After` 或自动重试，调用程序应控制并发和重试间隔。
 
 ## 数据与部署
 
-首次请求沿用商城现有初始化流程。Docker 1.4.3 的结构版本为 22，包含 `inventory_imports`；Workers 1.5.3 自动升级到 25，为 `inventory_api_keys` 增加可为空的 `token_encrypted` 字段。商品 ID、已有卡密、订单、密钥哈希、D1 绑定及 Docker 数据卷保持原值。全量备份包含导入回执，恢复后保留重试保护；Workers 备份同时包含密钥密文、采购编号和发货记录。
+首次请求沿用商城现有初始化流程。Docker 1.4.3 的结构版本为 22，包含 `inventory_imports`；Workers 从 1.5.3 起使用结构版本 25，为 `inventory_api_keys` 增加可为空的 `token_encrypted` 字段，1.5.5 无新结构升级。全量备份包含导入回执，恢复后保留重试保护；Workers 备份同时包含密钥密文、采购编号和发货记录。删除密钥不删除历史回执。
 
 Workers 密钥加密使用当前有效的认证 Secret，依次读取 `AUTH_SECRET`、`NEXTAUTH_SECRET`、`OAUTH_CLIENT_SECRET`，没有新增必须配置的环境变量。恢复备份时应沿用原值，并单独备份此 Secret，数据库导出不会包含它。更换认证 Secret 后，原补货密钥仍可通过哈希鉴权，但旧密文无法查看；可在后台原地重置并更新补货程序。
 
@@ -108,6 +208,6 @@ node scripts/sync-variants.mjs --check
 node scripts/compare-variants.mjs --summary
 ```
 
-需要将 Workers 的业务修改同步到 Docker 时执行 `node scripts/sync-variants.mjs --write`，再验证两版。脚本保留各平台数据库驱动和部署文件。
+维护者获授权同步 Docker 后才执行 `node scripts/sync-variants.mjs --write`，再验证两版；该操作不是 API 配置步骤。脚本保留各平台数据库驱动和部署文件。
 
 两版测试使用本机 Node.js 22.16 或更高版本，数据库测试全部使用隔离的临时 SQLite，不访问生产 D1：`npm run test:auth`、`npm run test:inventory`、`npm run test:db`。

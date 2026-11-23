@@ -59,6 +59,14 @@ export async function resetManagedInventoryToken(id: string) {
     return { token }
 }
 
+export async function deleteManagedInventoryKey(id: string) {
+    if (typeof id !== 'string' || !/^[a-zA-Z0-9_-]{1,200}$/.test(id)) throw new InventoryTokenError('inventory.keyNotFound')
+    await ensureDatabaseInitialized()
+    // The foreign key clears request.key_id while keeping audit records. Import receipts are independent of the key row.
+    const removed = await db.delete(inventoryApiKeys).where(eq(inventoryApiKeys.id, id)).returning({ id: inventoryApiKeys.id })
+    if (!removed.length) throw new InventoryTokenError('inventory.keyNotFound')
+}
+
 export async function recoverAfterRestock(productId: string) {
     // A committed import must remain a success even if background recovery fails.
     try { await fulfillPendingOrders(productId) } catch { console.error('[inventory] recovery deferred to maintenance') }

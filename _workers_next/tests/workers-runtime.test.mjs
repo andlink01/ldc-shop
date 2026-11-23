@@ -18,7 +18,7 @@ import { testNotification, testBarkNotification, testEmailNotification, saveCard
 import { sendOrderEmail } from '@/lib/email';
 import { saveProductCardApiConfig, pullOneCardFromApi, getProductCardApiConfig } from '@/lib/card-api';
 import { processInventoryEvents } from '@/lib/inventory-events';
-import { createInventoryKey, viewInventoryKey, resetInventoryKey } from '@/actions/inventory';
+import { createInventoryKey, viewInventoryKey, resetInventoryKey, deleteInventoryKey } from '@/actions/inventory';
 import { listInventoryProducts } from '@/lib/inventory-api';
 import { GET, POST } from '@/app/api/notify/route';
 export default { async fetch(request, env) {
@@ -62,6 +62,8 @@ export default { async fetch(request, env) {
       result = await viewInventoryKey(url.searchParams.get('id'));
     } else if (url.pathname === '/key-reset') {
       result = await resetInventoryKey((await request.json()).id);
+    } else if (url.pathname === '/key-delete') {
+      result = await deleteInventoryKey((await request.json()).id);
     } else if (url.pathname === '/key-state') {
       result = await db.select().from(schema.inventoryApiKeys);
     } else if (url.pathname === '/maintenance') {
@@ -371,6 +373,10 @@ test('encrypted inventory keys can be viewed and reset with correct authenticati
     assert.equal((await auth(reset.token)).status, 200)
     assert.equal((await f.json(`/key-view?id=${key.id}`)).token, reset.token)
     assert.equal((await f.json('/key-state')).length, 1)
+    assert.equal((await f.json('/key-delete', { id: key.id })).success, true)
+    assert.equal((await auth(reset.token)).status, 401)
+    assert.equal((await f.json('/key-state')).length, 0)
+    assert.equal((await f.json(`/key-view?id=${key.id}`)).error, 'inventory.keyNotFound')
 })
 
 test('manual restocking returns HTTP and response errors as data in production workerd', async t => {

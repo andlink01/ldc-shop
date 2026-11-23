@@ -5,7 +5,7 @@ import { getErrorMessage } from '@/lib/errors'
 import { useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { createInventoryKey, viewInventoryKey, resetInventoryKey, setInventoryKeyEnabled, saveExpiryAlertMinutes } from '@/actions/inventory'
+import { createInventoryKey, viewInventoryKey, resetInventoryKey, deleteInventoryKey, setInventoryKeyEnabled, saveExpiryAlertMinutes } from '@/actions/inventory'
 import { useI18n } from '@/lib/i18n/context'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -24,6 +24,7 @@ export function InventoryApiContent(props: Props) {
     const [busy, setBusy] = useState(false), lock = useRef(false)
     const [token, setToken] = useState(''), [allProducts, setAllProducts] = useState(true)
     const [tokenName, setTokenName] = useState(''), [resetKey, setResetKey] = useState<KeyData | null>(null)
+    const [deleteKey, setDeleteKey] = useState<KeyData | null>(null)
     const perform = async (fn: () => Promise<unknown>) => {
         if (lock.current) return
         lock.current = true; setBusy(true)
@@ -47,7 +48,7 @@ export function InventoryApiContent(props: Props) {
         finally { lock.current = false; setBusy(false) }
     }
     const date = (value: number | null) => value ? <ClientDate value={new Date(value)} format="dateTime" /> : '—'
-    const pageLink = (page: number) => `/admin/inventory-api?${new URLSearchParams({ page: String(page), key: props.keyFilter, status: props.statusFilter })}`
+    const pageLink = (page: number, key = props.keyFilter) => `/admin/inventory-api?${new URLSearchParams({ page: String(page), key, status: props.statusFilter })}`
     return <div className="space-y-6">
         <h1 className="text-2xl font-bold">{t('inventory.apiTitle')}</h1>
         <p className="text-sm text-muted-foreground">{t('inventory.apiHint')}</p>
@@ -95,6 +96,7 @@ export function InventoryApiContent(props: Props) {
                         <Button size="sm" variant="outline" disabled={busy} onClick={() => void revealToken(key, true)}>{t('common.copy')}</Button>
                         <Button size="sm" variant="outline" disabled={busy} onClick={() => setResetKey(key)}>{t('inventory.resetKey')}</Button>
                         <Button size="sm" variant="outline" disabled={busy} onClick={() => void perform(() => setInventoryKeyEnabled(key.id, !key.enabled))}>{t(key.enabled ? 'inventory.disable' : 'inventory.enable')}</Button>
+                        <Button size="sm" variant="destructive" disabled={busy} onClick={() => setDeleteKey(key)}>{t('common.delete')}</Button>
                     </div>{!key.recoverable && <p className="mt-2 text-xs text-muted-foreground">{t('inventory.legacyKeyHint')}</p>}</td>
                 </tr>)}
             </tbody></table>
@@ -118,6 +120,20 @@ export function InventoryApiContent(props: Props) {
                 }}>{t('common.confirm')}</Button></DialogFooter>
             </DialogContent>
         </Dialog>
+        <Dialog open={Boolean(deleteKey)} onOpenChange={open => { if (!open && !busy) setDeleteKey(null) }}>
+            <DialogContent><DialogHeader><DialogTitle>{t('inventory.deleteKey')}{deleteKey ? `：${deleteKey.name}` : ''}</DialogTitle><DialogDescription>{t('inventory.deleteKeyHint')}</DialogDescription></DialogHeader>
+                <DialogFooter><Button variant="outline" disabled={busy} onClick={() => setDeleteKey(null)}>{t('common.cancel')}</Button><Button variant="destructive" disabled={busy} onClick={() => {
+                    if (!deleteKey) return
+                    const key = deleteKey
+                    void perform(async () => {
+                        const result = await deleteInventoryKey(key.id)
+                        if (!result.success) { toast.error(t(result.error)); return false }
+                        setDeleteKey(null); setToken('')
+                        if (props.keyFilter === key.id) router.replace(pageLink(1, ''))
+                    })
+                }}>{t('common.confirm')}</Button></DialogFooter>
+            </DialogContent>
+        </Dialog>
         <Card><CardHeader><CardTitle>{t('inventory.expiryAlert')}</CardTitle></CardHeader><CardContent>
             <form className="flex flex-wrap items-end gap-3" onSubmit={event => { event.preventDefault(); const data = new FormData(event.currentTarget); void perform(() => saveExpiryAlertMinutes(Number(data.get('minutes')))) }}>
                 <label className="text-sm">{t('inventory.alertHint')}<Input name="minutes" type="number" min={0} max={10080} defaultValue={props.alertMinutes} required disabled={busy} /></label>
@@ -131,7 +147,7 @@ export function InventoryApiContent(props: Props) {
                 <Button variant="outline">{t('inventory.search')}</Button>
             </form>
             <table className="w-full text-sm"><thead><tr>{['time', 'keyName', 'action', 'product', 'result', 'added'].map(k => <th key={k} className="p-2 text-left">{t(`inventory.${k}`)}</th>)}</tr></thead><tbody>
-                {props.logs.map(log => <tr key={log.id} className="border-t"><td className="p-2 whitespace-nowrap">{date(log.createdAt)}</td><td className="p-2">{props.keysData.find(k => k.id === log.keyId)?.name || t('inventory.environmentKey')}</td>
+                {props.logs.map(log => <tr key={log.id} className="border-t"><td className="p-2 whitespace-nowrap">{date(log.createdAt)}</td><td className="p-2">{props.keysData.find(k => k.id === log.keyId)?.name || t('inventory.unlistedKey')}</td>
                     <td className="p-2">{t(`inventory.${log.action}`)}</td><td className="p-2">{log.productId || '—'}</td><td className="p-2">{log.status}{log.error && <span className="ml-2">{log.error}</span>}{log.replayed && <span className="ml-2">{t('inventory.replayed')}</span>}</td><td className="p-2">{log.addedCount}</td></tr>)}
             </tbody></table>
             <div className="flex items-center gap-4">{props.page > 1 && <Link href={pageLink(props.page - 1)}>{t('inventory.previous')}</Link>}<span>{props.page}</span>{props.hasNext && <Link href={pageLink(props.page + 1)}>{t('inventory.next')}</Link>}</div>

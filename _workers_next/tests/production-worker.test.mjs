@@ -58,6 +58,53 @@ test('actual production Server Actions validate supplier drafts and recover encr
     }
     const anonymous = await f.action('viewInventoryKey', '/admin/inventory-api', [key.id])
     assert.ok(!anonymous.body.includes(reset.result.token))
+    const denied = await f.action('deleteInventoryKey', '/admin/inventory-api', [key.id], await f.cookie('other', 'other-user'))
+    assert.notEqual(denied.result?.success, true)
+    assert.equal((await f.action('viewInventoryKey', '/admin/inventory-api', [key.id], f.sessionCookie)).result?.token, reset.result.token)
+    const imported = await f.request('/api/v1/products/product/cards', {
+        method: 'POST', headers: { Authorization: `Bearer ${reset.result.token}`, 'Content-Type': 'application/json', 'Idempotency-Key': 'preserved-batch' },
+        body: JSON.stringify({ cards: ['PRESERVED-PRODUCTION-CARD'] }),
+    })
+    assert.equal(imported.status, 201)
+    await imported.text()
+    const removed = await f.action('deleteInventoryKey', '/admin/inventory-api', [key.id], f.sessionCookie)
+    assert.equal(removed.result?.success, true, removed.body)
+    const revoked = await f.request('/api/v1/products', { headers: { Authorization: `Bearer ${reset.result.token}` } })
+    assert.equal(revoked.status, 401)
+    await revoked.text()
+    assert.equal((await f.database.prepare('SELECT COUNT(*) AS count FROM inventory_api_keys').bind().all()).results[0].count, 0)
+    assert.equal((await f.database.prepare('SELECT COUNT(*) AS count FROM cards').bind().all()).results[0].count, 1)
+    assert.equal((await f.database.prepare('SELECT COUNT(*) AS count FROM inventory_imports').bind().all()).results[0].count, 1)
+    const history = await f.database.prepare('SELECT key_id FROM inventory_api_requests').bind().all()
+    assert.ok(history.results.length > 0)
+    assert.ok(history.results.every(log => log.key_id === null))
+})
+
+test('production update checks use server requests and recover when the GitHub raw domain fails', async t => {
+    let fail = false
+    const calls = []
+    const f = await setup(t, { provider: request => {
+        const url = new URL(request.url)
+        if (!['raw.githubusercontent.com', 'api.github.com'].includes(url.hostname)) return undefined
+        calls.push(url.toString())
+        assert.equal(request.headers.get('user-agent'), 'ldc-shop-update-check')
+        if (url.hostname === 'raw.githubusercontent.com') return new Response(null, { status: 503 })
+        assert.equal(url.pathname, '/repos/andlink01/ldc-shop/contents/_workers_next/package.json')
+        assert.equal(url.searchParams.get('ref'), 'main')
+        return fail ? new Response(null, { status: 429 }) : Response.json({ version: '9.0.0' })
+    } })
+    const denied = await f.action('checkForUpdates', '/admin/settings', [], await f.cookie('other', 'other-user'))
+    assert.ok(!denied.body.includes('9.0.0'))
+    assert.equal(calls.length, 0)
+    const checked = await f.action('checkForUpdates', '/admin/settings', [], f.sessionCookie)
+    assert.equal(checked.status, 200, checked.body)
+    assert.ok(checked.body.includes('"latestVersion":"9.0.0"'), checked.body)
+    assert.ok(checked.body.includes('"hasUpdate":true'), checked.body)
+    assert.equal(calls.length, 2)
+    fail = true
+    const failure = await f.action('checkForUpdates', '/admin/settings', [], f.sessionCookie)
+    assert.ok(failure.body.includes('update.rateLimited'), failure.body)
+    assert.ok(failure.body.includes('"latestVersion":null'), failure.body)
 })
 
 test('the production order response excludes card keys for other users and forged cookies', async t => {
