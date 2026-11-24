@@ -657,6 +657,7 @@ test('a lost refund acknowledgement is recovered by its transaction ID in real w
         if (request.method === 'POST') { refunds++; return new Response(null, { status: 503 }) }
         queries++
         assert.equal(url.searchParams.get('trade_no'), 'test-trade')
+        assert.ok(url.searchParams.get('out_trade_no'), 'the payment platform rejects a query without out_trade_no')
         return Response.json({ code: 1, status: 0, trade_no: 'test-trade', out_trade_no: orderId + '_retry123' })
     })
     orderId = f.orderId

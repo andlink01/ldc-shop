@@ -418,6 +418,7 @@ test('production refund actions call the payment refund operation and restore in
         }
         assert.equal(url.searchParams.get('act'), 'order')
         assert.equal(url.searchParams.get('trade_no'), 'production-test-trade')
+        assert.ok(url.searchParams.get('out_trade_no'), 'the payment platform rejects a query without out_trade_no')
         return Response.json({ code: 1, status: 0, trade_no: 'production-test-trade', out_trade_no: refundedOrderId })
     } })
     await f.database.prepare('INSERT INTO cards (product_id, card_key) VALUES (?, ?)').bind('product', 'REFUND-PRODUCTION-CARD').run()
@@ -618,6 +619,7 @@ test('production refunds recover lost acknowledgements by trade ID and reject mi
         if (request.method === 'POST') { refunds++; return new Response(null, { status: 503 }) }
         queries++
         assert.equal(url.searchParams.get('trade_no'), 'production-test-trade')
+        assert.ok(url.searchParams.get('out_trade_no'), 'the payment platform rejects a query without out_trade_no')
         return Response.json({ code: 1, status: 0, trade_no: wrongTrade ? 'another-trade' : 'production-test-trade', out_trade_no: id + '_retry123' })
     })
     id = f.id

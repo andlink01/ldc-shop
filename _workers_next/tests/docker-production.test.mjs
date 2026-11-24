@@ -227,6 +227,7 @@ test('native refunds recover a lost response by trade ID and require review befo
         if (request.method === 'POST') { refunds++; return accepted ? Response.json({ code: 1 }) : new Response(null, { status: 503 }) }
         const trade = url.searchParams.get('trade_no')
         assert.ok(trade?.startsWith('native-trade-'))
+        assert.equal(url.searchParams.get('out_trade_no'), trade.slice('native-trade-'.length), 'the payment platform rejects a query without out_trade_no')
         return Response.json({ code: 1, status, trade_no: trade, out_trade_no: trade.slice('native-trade-'.length) + '_retry123' })
     } })
     const id = await refundPurchase(f)

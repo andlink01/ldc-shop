@@ -9,7 +9,7 @@ import { verifyOrderRefundStatus } from "@/actions/admin-orders"
 import { useRef, useState } from "react"
 import { useRouter } from 'next/navigation'
 import { toast } from "sonner"
-import { Loader2, ExternalLink, CheckCircle, RefreshCcw } from "lucide-react"
+import { Loader2, Undo2, CheckCircle, RefreshCcw } from "lucide-react"
 import { useI18n } from "@/lib/i18n/context"
 
 export function RefundButton({ order, compact = false }: { order: AdminOrderSummary; compact?: boolean }) {
@@ -102,7 +102,7 @@ export function RefundButton({ order, compact = false }: { order: AdminOrderSumm
             </Button>
             <Button variant="outline" size="sm" onClick={handleRefund} disabled={loading || showMarkDone}
                 title={t('admin.orders.refund')} aria-label={t('admin.orders.refund')}>
-                {loading ? <Loader2 className="h-3 w-3 animate-spin" /> : <ExternalLink className={compact ? 'h-3 w-3' : 'h-3 w-3 mr-1'} />}
+                {loading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Undo2 className={compact ? 'h-3 w-3' : 'h-3 w-3 mr-1'} />}
                 {!compact && !loading && t('admin.orders.refund')}
             </Button>
             {showMarkDone && (

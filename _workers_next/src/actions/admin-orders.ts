@@ -175,9 +175,9 @@ export async function verifyOrderRefundStatus(orderId: string): Promise<RefundVe
 
   try {
     const order = await db.query.orders.findFirst({ where: eq(orders.orderId, orderId),
-      columns: { orderId: true, productId: true, tradeNo: true, amount: true } })
+      columns: { orderId: true, productId: true, tradeNo: true, amount: true, currentPaymentId: true } })
     if (!order) return { success: false, error: 'Order not found' }
-    const result = await queryOrderStatus(orderId, order.tradeNo || undefined)
+    const result = await queryOrderStatus(orderId, order.tradeNo || undefined, order.currentPaymentId)
 
     if (result.success) {
       // status 0 = Refunded

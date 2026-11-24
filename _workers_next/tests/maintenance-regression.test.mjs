@@ -321,6 +321,54 @@ test('an uncertain refund result is queried by transaction ID before any further
     assert.equal((await f.db.select().from(f.schema.loginUsers))[0].points, 12)
 })
 
+// Mirrors the payment platform: an order is found by out_trade_no alone, and a query without it is HTTP 400.
+function paymentPlatform(records) {
+    const queried = []
+    const fetch = async url => {
+        const outTradeNo = new URL(url).searchParams.get('out_trade_no')
+        if (!outTradeNo) return Response.json({ code: -1, msg: 'out_trade_no is required' }, { status: 400 })
+        queried.push(outTradeNo)
+        const record = records[outTradeNo]
+        return record ? Response.json({ code: 1, out_trade_no: outTradeNo, ...record }) : Response.json({ code: -1 }, { status: 404 })
+    }
+    return { fetch, queried }
+}
+
+test('refund status checks query the payment platform by merchant order number', async t => {
+    const f = await refundSetup(t)
+    const verify = () => f.load('actions/admin-orders').verifyOrderRefundStatus('refund-order')
+    const platform = paymentPlatform({ 'refund-order': { status: 1, trade_no: 'test-trade' } })
+    f.setFetch(platform.fetch)
+    const paid = await verify()
+    assert.equal(paid.success, true, paid.error)
+    assert.equal(paid.status, 1)
+    assert.deepEqual(platform.queried, ['refund-order'])
+    f.setFetch(paymentPlatform({}).fetch)
+    assert.equal((await verify()).error, 'Payment query HTTP 404')
+    assert.equal((await f.db.select().from(f.schema.orders))[0].status, 'paid')
+})
+
+test('a payment completed on a retry is checked under the retry number, never the unpaid first attempt', async t => {
+    const f = await refundSetup(t)
+    await f.db.update(f.schema.orders).set({ currentPaymentId: 'refund-order_retry123' })
+    const verify = () => f.load('actions/admin-orders').verifyOrderRefundStatus('refund-order')
+    const unpaidFirstAttempt = { status: 0, trade_no: 'unpaid-trade' }
+    let platform = paymentPlatform({ 'refund-order': unpaidFirstAttempt, 'refund-order_retry123': { status: 1, trade_no: 'test-trade' } })
+    f.setFetch(platform.fetch)
+    assert.equal((await verify()).status, 1)
+    assert.deepEqual(platform.queried, ['refund-order_retry123'])
+    // The paid attempt is unknown to the shop: the unpaid attempt must not be read as a refund.
+    platform = paymentPlatform({ 'refund-order': unpaidFirstAttempt })
+    f.setFetch(platform.fetch)
+    assert.equal((await verify()).success, false)
+    assert.deepEqual(platform.queried, ['refund-order_retry123', 'refund-order'])
+    assert.equal((await f.db.select().from(f.schema.orders))[0].status, 'paid')
+    assert.equal((await f.db.select().from(f.schema.loginUsers))[0].points, 10)
+    f.setFetch(paymentPlatform({ 'refund-order_retry123': { status: 0, trade_no: 'test-trade' } }).fetch)
+    assert.equal((await verify()).status, 0)
+    assert.equal((await f.db.select().from(f.schema.orders))[0].status, 'refunded')
+})
+
 test('an unconfirmed refund cannot be resubmitted until verification and administrator confirmation', async t => {
     const f = await refundSetup(t)
     let posts = 0, rejectResponse = true

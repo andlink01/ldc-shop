@@ -12,7 +12,7 @@ import { retryOrderDelivery } from '@/actions/inventory'
 import { useRouter } from 'next/navigation'
 import { toast } from "sonner"
 import { useI18n } from "@/lib/i18n/context"
-import { CheckCircle, Truck, XCircle, ExternalLink } from "lucide-react"
+import { CheckCircle, Truck, XCircle, Eye } from "lucide-react"
 
 export function AdminOrderActions({ order }: { order: AdminOrderSummary }) {
   const { t } = useI18n()
@@ -71,7 +71,7 @@ export function AdminOrderActions({ order }: { order: AdminOrderSummary }) {
     <>
       <Button asChild variant="outline" size="sm" title={t('admin.orders.view')} aria-label={t('admin.orders.view')}>
         <Link href={`/admin/orders/${order.orderId}`}>
-          <ExternalLink className="h-3.5 w-3.5" />
+          <Eye className="h-3.5 w-3.5" aria-hidden="true" />
         </Link>
       </Button>
       {status === 'paid' && !order.cardKey && order.productId !== 'payment_link' && (

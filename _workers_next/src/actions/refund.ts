@@ -99,7 +99,7 @@ export async function proxyRefund(orderId: string, confirmVerifiedRetry = false)
     }
     if (attempt.state === 'accepted') return completeLocalRefund()
     if (attempt.state === 'submitted' || attempt.state === 'unknown') {
-        const result = await queryOrderStatus(order.orderId, order.tradeNo)
+        const result = await queryOrderStatus(order.orderId, order.tradeNo, order.currentPaymentId)
         if (result.success && result.status === 0) return completeLocalRefund()
         try { await savePaymentRefundState(order, token, 'unknown', 'refund_verification_required') } catch { return storageFailure() }
         return uncertain()

@@ -68,7 +68,7 @@ test('refund verification applies the same card and point recovery as normal ref
     await f.db.insert(f.schema.orders).values(order('order', { status: 'paid', tradeNo: 'test-trade' }))
     await f.db.insert(f.schema.cards).values({ productId: 'product', cardKey: 'card' })
     await f.load('lib/fulfillment').fulfillPaidOrder('order')
-    f.setFetch(async () => Response.json({ code: 1, status: 0 }))
+    f.setFetch(async () => Response.json({ code: 1, status: 0, trade_no: 'test-trade' }))
     assert.equal((await f.load('actions/admin-orders').verifyOrderRefundStatus('order')).success, true)
     assert.equal((await f.db.select().from(f.schema.cards))[0].isUsed, false)
     assert.equal((await f.db.select().from(f.schema.loginUsers))[0].points, 10)
