@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { createHash } from 'node:crypto'
+import { readFileSync } from 'node:fs'
 import { productionFixture } from './production-fixture.mjs'
 import { fixture as browserFixture } from './database-fixture.mjs'
 
@@ -651,4 +652,53 @@ test('production refunds require verification and explicit review before an unce
     assert.equal((await f.refund(true)).result?.processed, true)
     assert.equal(refunds, 2)
     assert.equal((await f.database.prepare('SELECT points FROM login_users WHERE user_id = ?').bind('owner').all()).results[0].points, 20)
+})
+
+test('no admin page streams private data to anonymous or non-admin requests', async t => {
+    const f = await setup(t)
+    const d = f.database, now = Date.now()
+    await d.prepare('UPDATE products SET name = ?, is_active = 0, visibility_level = 3, purchase_questions = ? WHERE id = ?')
+        .bind('MARK-HIDDEN-PRODUCT', JSON.stringify([{ q: 'Q?', a: 'MARK-ANSWER' }]), 'product').run()
+    await d.prepare('UPDATE login_users SET email = ? WHERE user_id = ?').bind('mark-buyer@private.example', 'owner').run()
+    await d.prepare('INSERT INTO orders (order_id,product_id,product_name,amount,status,user_id,username,email,card_key,trade_no,paid_at,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)')
+        .bind('MARK-ORDER', 'product', 'P', '3', 'delivered', 'owner', 'audit-admin', 'mark-buyer@private.example', 'MARK-CARD-KEY', 'MARK-TRADE', now, now).run()
+    await d.prepare('INSERT INTO cards (product_id,card_key) VALUES (?,?)').bind('product', 'MARK-UNSOLD-CARD').run()
+    await d.prepare('INSERT INTO refund_requests (order_id,user_id,username,reason,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?)')
+        .bind('MARK-ORDER', 'owner', 'audit-admin', 'MARK-REFUND-REASON', 'pending', now, now).run()
+    await d.prepare('INSERT INTO user_messages (user_id,username,title,body,created_at) VALUES (?,?,?,?,?)').bind('owner', 'audit-admin', 'T', 'MARK-PRIVATE-MESSAGE', now).run()
+    await d.prepare('INSERT INTO reviews (product_id,order_id,user_id,username,rating,comment,created_at) VALUES (?,?,?,?,?,?,?)')
+        .bind('product', 'MARK-ORDER', 'owner', 'audit-admin', 5, 'MARK-REVIEW', now).run()
+    await d.prepare('INSERT INTO categories (name) VALUES (?)').bind('MARK-CATEGORY').run()
+    await d.prepare('INSERT INTO settings (key,value) VALUES (?,?),(?,?),(?,?),(?,?)')
+        .bind('telegram_bot_token', 'MARK-TELEGRAM', 'resend_api_key', 'MARK-RESEND', 'cards_api_token_product', 'MARK-SUPPLIER', 'shop_footer', 'MARK-FOOTER-PUBLIC').run()
+    const marks = ['MARK-HIDDEN-PRODUCT', 'MARK-ANSWER', 'mark-buyer@private.example', 'MARK-ORDER', 'MARK-CARD-KEY', 'MARK-TRADE',
+        'MARK-UNSOLD-CARD', 'MARK-REFUND-REASON', 'MARK-PRIVATE-MESSAGE', 'MARK-REVIEW', 'MARK-CATEGORY', 'MARK-TELEGRAM', 'MARK-RESEND', 'MARK-SUPPLIER']
+    const paths = ['/admin', '/admin/announcement', '/admin/cards/product', '/admin/categories', '/admin/collect', '/admin/data', '/admin/fulfillment',
+        '/admin/inventory-api', '/admin/messages', '/admin/notifications', '/admin/orders', '/admin/orders/MARK-ORDER', '/admin/product/edit/product',
+        '/admin/product/new', '/admin/products', '/admin/refunds', '/admin/reviews', '/admin/settings', '/admin/users',
+        '/admin/data/download?type=full&format=json', '/admin/export/download?type=orders&format=csv']
+    // Every admin page in the build must be covered here.
+    const built = Object.keys(JSON.parse(readFileSync(new URL('../.next/server/app-paths-manifest.json', import.meta.url), 'utf8')))
+        .filter(route => route.startsWith('/admin')).map(route => route.replace(/\/(page|route)$/, '') || '/admin')
+    for (const route of built) {
+        const pattern = new RegExp('^' + route.replace(/\[[^\]]+\]/g, '[^/]+') + '$')
+        assert.ok(paths.some(pathname => pattern.test(pathname.split('?')[0])), 'Uncovered admin route: ' + route)
+    }
+    const outsider = await f.cookie('other', 'other-user')
+    for (const [who, cookie] of [['anonymous', null], ['non-admin', outsider]]) {
+        for (const pathname of paths) {
+            for (const rsc of [false, true]) {
+                const response = await f.request(pathname, { redirect: 'manual', headers: { ...(cookie ? { Cookie: cookie } : {}), ...(rsc ? { RSC: '1' } : {}) } })
+                const body = await response.text()
+                // A response may echo its own URL, so ignore marks the request already carried.
+                const leaked = marks.filter(mark => !pathname.includes(mark) && body.includes(mark))
+                assert.deepEqual(leaked, [], `${who} ${rsc ? 'RSC ' : ''}${pathname} (${response.status}) leaked ${leaked}`)
+            }
+        }
+    }
+    // The real admin still sees the data.
+    const admin = await (await f.request('/admin/orders/MARK-ORDER', { headers: { Cookie: f.sessionCookie } })).text()
+    assert.ok(admin.includes('MARK-CARD-KEY'))
+    const products = await (await f.request('/admin/products', { headers: { Cookie: f.sessionCookie } })).text()
+    assert.ok(products.includes('MARK-HIDDEN-PRODUCT'))
 })

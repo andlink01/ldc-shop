@@ -337,3 +337,35 @@ test('native cron delivers a full reservation behind 50 missing-stock orders wit
     assert.equal((await f.database.prepare('SELECT count(*) AS count FROM order_deliveries').bind().all()).results[0].count, 1)
     assert.equal((await f.database.prepare("SELECT count(*) AS count FROM orders WHERE status = 'paid'").bind().all()).results[0].count, 50)
 })
+
+test('native admin pages never stream private data to anonymous or non-admin requests', async t => {
+    const f = await setup(t)
+    const d = f.database, now = Date.now()
+    await d.prepare('UPDATE products SET name = ?, is_active = 0, visibility_level = 3, purchase_questions = ? WHERE id = ?')
+        .bind('MARK-HIDDEN-PRODUCT', JSON.stringify([{ q: 'Q?', a: 'MARK-ANSWER' }]), 'product').run()
+    await d.prepare('INSERT INTO orders (order_id,product_id,product_name,amount,status,user_id,username,email,card_key,trade_no,paid_at,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)')
+        .bind('MARK-ORDER', 'product', 'P', '3', 'delivered', 'owner', 'audit-admin', 'mark-buyer@private.example', 'MARK-CARD-KEY', 'MARK-TRADE', now, now).run()
+    await d.prepare('INSERT INTO cards (product_id,card_key) VALUES (?,?)').bind('product', 'MARK-UNSOLD-CARD').run()
+    await d.prepare('INSERT INTO refund_requests (order_id,user_id,username,reason,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?)')
+        .bind('MARK-ORDER', 'owner', 'audit-admin', 'MARK-REFUND-REASON', 'pending', now, now).run()
+    await d.prepare('INSERT INTO user_messages (user_id,username,title,body,created_at) VALUES (?,?,?,?,?)').bind('owner', 'audit-admin', 'T', 'MARK-PRIVATE-MESSAGE', now).run()
+    await d.prepare('INSERT INTO settings (key,value) VALUES (?,?),(?,?)').bind('telegram_bot_token', 'MARK-TELEGRAM', 'resend_api_key', 'MARK-RESEND').run()
+    const marks = ['MARK-HIDDEN-PRODUCT', 'MARK-ANSWER', 'mark-buyer@private.example', 'MARK-ORDER', 'MARK-CARD-KEY', 'MARK-TRADE',
+        'MARK-UNSOLD-CARD', 'MARK-REFUND-REASON', 'MARK-PRIVATE-MESSAGE', 'MARK-TELEGRAM', 'MARK-RESEND']
+    const paths = ['/admin', '/admin/announcement', '/admin/cards/product', '/admin/categories', '/admin/collect', '/admin/data', '/admin/fulfillment',
+        '/admin/inventory-api', '/admin/messages', '/admin/notifications', '/admin/orders', '/admin/orders/MARK-ORDER', '/admin/product/edit/product',
+        '/admin/product/new', '/admin/products', '/admin/refunds', '/admin/reviews', '/admin/settings', '/admin/users',
+        '/admin/data/download?type=full&format=json', '/admin/export/download?type=orders&format=csv']
+    const outsider = await f.cookie('other', 'other-user')
+    for (const [who, cookie] of [['anonymous', null], ['non-admin', outsider]]) {
+        for (const pathname of paths) {
+            const response = await f.request(pathname, { redirect: 'manual', headers: cookie ? { Cookie: cookie } : {} })
+            const body = await response.text()
+            // A response may echo its own URL, so ignore marks the request already carried.
+            const leaked = marks.filter(mark => !pathname.includes(mark) && body.includes(mark))
+            assert.deepEqual(leaked, [], `${who} ${pathname} (${response.status}) leaked ${leaked}`)
+        }
+    }
+    const admin = await (await f.request('/admin/orders/MARK-ORDER', { headers: { Cookie: f.sessionCookie } })).text()
+    assert.ok(admin.includes('MARK-CARD-KEY'))
+})

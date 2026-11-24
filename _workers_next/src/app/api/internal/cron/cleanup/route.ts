@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { safeEqual } from "@/lib/crypto";
 import { cancelExpiredOrders, cleanupExpiredCardsIfNeeded, ensureDatabaseInitialized } from "@/lib/db/queries";
 import { fulfillPendingOrders } from '@/lib/fulfillment'
 import { enqueueExpiryAlerts, processInventoryEvents } from '@/lib/inventory-events'
@@ -15,7 +16,7 @@ function getCronToken(): string | null {
 
 function isAuthorized(request: Request, expectedToken: string): boolean {
     const received = request.headers.get(CRON_TOKEN_HEADER)?.trim();
-    return !!received && received === expectedToken;
+    return safeEqual(received, expectedToken);
 }
 
 export async function POST(request: Request) {

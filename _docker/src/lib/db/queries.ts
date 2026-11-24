@@ -8,6 +8,7 @@ import { updateTag, revalidatePath } from "next/cache";
 import { cache } from "react";
 import { ensureInventoryFeatureTables } from './inventory-schema';
 import { publicPurchaseQuestions } from '@/lib/purchase-questions';
+import { shopDayStartMs, shopMonthStartMs } from '@/lib/shop-time';
 
 // Database initialization state
 let dbInitialized = false;
@@ -987,7 +988,7 @@ function groupProductsAsVariants<T extends {
     isHot?: boolean | null;
     isShared?: boolean | null;
     isOnDemand?: number;
-}>(rows: T[]): (T & { variantCount?: number; priceMin?: number; priceMax?: number; totalSold?: number; totalStock?: number; totalLocked?: number; totalReviewCount?: number; avgRating?: number; groupHot?: boolean; groupShared?: boolean; groupOnDemand?: boolean; sharedVariantIds?: string[]; allVariantIds?: string[] })[] {
+}>(rows: T[], keepOrder = false): (T & { variantCount?: number; priceMin?: number; priceMax?: number; totalSold?: number; totalStock?: number; totalLocked?: number; totalReviewCount?: number; avgRating?: number; groupHot?: boolean; groupShared?: boolean; groupOnDemand?: boolean; sharedVariantIds?: string[]; allVariantIds?: string[] })[] {
     const byGroup = new Map<string, T[]>();
     for (const row of rows) {
         const rawKey = (row.variantGroupId && row.variantGroupId.trim()) || null;
@@ -1028,6 +1029,8 @@ function groupProductsAsVariants<T extends {
             result.push({ ...rep });
         }
     }
+    // Search results arrive already sorted by the buyer's chosen order.
+    if (keepOrder) return result;
     result.sort((a, b) => {
         const soA = a.sortOrder ?? 0;
         const soB = b.sortOrder ?? 0;
@@ -1270,23 +1273,19 @@ export async function getProductForAdmin(id: string) {
 // Dashboard Stats
 export async function getDashboardStats(nowMs: number = Date.now()) {
     return await withOrderColumnFallback(async () => {
-        const now = new Date(nowMs);
-        const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-        const weekStart = new Date(todayStart);
-        weekStart.setDate(weekStart.getDate() - 7);
-        const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-        const todayStartMs = todayStart.getTime();
-        const weekStartMs = weekStart.getTime();
-        const monthStartMs = monthStart.getTime();
+        const todayStartMs = shopDayStartMs(nowMs);
+        const weekStartMs = todayStartMs - 7 * 86_400_000;
+        const monthStartMs = shopMonthStartMs(nowMs);
+        // Aliases keep the eight result columns distinct for every driver.
         const stats = await db.select({
-            totalCount: sql<number>`count(*)`,
-            totalRevenue: sql<number>`COALESCE(sum(CAST(${orders.amount} AS REAL)), 0)`,
-            todayCount: sql<number>`COALESCE(sum(CASE WHEN ${orders.paidAt} >= ${todayStartMs} THEN 1 ELSE 0 END), 0)`,
-            todayRevenue: sql<number>`COALESCE(sum(CASE WHEN ${orders.paidAt} >= ${todayStartMs} THEN CAST(${orders.amount} AS REAL) ELSE 0 END), 0)`,
-            weekCount: sql<number>`COALESCE(sum(CASE WHEN ${orders.paidAt} >= ${weekStartMs} THEN 1 ELSE 0 END), 0)`,
-            weekRevenue: sql<number>`COALESCE(sum(CASE WHEN ${orders.paidAt} >= ${weekStartMs} THEN CAST(${orders.amount} AS REAL) ELSE 0 END), 0)`,
-            monthCount: sql<number>`COALESCE(sum(CASE WHEN ${orders.paidAt} >= ${monthStartMs} THEN 1 ELSE 0 END), 0)`,
-            monthRevenue: sql<number>`COALESCE(sum(CASE WHEN ${orders.paidAt} >= ${monthStartMs} THEN CAST(${orders.amount} AS REAL) ELSE 0 END), 0)`,
+            totalCount: sql<number>`count(*)`.as('total_count'),
+            totalRevenue: sql<number>`COALESCE(sum(CAST(${orders.amount} AS REAL)), 0)`.as('total_revenue'),
+            todayCount: sql<number>`COALESCE(sum(CASE WHEN ${orders.paidAt} >= ${todayStartMs} THEN 1 ELSE 0 END), 0)`.as('today_count'),
+            todayRevenue: sql<number>`COALESCE(sum(CASE WHEN ${orders.paidAt} >= ${todayStartMs} THEN CAST(${orders.amount} AS REAL) ELSE 0 END), 0)`.as('today_revenue'),
+            weekCount: sql<number>`COALESCE(sum(CASE WHEN ${orders.paidAt} >= ${weekStartMs} THEN 1 ELSE 0 END), 0)`.as('week_count'),
+            weekRevenue: sql<number>`COALESCE(sum(CASE WHEN ${orders.paidAt} >= ${weekStartMs} THEN CAST(${orders.amount} AS REAL) ELSE 0 END), 0)`.as('week_revenue'),
+            monthCount: sql<number>`COALESCE(sum(CASE WHEN ${orders.paidAt} >= ${monthStartMs} THEN 1 ELSE 0 END), 0)`.as('month_count'),
+            monthRevenue: sql<number>`COALESCE(sum(CASE WHEN ${orders.paidAt} >= ${monthStartMs} THEN CAST(${orders.amount} AS REAL) ELSE 0 END), 0)`.as('month_revenue'),
         })
             .from(orders)
             .where(eq(orders.status, 'delivered'));
@@ -1541,10 +1540,11 @@ export async function searchActiveProducts(params: {
     const orderByParts: SQL[] = []
     switch (sort) {
         case 'priceAsc':
-            orderByParts.push(asc(products.price))
+            // Prices are stored as text; compare them as numbers.
+            orderByParts.push(asc(sql`CAST(${products.price} AS REAL)`))
             break
         case 'priceDesc':
-            orderByParts.push(desc(products.price))
+            orderByParts.push(desc(sql`CAST(${products.price} AS REAL)`))
             break
         case 'stockDesc':
             orderByParts.push(desc(sql<number>`COALESCE(${products.stockCount}, 0) + COALESCE(${products.lockedCount}, 0)`))
@@ -1592,7 +1592,7 @@ export async function searchActiveProducts(params: {
         return [await rowsPromise] as const
     })
 
-    const grouped = groupProductsAsVariants(rows)
+    const grouped = groupProductsAsVariants(rows, sort !== 'default')
     const total = grouped.length
     const items = grouped.slice(offset, offset + pageSize)
 
@@ -1626,12 +1626,17 @@ export async function getActiveProductCategories(options?: { isLoggedIn?: boolea
 }
 
 // Reviews
-export async function getProductReviews(productId: string) {
+export const PRODUCT_REVIEWS_PAGE_LIMIT = 200;
+
+// Returns the newest reviews only; totals come from getProductRating.
+export async function getProductReviews(productId: string, limit: number = PRODUCT_REVIEWS_PAGE_LIMIT) {
     await ensureReviewRepliesTable()
+    const pageLimit = Math.min(500, Math.max(1, Math.floor(limit) || PRODUCT_REVIEWS_PAGE_LIMIT));
     const reviewRows = await db.select()
         .from(reviews)
         .where(eq(reviews.productId, productId))
-        .orderBy(desc(reviews.createdAt));
+        .orderBy(desc(reviews.createdAt), desc(reviews.id))
+        .limit(pageLimit);
 
     if (!reviewRows.length) return reviewRows.map((review) => ({ ...review, replies: [] }));
 
@@ -1639,7 +1644,8 @@ export async function getProductReviews(productId: string) {
         const replyRows = await db.select()
             .from(reviewReplies)
             .where(inArray(reviewReplies.reviewId,
-                db.select({ id: reviews.id }).from(reviews).where(eq(reviews.productId, productId))))
+                db.select({ id: reviews.id }).from(reviews).where(eq(reviews.productId, productId))
+                    .orderBy(desc(reviews.createdAt), desc(reviews.id)).limit(pageLimit)))
             .orderBy(asc(reviewReplies.createdAt));
 
         const replyMap = new Map<number, typeof replyRows>()
@@ -1708,15 +1714,18 @@ export async function createReview(data: {
     rating: number;
     comment?: string;
 }) {
-    const res = await db.insert(reviews).values({
-        ...data,
-        createdAt: new Date()
-    }).returning();
+    // One statement checks and inserts, so concurrent submissions cannot
+    // review the same order twice.
+    const res = await dbRun<{ id: number }>(sql`INSERT INTO reviews (product_id, order_id, user_id, username, rating, comment, created_at)
+        SELECT ${data.productId}, ${data.orderId}, ${data.userId}, ${data.username}, ${data.rating}, ${data.comment ?? null}, ${Date.now()}
+        WHERE NOT EXISTS (SELECT 1 FROM reviews WHERE order_id = ${data.orderId})
+        RETURNING id`);
+    if (!res.results.length) return [];
 
     // Update product aggregates (rating/review_count)
     await recalcProductAggregates(data.productId);
 
-    return res;
+    return res.results;
 }
 
 export async function createReviewReply(data: {
@@ -2522,18 +2531,23 @@ export async function cleanupExpiredCardsIfNeeded(throttleMs: number = 10 * 60 *
 
     if (now - lastRun < throttleMs) return false;
 
+    // Expired cards are kept, so only look at those that expired since the
+    // previous completed run (with an overlap for clock and retry slack).
+    // The marker only advances after this run succeeds.
+    const since = Number.isFinite(lastRun) && lastRun > 0 ? lastRun - 10 * 60 * 1000 : 0;
+
     let affectedProductIds: string[] = [];
     try {
-        const rows = await db.select({ productId: cards.productId })
+        const rows = await db.selectDistinct({ productId: cards.productId })
             .from(cards)
-            .where(sql`${cards.expiresAt} IS NOT NULL AND ${cards.expiresAt} < ${now}`);
-        affectedProductIds = Array.from(new Set(rows.map((r) => r.productId).filter(Boolean)));
+            .where(sql`${cards.expiresAt} IS NOT NULL AND ${cards.expiresAt} >= ${since} AND ${cards.expiresAt} < ${now} AND COALESCE(${cards.isUsed}, 0) = 0`);
+        affectedProductIds = rows.map((r) => r.productId).filter(Boolean);
     } catch (error) {
         if (!isMissingTableOrColumn(error)) throw error;
     }
 
     try {
-        await dbRun(sql`UPDATE cards SET reserved_at = NULL, reserved_order_id = NULL WHERE expires_at IS NOT NULL AND expires_at <= ${now} AND COALESCE(is_used, 0) = 0 AND NOT EXISTS (SELECT 1 FROM orders holding WHERE holding.order_id = cards.reserved_order_id AND holding.status = 'paid')`);
+        await dbRun(sql`UPDATE cards SET reserved_at = NULL, reserved_order_id = NULL WHERE expires_at IS NOT NULL AND expires_at >= ${since} AND expires_at <= ${now} AND COALESCE(is_used, 0) = 0 AND NOT EXISTS (SELECT 1 FROM orders holding WHERE holding.order_id = cards.reserved_order_id AND holding.status = 'paid')`);
     } catch (error) {
         if (!isMissingTableOrColumn(error)) throw error;
     }

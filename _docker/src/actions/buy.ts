@@ -1,7 +1,7 @@
 'use server'
 
 import { auth } from "@/lib/auth"
-import { canUserReview, getProductReviews, ensureDatabaseInitialized } from "@/lib/db/queries"
+import { canUserReview, getProductReviews, getProductRating, ensureDatabaseInitialized } from "@/lib/db/queries"
 import { getEmailSettings } from "@/lib/email"
 import { db } from '@/lib/db'
 import { products, loginUsers } from '@/lib/db/schema'
@@ -72,8 +72,9 @@ export async function getBuyPageMeta(productId: string): Promise<BuyPageMeta> {
 
     const session = await auth()
 
-    const [rawReviews, emailSettings] = await Promise.all([
+    const [rawReviews, rating, emailSettings] = await Promise.all([
         getProductReviews(id).catch(() => []),
+        getProductRating(id).catch(() => null),
         getEmailSettings().catch(() => ({ apiKey: null, fromEmail: null, enabled: false, fromName: null })),
     ])
 
@@ -109,8 +110,9 @@ export async function getBuyPageMeta(productId: string): Promise<BuyPageMeta> {
         }
     }
 
-    const reviewCount = reviews.length
-    const averageRating = reviewCount > 0
+    // The list is capped; totals are aggregated over every review.
+    const reviewCount = rating ? Number(rating.count) : reviews.length
+    const averageRating = rating ? Number(rating.average) : reviewCount > 0
         ? reviews.reduce((sum, review) => sum + review.rating, 0) / reviewCount
         : 0
 

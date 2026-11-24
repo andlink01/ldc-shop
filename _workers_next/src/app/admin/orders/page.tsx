@@ -1,3 +1,4 @@
+import { requireAdminPage } from "@/lib/admin-guard"
 import type { SQL } from 'drizzle-orm';
 import { db } from "@/lib/db";
 import { loginUsers, orders } from "@/lib/db/schema";
@@ -30,6 +31,7 @@ function chunkArray<T>(items: T[], size: number) {
 export default async function AdminOrdersPage(props: {
     searchParams: Promise<Record<string, string | string[] | undefined>>
 }) {
+    await requireAdminPage()
     unstable_noStore()
     const searchParams = await props.searchParams
 

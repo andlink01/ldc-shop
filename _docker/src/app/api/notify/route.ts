@@ -1,7 +1,7 @@
 import { getErrorMessage } from '@/lib/errors';
 import { db } from "@/lib/db";
 import { orders } from "@/lib/db/schema";
-import { md5 } from "@/lib/crypto";
+import { generateSign, safeEqual } from "@/lib/crypto";
 import { eq } from "drizzle-orm";
 import { withOrderColumnFallback } from "@/lib/db/queries";
 
@@ -23,22 +23,13 @@ async function processNotify(params: Record<string, string>) {
     }
 
     // Verify Sign
-    const sign = params.sign;
-    const sorted = Object.keys(params)
-        .filter(k => k !== 'sign' && k !== 'sign_type' && params[k] !== '' && params[k] !== null && params[k] !== undefined)
-        .sort()
-        .map(k => `${k}=${params[k]}`)
-        .join('&');
-
-    const mySign = md5(`${sorted}${process.env.MERCHANT_KEY}`);
-
-    if (LOG_NOTIFY_DETAILS) {
-        console.log("[Notify] Signature check - received:", sign, "computed:", mySign);
-    } else {
-        console.log("[Notify] Signature check");
+    const merchantKey = process.env.MERCHANT_KEY;
+    if (!merchantKey) {
+        console.error("[Notify] MERCHANT_KEY is not configured");
+        return new Response('error', { status: 500 });
     }
 
-    if (sign !== mySign) {
+    if (!safeEqual(params.sign, generateSign(params, merchantKey))) {
         console.log("[Notify] Signature mismatch!");
         return new Response('fail', { status: 400 });
     }
@@ -47,6 +38,7 @@ async function processNotify(params: Record<string, string>) {
 
     if (params.trade_status === 'TRADE_SUCCESS') {
         let orderId = params.out_trade_no;
+        if (!orderId || !params.trade_no) return new Response('fail', { status: 400 });
         // Strip retry suffix if present (e.g. ORDER123_retry173654)
         if (orderId.includes('_retry')) {
             orderId = orderId.split('_retry')[0];

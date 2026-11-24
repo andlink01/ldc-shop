@@ -8,12 +8,12 @@ import { db, dbRun } from "@/lib/db"
 import { products, cards, orders, loginUsers } from "@/lib/db/schema"
 import { cancelExpiredOrders, cleanupExpiredCardsIfNeeded, recalcProductAggregates } from "@/lib/db/queries"
 import { generateOrderId, generateSign } from "@/lib/crypto"
-import { eq, sql, and, or, isNull, lt, gt } from "drizzle-orm"
+import { eq, sql, and, or, isNull, lt, gt, inArray } from "drizzle-orm"
 import { cookies } from "next/headers"
 import { updateTag } from "next/cache"
 import { getProductCardApiConfig } from '@/lib/card-api'
 import { commitCheckoutOrder } from "@/lib/checkout-inventory"
-import { INFINITE_STOCK, RESERVATION_TTL_MS } from "@/lib/constants"
+import { INFINITE_STOCK, RESERVATION_TTL_MS, MAX_PENDING_ORDERS_PER_USER, MAX_UNPAID_ORDERS_PER_HOUR, UNPAID_ORDER_WINDOW_MS } from "@/lib/constants"
 import { validatePurchaseAnswers } from '@/lib/purchase-questions'
 
 const MAX_ORDER_QUANTITY = 10000
@@ -115,6 +115,20 @@ export async function createOrder(productId: string, quantity: number = 1, email
         if (userRec?.isBlocked) {
             return { success: false, error: 'buy.userBlocked' };
         }
+    }
+
+    // Unpaid orders reserve stock for five minutes. Bound how many one account
+    // can hold or abandon so it cannot keep a product locked.
+    const unpaid = await db.select({
+        pending: sql<number>`COALESCE(SUM(CASE WHEN ${orders.status} = 'pending' THEN 1 ELSE 0 END), 0)`,
+        recent: sql<number>`COUNT(*)`,
+    }).from(orders).where(and(
+        eq(orders.userId, user.id),
+        inArray(orders.status, ['pending', 'cancelled']),
+        gt(orders.createdAt, new Date(Date.now() - UNPAID_ORDER_WINDOW_MS)),
+    ))
+    if (Number(unpaid[0]?.pending || 0) >= MAX_PENDING_ORDERS_PER_USER || Number(unpaid[0]?.recent || 0) >= MAX_UNPAID_ORDERS_PER_HOUR) {
+        return { success: false, error: 'buy.tooManyPending' }
     }
 
     // Points Calculation

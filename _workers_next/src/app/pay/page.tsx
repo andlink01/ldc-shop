@@ -1,5 +1,6 @@
 import { PaymentLinkContent } from "@/components/payment-link-content"
-import { md5 } from "@/lib/crypto"
+import { md5, safeEqual } from "@/lib/crypto"
+import { getAdminUsernames } from "@/lib/admin-auth"
 import { unstable_noStore } from "next/cache"
 import { auth } from "@/lib/auth"
 import { redirect } from "next/navigation"
@@ -25,17 +26,14 @@ export default async function PaymentLinkPage(props: {
         redirect(`/login?callbackUrl=${encodeURIComponent(callbackUrl)}`)
     }
 
-    const adminUsers = (process.env.ADMIN_USERS || '')
-        .split(',')
-        .map((name) => name.trim())
-        .filter(Boolean)
+    const adminUsers = getAdminUsernames()
     const fallbackPayee = adminUsers[0] || null
     const matchedAdmin = payeeParam
         ? adminUsers.find((name) => name.toLowerCase() === payeeParam.toLowerCase())
         : undefined
     const secret = process.env.MERCHANT_KEY || ''
     const expectedSig = payeeParam && secret ? md5(`payee=${payeeParam}${secret}`) : null
-    const hasValidSig = !!(payeeParam && sigParam && expectedSig && sigParam === expectedSig)
+    const hasValidSig = !!(payeeParam && safeEqual(sigParam, expectedSig))
     const payee = hasValidSig ? (matchedAdmin || fallbackPayee) : fallbackPayee
 
     return <PaymentLinkContent payee={payee} />

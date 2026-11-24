@@ -3,9 +3,44 @@
 import { auth } from '@/lib/auth'
 import { createReview, createReviewReply } from '@/lib/db/queries'
 import { db, dbRun } from '@/lib/db'
-import { orders, reviews } from '@/lib/db/schema'
-import { eq, sql } from 'drizzle-orm'
+import { loginUsers, orders, reviews, reviewReplies } from '@/lib/db/schema'
+import { and, eq, gt, sql } from 'drizzle-orm'
 import { revalidatePath, updateTag } from 'next/cache'
+import { oncePerIsolate } from '@/lib/once'
+import { MAX_REVIEW_COMMENT_LENGTH, MAX_REVIEW_REPLIES_PER_WINDOW, USER_CONTENT_WINDOW_MS } from '@/lib/constants'
+
+const ensureReviewsTable = oncePerIsolate(async () => {
+    await dbRun(sql`
+        CREATE TABLE IF NOT EXISTS reviews (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            product_id TEXT NOT NULL,
+            order_id TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            username TEXT NOT NULL,
+            rating INTEGER NOT NULL,
+            comment TEXT,
+            created_at INTEGER DEFAULT (unixepoch() * 1000)
+        )
+    `)
+})
+
+const ensureReviewRepliesTable = oncePerIsolate(async () => {
+    await dbRun(sql`
+        CREATE TABLE IF NOT EXISTS review_replies (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            review_id INTEGER NOT NULL REFERENCES reviews(id) ON DELETE CASCADE,
+            user_id TEXT NOT NULL,
+            username TEXT NOT NULL,
+            comment TEXT NOT NULL,
+            created_at INTEGER DEFAULT (unixepoch() * 1000)
+        )
+    `)
+})
+
+async function isBlockedUser(userId: string) {
+    const user = await db.query.loginUsers.findFirst({ where: eq(loginUsers.userId, userId), columns: { isBlocked: true } })
+    return Boolean(user?.isBlocked)
+}
 
 export async function submitReview(
     productId: string,
@@ -15,13 +50,23 @@ export async function submitReview(
 ): Promise<{ success: boolean; error?: string }> {
     try {
         const session = await auth()
-        if (!session?.user) {
+        if (!session?.user?.id) {
             return { success: false, error: 'review.authRequired' }
         }
 
-        // Validate rating
-        if (rating < 1 || rating > 5) {
+        // Server Action arguments are untrusted: require a whole star rating.
+        if (!Number.isInteger(rating) || rating < 1 || rating > 5) {
             return { success: false, error: 'review.invalidRating' }
+        }
+        if (typeof productId !== 'string' || typeof orderId !== 'string') {
+            return { success: false, error: 'review.invalidOrder' }
+        }
+        const cleanComment = typeof comment === 'string' ? comment.trim() : ''
+        if (cleanComment.length > MAX_REVIEW_COMMENT_LENGTH) {
+            return { success: false, error: 'review.commentTooLong' }
+        }
+        if (await isBlockedUser(session.user.id)) {
+            return { success: false, error: 'review.blocked' }
         }
 
         const order = await db.query.orders.findFirst({
@@ -55,37 +100,20 @@ export async function submitReview(
             return { success: false, error: 'review.orderNotDelivered' }
         }
 
-        // Ensure reviews table exists
-        await dbRun(sql`
-            CREATE TABLE IF NOT EXISTS reviews (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                product_id TEXT NOT NULL,
-                order_id TEXT NOT NULL,
-                user_id TEXT NOT NULL,
-                username TEXT NOT NULL,
-                rating INTEGER NOT NULL,
-                comment TEXT,
-                created_at INTEGER DEFAULT (unixepoch() * 1000)
-            )
-        `)
+        await ensureReviewsTable()
 
-        // Check if already reviewed (now table definitely exists)
-        const existingReview = await dbRun(sql`
-            SELECT id FROM reviews WHERE order_id = ${orderId} LIMIT 1
-        `)
-        if (existingReview.results && existingReview.results.length > 0) {
-            return { success: false, error: 'review.alreadyReviewed' }
-        }
-
-        // Create review
-        await createReview({
+        // The insert itself refuses an order that already has a review.
+        const created = await createReview({
             productId,
             orderId,
-            userId: session.user.id || '',
+            userId: session.user.id,
             username: session.user.username || session.user.name || 'Anonymous',
             rating,
-            comment: comment || undefined
+            comment: cleanComment || undefined
         })
+        if (!created.length) {
+            return { success: false, error: 'review.alreadyReviewed' }
+        }
 
         revalidatePath(`/buy/${productId}`)
         revalidatePath(`/order/${orderId}`)
@@ -107,11 +135,14 @@ export async function submitReviewReply(
 ): Promise<{ success: boolean; error?: string }> {
     try {
         const session = await auth()
-        if (!session?.user) {
+        if (!session?.user?.id) {
             return { success: false, error: 'review.authRequired' }
         }
+        if (await isBlockedUser(session.user.id)) {
+            return { success: false, error: 'review.blocked' }
+        }
 
-        const normalizedComment = comment.trim()
+        const normalizedComment = typeof comment === 'string' ? comment.trim() : ''
         if (!normalizedComment) {
             return { success: false, error: 'review.replyEmpty' }
         }
@@ -119,16 +150,15 @@ export async function submitReviewReply(
             return { success: false, error: 'review.replyTooLong' }
         }
 
-        await dbRun(sql`
-            CREATE TABLE IF NOT EXISTS review_replies (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                review_id INTEGER NOT NULL REFERENCES reviews(id) ON DELETE CASCADE,
-                user_id TEXT NOT NULL,
-                username TEXT NOT NULL,
-                comment TEXT NOT NULL,
-                created_at INTEGER DEFAULT (unixepoch() * 1000)
-            )
-        `)
+        if (!Number.isSafeInteger(reviewId)) {
+            return { success: false, error: 'review.replyInvalidReview' }
+        }
+        await ensureReviewRepliesTable()
+        const recent = await db.select({ count: sql<number>`count(*)` }).from(reviewReplies)
+            .where(and(eq(reviewReplies.userId, session.user.id), gt(reviewReplies.createdAt, new Date(Date.now() - USER_CONTENT_WINDOW_MS))))
+        if (Number(recent[0]?.count || 0) >= MAX_REVIEW_REPLIES_PER_WINDOW) {
+            return { success: false, error: 'review.replyRateLimited' }
+        }
 
         const review = await db.query.reviews.findFirst({
             where: eq(reviews.id, reviewId),
@@ -144,7 +174,7 @@ export async function submitReviewReply(
 
         await createReviewReply({
             reviewId,
-            userId: session.user.id || '',
+            userId: session.user.id,
             username: session.user.username || session.user.name || 'Anonymous',
             comment: normalizedComment,
         })

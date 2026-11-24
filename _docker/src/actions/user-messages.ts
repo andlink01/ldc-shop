@@ -2,13 +2,17 @@
 
 import { db, dbRun } from "@/lib/db"
 import { userMessages, loginUsers } from "@/lib/db/schema"
-import { eq, sql } from "drizzle-orm"
+import { and, eq, gt, sql } from "drizzle-orm"
 import { auth } from "@/lib/auth"
 import { checkAdmin } from "@/actions/admin"
 import { revalidatePath } from "next/cache"
 import { notifyAdminUserMessage } from "@/lib/notifications"
+import { oncePerIsolate } from "@/lib/once"
+import { MAX_USER_MESSAGES_PER_WINDOW, USER_CONTENT_WINDOW_MS } from "@/lib/constants"
 
-async function ensureUserMessagesTable() {
+const ensureUserMessagesTable = oncePerIsolate(() => createUserMessagesTable())
+
+async function createUserMessagesTable() {
     await dbRun(sql`
         CREATE TABLE IF NOT EXISTS user_messages(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -49,6 +53,12 @@ export async function sendUserMessage(title: string, body: string) {
     }
 
     await ensureUserMessagesTable()
+    // Each message also notifies the admins, so bound how fast one account can send.
+    const recent = await db.select({ count: sql<number>`count(*)` }).from(userMessages)
+        .where(and(eq(userMessages.userId, userId), gt(userMessages.createdAt, new Date(Date.now() - USER_CONTENT_WINDOW_MS))))
+    if (Number(recent[0]?.count || 0) >= MAX_USER_MESSAGES_PER_WINDOW) {
+        return { success: false, error: "profile.messages.rateLimited" }
+    }
     await db.insert(userMessages).values({
         userId,
         username,

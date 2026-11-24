@@ -8,6 +8,7 @@ import { loginUsers } from "@/lib/db/schema"
 import { ensureLoginUsersSchema, getSetting } from "@/lib/db/queries"
 import { and, eq, isNull, lt, or, sql } from "drizzle-orm"
 import { revalidatePath } from "next/cache"
+import { shopDayStartMs } from "@/lib/shop-time"
 
 export async function checkIn() {
     const session = await auth()
@@ -26,17 +27,13 @@ export async function checkIn() {
     try {
         await ensureLoginUsersSchema()
         const nowMs = Date.now()
-        const nowDate = new Date(nowMs)
-        const todayStartUtcMs = Date.UTC(
-            nowDate.getUTCFullYear(),
-            nowDate.getUTCMonth(),
-            nowDate.getUTCDate()
-        )
+        const todayStartUtcMs = shopDayStartMs(nowMs)
         const yesterdayStartUtcMs = todayStartUtcMs - 86400000
 
         // 2. Get Reward Amount
         const rewardStr = await getSetting('checkin_reward')
-        const reward = parseInt(rewardStr || '10', 10)
+        const parsedReward = Number.parseInt(rewardStr ?? '', 10)
+        const reward = Number.isSafeInteger(parsedReward) && parsedReward >= 0 && parsedReward <= 1_000_000 ? parsedReward : 10
 
         // 3. Perform Check-in & Award Points (atomic guard in DB)
         const updated = await db.update(loginUsers)
@@ -104,10 +101,7 @@ export async function getCheckinStatus() {
             return { checkedIn: false }
         }
 
-        const lastCheckinDate = new Date(user.lastCheckinAt).toISOString().split('T')[0];
-        const todayDate = new Date().toISOString().split('T')[0];
-
-        return { checkedIn: lastCheckinDate === todayDate }
+        return { checkedIn: new Date(user.lastCheckinAt).getTime() >= shopDayStartMs() }
     } catch (error) {
         console.error('[CheckinStatus] Error:', getErrorMessage(error))
         return { checkedIn: false }

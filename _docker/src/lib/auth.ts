@@ -23,16 +23,12 @@ const providers: NextAuthConfig['providers'] = [
                 if (contentType.includes("application/json")) return response
 
                 const body = await response.clone().text()
-                const bodyPreview = body.slice(0, 1000)
 
-                console.error("[auth-temp][linuxdo-token]", {
-                    status: response.status,
-                    contentType,
-                    bodyPreview,
-                })
+                // The body can hold access tokens, so only its shape is logged.
+                console.error("[auth][linuxdo-token] unexpected content type", { status: response.status, contentType })
 
                 // Some providers return JSON with an unexpected content-type.
-                if (bodyPreview.trim().startsWith("{")) {
+                if (body.trim().startsWith("{")) {
                     return new Response(body, {
                         status: response.status,
                         statusText: response.statusText,
@@ -186,6 +182,8 @@ async function migrateLegacyUserId(sourceUserId: string, targetUserId: string, u
             const source = sourceRows[0]
             const createdAt = asTimestampMs(source.createdAt) || Date.now()
             const lastLoginAt = asTimestampMs(source.lastLoginAt) || Date.now()
+            // GitHub names are unique, so release the name before the new row takes it.
+            await runAuthMigrationStep(sql`UPDATE login_users SET username = NULL WHERE user_id = ${sourceUserId}`)
             await runAuthMigrationStep(sql`
                 INSERT OR IGNORE INTO login_users (
                     user_id,
@@ -298,7 +296,9 @@ async function migrateLegacyUserId(sourceUserId: string, targetUserId: string, u
             `)
         }
 
-        await runAuthMigrationStep(sql`DELETE FROM login_users WHERE user_id = ${sourceUserId}`)
+        // Keep the old row (and its points) unless the new one really exists.
+        await runAuthMigrationStep(sql`DELETE FROM login_users WHERE user_id = ${sourceUserId}
+            AND EXISTS (SELECT 1 FROM login_users target WHERE target.user_id = ${targetUserId})`)
     } catch (error) {
         console.warn("[auth] legacy user id migration failed", {
             sourceUserId,
@@ -397,17 +397,15 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
 
                     // If this GitHub username already exists in login_users, keep using that user_id.
                     const existingUserId = await resolveExistingGitHubUserIdByUsername(resolvedUsername)
-                    if (existingUserId) {
-                        const normalizedExistingId = normalizeGitHubUserId(existingUserId)
-                        if (canonicalGitHubId) {
-                            if (existingUserId !== canonicalGitHubId) {
-                                await migrateLegacyUserId(existingUserId, canonicalGitHubId, resolvedUsername)
-                            }
-                            resolvedId = canonicalGitHubId
-                        } else if (normalizedExistingId) {
-                            resolvedId = normalizedExistingId
-                        } else {
-                            resolvedId = existingUserId
+                    if (existingUserId && existingUserId !== canonicalGitHubId) {
+                        if (normalizeGitHubUserId(existingUserId) === canonicalGitHubId) {
+                            // Same stable GitHub account stored in an older ID format.
+                            await migrateLegacyUserId(existingUserId, canonicalGitHubId, resolvedUsername)
+                        } else if (resolvedUsername) {
+                            // The login now belongs to another GitHub account. Its previous
+                            // owner keeps every order and point; only the name is released.
+                            await runAuthMigrationStep(sql`UPDATE login_users SET username = NULL
+                                WHERE user_id = ${existingUserId} AND LOWER(username) = ${resolvedUsername}`)
                         }
                     }
                 }
@@ -454,16 +452,10 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     pages: {
         signIn: "/login"
     },
-    // Temporary diagnostics: keep this until OAuth callback issue is resolved.
     logger: {
         error(error) {
-            console.error("[auth-temp]", {
-                name: error.name,
-                message: getErrorMessage(error),
-                // Auth.js puts provider details under error.cause when available.
-                cause: (error as Error & { cause?: unknown }).cause,
-                stack: error.stack,
-            })
+            // Provider responses under error.cause can hold tokens; log the summary only.
+            console.error("[auth]", { name: error.name, message: getErrorMessage(error) })
         },
     },
     // Use OAUTH_CLIENT_SECRET as fallback if NEXTAUTH_SECRET is not set

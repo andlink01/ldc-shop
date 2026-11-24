@@ -127,6 +127,7 @@
         "invalidQuantity": "购买数量无效",
         "quantityTooLarge": "购买数量过大，请减少后重试",
         "stockLocked": "库存已被锁定，请稍后再试",
+        "tooManyPending": "未支付订单过多，请先完成或等待现有订单过期后再下单",
         "stockLockedMessage": "该商品库存已被锁定，如果用户五分钟内未支付，库存将自动释放，请稍后再来！",
         "userBlocked": "本商品对您已限购",
         "paymentTimeoutNotice": "未支付订单将在 5 分钟后自动取消。",
@@ -810,6 +811,7 @@
             "send": "发送消息",
             "sent": "消息已发送",
             "missing": "标题和内容不能为空",
+            "rateLimited": "发送过于频繁，请稍后再试",
             "blocked": "您已被拉黑，无法发送消息"
         },
         "notifications": {
@@ -873,6 +875,9 @@
         "replySubmitError": "回复提交失败，请重试。",
         "replyEmpty": "请输入回复内容。",
         "replyTooLong": "回复内容过长。",
+        "replyRateLimited": "回复过于频繁，请稍后再试。",
+        "commentTooLong": "评价内容过长。",
+        "blocked": "你的账号已被限制，无法评价或回复。",
         "replyInvalidReview": "评价不存在或已失效。"
     },
     "checkin": {

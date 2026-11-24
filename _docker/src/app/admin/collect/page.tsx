@@ -1,7 +1,9 @@
+import { requireAdminPage } from "@/lib/admin-guard"
 import { headers } from "next/headers"
 import { auth } from "@/lib/auth"
 import { AdminPaymentCodeContent } from "@/components/admin/payment-code-content"
 import { md5 } from "@/lib/crypto"
+import { getAdminUsernames } from "@/lib/admin-auth"
 import { getAppBaseUrl } from "@/lib/url"
 
 async function resolveBaseUrl() {
@@ -18,12 +20,10 @@ async function resolveBaseUrl() {
 }
 
 export default async function AdminCollectPage() {
+    await requireAdminPage()
     const baseUrl = await resolveBaseUrl()
     const session = await auth()
-    const adminUsers = (process.env.ADMIN_USERS || '')
-        .split(',')
-        .map((name) => name.trim())
-        .filter(Boolean)
+    const adminUsers = getAdminUsernames()
     const adminFromEnv = adminUsers[0] || null
     const payeeCandidate = session?.user?.username || session?.user?.name || adminFromEnv || null
     const payeeMatch = payeeCandidate

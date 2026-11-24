@@ -12,8 +12,11 @@ import { products } from "@/lib/db/schema"
 import { notifyAdminRefundRequest } from "@/lib/notifications"
 import { markOrderRefunded, proxyRefund } from "@/actions/refund"
 import { createUserNotification } from "@/lib/db/queries"
+import { oncePerIsolate } from "@/lib/once"
 
-async function ensureRefundRequestsTable() {
+const ensureRefundRequestsTable = oncePerIsolate(() => createRefundRequestsTable())
+
+async function createRefundRequestsTable() {
   await dbExecRaw(`
     CREATE TABLE IF NOT EXISTS refund_requests (
       id INTEGER PRIMARY KEY AUTOINCREMENT,

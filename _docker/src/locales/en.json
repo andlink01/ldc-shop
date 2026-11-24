@@ -127,6 +127,7 @@
         "invalidQuantity": "Invalid quantity.",
         "quantityTooLarge": "Quantity is too large. Please reduce and try again.",
         "stockLocked": "Stock is temporarily reserved. Please try again in a minute.",
+        "tooManyPending": "Too many unpaid orders. Pay or wait for your open orders to expire before ordering again.",
         "stockLockedMessage": "Stock is currently locked. If reserved orders are not paid within 5 minutes, stock will be released. Please try again later!",
         "userBlocked": "This product has a purchase limit for you.",
         "paymentTimeoutNotice": "Unpaid orders are automatically cancelled after 5 minutes.",
@@ -810,6 +811,7 @@
             "send": "Send message",
             "sent": "Message sent",
             "missing": "Title and message are required",
+            "rateLimited": "You are sending messages too quickly. Please try again later.",
             "blocked": "You are blocked and cannot send messages"
         },
         "notifications": {
@@ -873,6 +875,9 @@
         "replySubmitError": "Failed to submit reply. Please try again.",
         "replyEmpty": "Please enter a reply.",
         "replyTooLong": "Reply is too long.",
+        "replyRateLimited": "You are replying too quickly. Please try again later.",
+        "commentTooLong": "Review is too long.",
+        "blocked": "Your account is restricted and cannot review or reply.",
         "replyInvalidReview": "Review not found or no longer available."
     },
     "checkin": {

@@ -1,5 +1,6 @@
 import Link from "next/link"
 import { auth } from "@/lib/auth"
+import { isAdminUsername } from "@/lib/admin-auth"
 import { getServerI18n } from "@/lib/i18n/server"
 import { getSetting, getWishlistItems } from "@/lib/db/queries"
 import { WishlistSection } from "@/components/wishlist-section"
@@ -21,8 +22,7 @@ export default async function WishlistPage() {
         ? await getWishlistItems(session?.user?.id || null, 30).catch(() => [])
         : []
 
-    const adminUsers = process.env.ADMIN_USERS?.toLowerCase().split(',') || []
-    const isAdmin = !!(session?.user?.username && adminUsers.includes(session.user.username.toLowerCase()))
+    const isAdmin = isAdminUsername(session?.user?.username)
 
     return (
         <main className="container py-8 md:py-12 space-y-6">

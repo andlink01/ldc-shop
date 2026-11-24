@@ -7,6 +7,7 @@ import { loginUsers } from "@/lib/db/schema"
 import { eq, sql } from "drizzle-orm"
 import { revalidatePath } from "next/cache"
 import { getSetting } from "@/lib/db/queries"
+import { oncePerIsolate } from "@/lib/once"
 
 async function safeAddColumn(table: string, column: string, definition: string) {
     try {
@@ -17,7 +18,9 @@ async function safeAddColumn(table: string, column: string, definition: string) 
     }
 }
 
-async function ensureWishlistTables() {
+const ensureWishlistTables = oncePerIsolate(() => createWishlistTables())
+
+async function createWishlistTables() {
     await dbExecRaw(`
         CREATE TABLE IF NOT EXISTS wishlist_items(
             id INTEGER PRIMARY KEY AUTOINCREMENT,

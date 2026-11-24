@@ -1,4 +1,10 @@
-import { createHash } from "crypto";
+import { createHash, timingSafeEqual } from "crypto";
+
+// Compare secrets and signatures without leaking where they first differ.
+export function safeEqual(a: unknown, b: unknown): boolean {
+    if (typeof a !== 'string' || typeof b !== 'string' || !a || !b) return false
+    return timingSafeEqual(createHash('sha256').update(a).digest(), createHash('sha256').update(b).digest())
+}
 
 export function md5(message: string): string {
     return createHash('md5').update(message).digest('hex');

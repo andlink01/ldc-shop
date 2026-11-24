@@ -1,3 +1,4 @@
+import { requireAdminPage } from "@/lib/admin-guard"
 import type { AdminRefundRequest } from '@/lib/admin-types'
 import { getErrorCauseMessage, getErrorMessage } from '@/lib/errors'
 import { db } from "@/lib/db"
@@ -17,6 +18,7 @@ function isMissingTable(error: unknown) {
 }
 
 export default async function AdminRefundsPage() {
+  await requireAdminPage()
   unstable_noStore()
   let rows: AdminRefundRequest[] = []
   try {
