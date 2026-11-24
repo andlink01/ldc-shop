@@ -83,7 +83,14 @@ function rowToInsertOrIgnore(table: string, row: Record<string, unknown>): strin
 }
 
 export async function GET(req: Request) {
+  const response = await exportData(req)
+  response.headers.set("Cache-Control", "no-store")
+  return response
+}
+
+async function exportData(req: Request) {
   const session = await auth()
+  if (!isAdminUsername(session?.user?.username)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   requireAdminUsername(session?.user?.username ?? null)
 
   const { searchParams } = new URL(req.url)

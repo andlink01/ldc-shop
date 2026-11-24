@@ -1,4 +1,4 @@
-import { createHash, timingSafeEqual } from "crypto";
+import { createHash, randomBytes, timingSafeEqual } from "crypto";
 
 // Compare secrets and signatures without leaking where they first differ.
 export function safeEqual(a: unknown, b: unknown): boolean {
@@ -22,6 +22,8 @@ export function generateSign(params: Record<string, unknown>, key: string): stri
 
 export function generateOrderId(): string {
     const timestamp = Date.now().toString(36);
-    const random = Math.random().toString(36).substring(2, 8);
+    // Order IDs appear in payment and callback URLs; make them unguessable.
+    const bytes = randomBytes(10);
+    const random = Array.from(bytes, (byte) => (byte % 36).toString(36)).join('');
     return `ORD${timestamp}${random}`.toUpperCase();
 }

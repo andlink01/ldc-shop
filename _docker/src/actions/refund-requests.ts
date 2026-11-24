@@ -39,6 +39,8 @@ export async function requestRefund(orderId: string, reason: string) {
   const session = await auth()
   const user = session?.user
   if (!user?.id) throw new Error("Unauthorized")
+  if (typeof orderId !== 'string' || !orderId || orderId.length > 200) throw new Error("Order not found")
+  reason = typeof reason === 'string' ? reason.trim().slice(0, 1000) : ''
 
   await ensureRefundRequestsTable()
 

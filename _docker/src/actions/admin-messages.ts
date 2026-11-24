@@ -74,7 +74,7 @@ export async function sendAdminMessage(params: {
 
     const title = (params.title || '').trim()
     const body = (params.body || '').trim()
-    if (!title || !body) {
+    if (!title || !body || title.length > 200 || body.length > 5000) {
         return { success: false, error: "admin.messages.missing" }
     }
 

@@ -151,7 +151,8 @@ export async function createOrder(productId: string, quantity: number = 1, email
 
     if (!Number.isFinite(finalAmount) || finalAmount < 0) return { success: false, error: 'buy.productNotFound' }
     const isZeroPrice = finalAmount <= 0
-    const contactInfo = (email || '').trim()
+    if (typeof productId !== 'string' || productId.length > 200) return { success: false, error: 'buy.productNotFound' }
+    const contactInfo = (typeof email === 'string' ? email : '').trim().slice(0, 254)
     const resolvedContactInfo = contactInfo || null
     const resolvedDeliveryEmail = isValidEmail(contactInfo) ? contactInfo : null
 

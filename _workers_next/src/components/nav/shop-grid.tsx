@@ -6,6 +6,7 @@ import { ShopLogo } from "@/components/nav/shop-logo"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { useI18n } from "@/lib/i18n/context"
+import { safeExternalUrl } from "@/lib/safe-url"
 
 const INITIAL_BATCH = 24
 const LOAD_BATCH = 18
@@ -70,7 +71,7 @@ export function ShopGrid({ shops }: { shops: NavigatorShop[] }) {
                                 {shop.description || t('buy.noDescription')}
                             </p>
                             <Button asChild variant="outline" className="w-fit">
-                                <Link href={shop.url} target="_blank" rel="noreferrer">
+                                <Link href={safeExternalUrl(shop.url)} target="_blank" rel="noopener noreferrer">
                                     {t('registry.visit')}
                                 </Link>
                             </Button>

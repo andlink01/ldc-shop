@@ -18,6 +18,18 @@ import { CheckInButton } from "@/components/checkin-button";
 import { clearMyNotifications, getMyNotifications, markAllNotificationsRead, markNotificationRead } from "@/actions/user-notifications";
 import { sendUserMessage, clearMyMessages } from "@/actions/user-messages";
 import { cn } from "@/lib/utils";
+import { safeInternalPath } from "@/lib/safe-url";
+
+type NotificationData = { params?: Record<string, string | number>; href?: string; title?: string; body?: string }
+const parseNotificationData = (data: string | null): NotificationData => {
+    if (!data) return {}
+    try {
+        const parsed = JSON.parse(data) as { params?: Record<string, string | number>; href?: string; title?: string; body?: string }
+        return { ...parsed, href: safeInternalPath(parsed?.href) }
+    } catch {
+        return {}
+    }
+}
 
 interface ProfileContentProps {
     user: {
@@ -78,14 +90,6 @@ export function ProfileContent({ user, points, checkinEnabled, orderStats, notif
 
     const unreadCount = notifications.filter((n) => !n.isRead).length
 
-    const parseNotificationData = (data: string | null) => {
-        if (!data) return {}
-        try {
-            return JSON.parse(data) as { params?: Record<string, string | number>; href?: string; title?: string; body?: string }
-        } catch {
-            return {}
-        }
-    }
 
     const emitNotificationUpdate = () => {
         if (typeof window !== "undefined") {

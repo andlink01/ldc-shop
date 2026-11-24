@@ -137,3 +137,24 @@ test('variant labels load for more products than one statement can bind', async 
     assert.equal(Object.keys(labels).length, 115)
     assert.equal(labels.v229, 'Label 229')
 })
+
+test('stored and third-party links are restricted before they reach an href', async t => {
+    const f = await setup(t)
+    const { safeExternalUrl, safeInternalPath } = f.load('lib/safe-url')
+    assert.equal(safeExternalUrl('https://shop.example/a?b=1'), 'https://shop.example/a?b=1')
+    for (const bad of ['javascript:alert(1)', ' JavaScript:alert(1)', 'data:text/html,x', 'https://user:pw@evil.example', '/relative', '', null, 5]) {
+        assert.equal(safeExternalUrl(bad), '#')
+    }
+    assert.equal(safeInternalPath('/order/ORD1'), '/order/ORD1')
+    for (const bad of ['//evil.example', '/' + String.fromCharCode(92) + 'evil.example', 'https://evil.example', 'javascript:alert(1)', 'order/1', '/a b', null]) {
+        assert.equal(safeInternalPath(bad), undefined)
+    }
+})
+
+test('order IDs are unpredictable and keep the expected format', async t => {
+    const f = await setup(t)
+    const { generateOrderId } = f.load('lib/crypto')
+    const ids = new Set(Array.from({ length: 2000 }, () => generateOrderId()))
+    assert.equal(ids.size, 2000)
+    for (const id of ids) assert.match(id, /^ORD[0-9A-Z]{17,20}$/)
+})

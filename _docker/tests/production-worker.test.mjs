@@ -702,3 +702,20 @@ test('no admin page streams private data to anonymous or non-admin requests', as
     const products = await (await f.request('/admin/products', { headers: { Cookie: f.sessionCookie } })).text()
     assert.ok(products.includes('MARK-HIDDEN-PRODUCT'))
 })
+
+test('the production worker sends security headers and does not proxy arbitrary image URLs', async t => {
+    const requested = []
+    const f = await setup(t, { provider: async request => { requested.push(request.url); return undefined } })
+    const home = await f.request('/')
+    assert.equal(home.headers.get('x-frame-options'), 'DENY')
+    assert.equal(home.headers.get('x-content-type-options'), 'nosniff')
+    assert.ok(home.headers.get('content-security-policy').includes("frame-ancestors 'none'"))
+    assert.ok(home.headers.get('referrer-policy'))
+    await home.text()
+    for (const target of ['http://internal.example/secret.png', 'http://169.254.169.254/latest/meta-data']) {
+        const response = await f.request('/_next/image?url=' + encodeURIComponent(target) + '&w=64&q=75')
+        await response.text()
+        assert.notEqual(response.status, 200)
+        assert.ok(!requested.some(url => url.startsWith(target)), 'The server requested ' + target)
+    }
+})
