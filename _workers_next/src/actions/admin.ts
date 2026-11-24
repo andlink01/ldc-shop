@@ -18,6 +18,13 @@ import { normalizeCurrencyUnit } from "@/lib/currency-unit";
 import { PRODUCT_GALLERY_MAX_ITEMS, PRODUCT_GALLERY_MAX_JSON_LENGTH, normalizeProductImageRefs, parseStoredProductImages, splitProductImageGallery, validateProductImageRef } from "@/lib/product-images";
 import { CardApiConfigError, type CardApiMode } from '@/lib/card-api-validation';
 
+// Returns a plain decimal string with at most two places, or null when invalid.
+function normalizeMoney(input: unknown): string | null {
+    const text = String(input ?? '').trim()
+    if (!/^\d{1,9}(\.\d{1,2})?$/.test(text)) return null
+    return String(Number(text))
+}
+
 export async function checkAdmin() {
     const session = await auth()
     const user = session?.user
@@ -47,10 +54,15 @@ export async function saveProduct(formData: FormData) {
         }
     }
 
-    const name = formData.get('name') as string
+    const name = String(formData.get('name') || '').trim()
+    if (!name || name.length > 200) throw new Error("Invalid product name")
     const description = formData.get('description') as string
-    const price = formData.get('price') as string
-    const compareAtPrice = (formData.get('compareAtPrice') as string | null) || null
+    // Checkout multiplies this value and signs it for the gateway with two decimals.
+    const price = normalizeMoney(formData.get('price'))
+    if (price === null) throw new Error("Invalid price")
+    const compareAtPriceRaw = String(formData.get('compareAtPrice') || '').trim()
+    const compareAtPrice = compareAtPriceRaw ? normalizeMoney(compareAtPriceRaw) : null
+    if (compareAtPriceRaw && compareAtPrice === null) throw new Error("Invalid compare-at price")
     const maxPointsDiscountRaw = String(formData.get('maxPointsDiscount') || '').trim()
     const maxPointsDiscount = maxPointsDiscountRaw === ''
         ? null
@@ -64,7 +76,11 @@ export async function saveProduct(formData: FormData) {
     const category = formData.get('category') as string
     const image = (formData.get('image') as string || '').trim()
     const productImagesRaw = (formData.get('productImages') as string | null)?.trim() || null
-    const purchaseLimit = formData.get('purchaseLimit') ? parseInt(formData.get('purchaseLimit') as string) : null
+    const purchaseLimitRaw = String(formData.get('purchaseLimit') || '').trim()
+    const purchaseLimit = purchaseLimitRaw ? Number(purchaseLimitRaw) : null
+    if (purchaseLimit !== null && (!Number.isSafeInteger(purchaseLimit) || purchaseLimit < 0 || purchaseLimit > 1_000_000)) {
+        throw new Error("Invalid purchase limit")
+    }
     const isHot = formData.get('isHot') === 'on'
     const isShared = formData.get('isShared') === 'on'
     const purchaseWarning = (formData.get('purchaseWarning') as string | null)?.trim() || null

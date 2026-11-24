@@ -2,20 +2,23 @@
 
 import { getErrorMessage } from '@/lib/errors';
 
-import { db, dbRun } from "@/lib/db";
+import { db, dbRun, dbBatchRaw } from "@/lib/db";
 import { sql } from "drizzle-orm";
 import { revalidatePath, updateTag } from "next/cache";
 import { checkAdmin } from "@/actions/admin";
 import { recalcProductAggregatesForMany, ensureDatabaseInitialized } from "@/lib/db/queries";
 import { products } from "@/lib/db/schema";
 
+const IMPORT_BATCH_SIZE = 50
+
 async function executeStatement(statement: string) {
     if (!statement.trim()) return
     try {
         await dbRun(sql.raw(statement))
     } catch (e) {
-        console.error('Import Error:', e)
-        throw new Error(`Failed to execute statement: ${statement.substring(0, 50)}... ${e instanceof Error ? getErrorMessage(e) : String(e)}`)
+        // Statements hold card keys and tokens: report the table only.
+        const table = /INTO\s+(\w+)/i.exec(statement)?.[1] || 'unknown'
+        throw new Error(`Failed to import a row into ${table}: ${e instanceof Error ? getErrorMessage(e) : String(e)}`)
     }
 }
 
@@ -183,6 +186,7 @@ export async function importData(formData: FormData) {
 
         let successCount = 0
         let errorCount = 0
+        const statements: string[] = []
 
         for (const line of lines) {
             const trimmed = line.trim()
@@ -210,26 +214,31 @@ export async function importData(formData: FormData) {
                 // Reconstruct statement
                 const newStatement = `INSERT OR IGNORE INTO ${targetTable} (${newColumns.join(', ')}) VALUES (${valuesStr});`
 
-                try {
-                    await executeStatement(newStatement)
-                    successCount++
-                } catch (e) {
-                    const errorMsg = getErrorMessage(e) || String(e)
-                    // Silently skip if table doesn't exist (Vercel export might have tables that Workers doesn't have)
-                    if (errorMsg.includes('no such table') || errorMsg.includes('does not exist')) {
-                        // Skip silently - this is expected for some tables
-                    } else {
-                        console.error('Failed statement:', newStatement, errorMsg)
-                    }
-                    errorCount++
-                }
+                statements.push(newStatement)
             } else if (trimmed.toUpperCase().startsWith('INSERT')) {
                 // Try executing other INSERTs directly if they match simple format
-                try {
-                    await executeStatement(trimmed)
-                    successCount++
-                } catch {
-                    errorCount++
+                statements.push(trimmed)
+            }
+        }
+
+        // One database round trip per group keeps large backups within the
+        // platform request limits. A group that fails is retried row by row so
+        // one bad row (or a table this version lacks) does not drop the others.
+        for (let offset = 0; offset < statements.length; offset += IMPORT_BATCH_SIZE) {
+            const group = statements.slice(offset, offset + IMPORT_BATCH_SIZE)
+            try {
+                await dbBatchRaw(group.map((statement) => ({ sql: statement, params: [] })))
+                successCount += group.length
+            } catch {
+                for (const statement of group) {
+                    try {
+                        await executeStatement(statement)
+                        successCount++
+                    } catch (e) {
+                        const errorMsg = getErrorMessage(e) || String(e)
+                        if (!errorMsg.includes('no such table') && !errorMsg.includes('does not exist')) console.error('[import]', errorMsg)
+                        errorCount++
+                    }
                 }
             }
         }

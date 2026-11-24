@@ -5,10 +5,13 @@ import { adminMessages, loginUsers, userNotifications, broadcastMessages, broadc
 import { eq, sql } from "drizzle-orm"
 import { checkAdmin } from "@/actions/admin"
 import { revalidatePath } from "next/cache"
+import { oncePerIsolate } from "@/lib/once"
 
 type TargetType = "all" | "username" | "userId"
 
-async function ensureAdminMessagesTable() {
+const ensureAdminMessagesTable = oncePerIsolate(() => createAdminMessagesTable())
+
+async function createAdminMessagesTable() {
     await dbRun(sql`
         CREATE TABLE IF NOT EXISTS admin_messages(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -22,7 +25,9 @@ async function ensureAdminMessagesTable() {
     `)
 }
 
-async function ensureBroadcastTables() {
+const ensureBroadcastTables = oncePerIsolate(() => createBroadcastTables())
+
+async function createBroadcastTables() {
     await dbRun(sql`
         CREATE TABLE IF NOT EXISTS broadcast_messages(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -42,7 +47,9 @@ async function ensureBroadcastTables() {
     `)
 }
 
-async function ensureUserNotificationsTable() {
+const ensureUserNotificationsTable = oncePerIsolate(() => createUserNotificationsTable())
+
+async function createUserNotificationsTable() {
     await dbRun(sql`
         CREATE TABLE IF NOT EXISTS user_notifications(
             id INTEGER PRIMARY KEY AUTOINCREMENT,

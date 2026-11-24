@@ -783,11 +783,11 @@ export async function recalcProductAggregatesForMany(productIds: string[]) {
         await dbRun(sql`
             UPDATE products
             SET
-                stock_count = CASE ${products.id} ${stockCases} ELSE ${products.stockCount} END,
-                locked_count = CASE ${products.id} ${lockedCases} ELSE ${products.lockedCount} END,
-                sold_count = CASE ${products.id} ${soldCases} ELSE ${products.soldCount} END,
-                rating = CASE ${products.id} ${ratingCases} ELSE ${products.rating} END,
-                review_count = CASE ${products.id} ${reviewCases} ELSE ${products.reviewCount} END
+                stock_count = CASE ${stockCases} ELSE ${products.stockCount} END,
+                locked_count = CASE ${lockedCases} ELSE ${products.lockedCount} END,
+                sold_count = CASE ${soldCases} ELSE ${products.soldCount} END,
+                rating = CASE ${ratingCases} ELSE ${products.rating} END,
+                review_count = CASE ${reviewCases} ELSE ${products.reviewCount} END
             WHERE ${inArray(products.id, idsBatch)}
         `);
     }
@@ -2376,6 +2376,8 @@ async function backfillLoginUsersFromOrdersAndReviews() {
     await markLoginUsersBackfilled();
 }
 
+const LOGIN_TOUCH_INTERVAL_MS = 10 * 60 * 1000;
+
 export async function recordLoginUser(userId: string, username?: string | null, email?: string | null) {
     if (!userId) return;
     if (isInvalidGitHubPlaceholderUser(userId, username)) {
@@ -2384,6 +2386,13 @@ export async function recordLoginUser(userId: string, username?: string | null, 
     }
 
     try {
+        // Every page render calls this. Read first and only write when the user
+        // is new, renamed, missing an email, or was last seen a while ago.
+        const known = await db.select({ username: loginUsers.username, email: loginUsers.email, lastLoginAt: loginUsers.lastLoginAt })
+            .from(loginUsers).where(eq(loginUsers.userId, userId)).limit(1);
+        const seenAt = known[0]?.lastLoginAt ? new Date(known[0].lastLoginAt).getTime() : 0;
+        if (known.length && (known[0].username || null) === (username || null) && (known[0].email || !email)
+            && Date.now() - seenAt < LOGIN_TOUCH_INTERVAL_MS) return;
         const result = await dbRun(db.insert(loginUsers).values({
             userId,
             username: username || null,
@@ -2715,21 +2724,19 @@ export async function getUsers(page = 1, pageSize = 20, q = '') {
 }
 
 export async function updateUserPoints(userId: string, points: number) {
-    await ensureLoginUsersTable();
+    // Checkout requires points >= the amount used, so a negative or fractional
+    // balance would corrupt every later deduction.
+    if (!Number.isSafeInteger(points) || points < 0 || points > 1_000_000_000) throw new Error("Invalid points value");
+    await ensureLoginUsersSchema();
     await db.update(loginUsers)
         .set({ points })
         .where(eq(loginUsers.userId, userId));
 }
 
 export async function toggleUserBlock(userId: string, isBlocked: boolean) {
-    await ensureLoginUsersTable();
-    // Ensure column exists
-    try {
-        await dbRun(sql.raw(`ALTER TABLE login_users ADD COLUMN is_blocked INTEGER DEFAULT 0`));
-    } catch { /* duplicate column */ }
-
+    await ensureLoginUsersSchema();
     await db.update(loginUsers)
-        .set({ isBlocked })
+        .set({ isBlocked: Boolean(isBlocked) })
         .where(eq(loginUsers.userId, userId));
 }
 

@@ -5,12 +5,15 @@ import { clearUserNotifications, getSetting, getUserNotifications, getUserUnread
 import { broadcastMessages, broadcastReads } from "@/lib/db/schema"
 import { db, dbRun } from "@/lib/db"
 import { and, desc, eq, gte, sql } from "drizzle-orm"
+import { oncePerIsolate } from "@/lib/once"
 
 const BROADCAST_LIMIT = 10
 
 const broadcastClearKey = (userId: string) => `broadcast_cleared_at:${userId}`
 
-async function ensureBroadcastTables() {
+const ensureBroadcastTables = oncePerIsolate(() => createBroadcastTables())
+
+async function createBroadcastTables() {
     await dbRun(sql`
         CREATE TABLE IF NOT EXISTS broadcast_messages(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
