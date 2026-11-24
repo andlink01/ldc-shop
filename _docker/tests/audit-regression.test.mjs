@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
+import { readFileSync, readdirSync } from 'node:fs'
 import { fixture } from './database-fixture.mjs'
 
 class NextResponse extends Response {
@@ -290,6 +291,116 @@ test('admin name lists are parsed the same way everywhere', async t => {
     }
     const admin = await (await guard({ id: 'second-id', username: 'Second' })).load('lib/admin-guard').requireAdminPage()
     assert.equal(admin.username, 'Second')
+    // The entry page is guarded too: it must send a visitor home, not on to the settings page.
+    redirected = null
+    await assert.rejects(async () => (await guard(null)).load('app/admin/page').default(), /NEXT_REDIRECT/)
+    assert.equal(redirected, '/')
+    await assert.rejects(async () => (await guard({ id: 'second-id', username: 'Second' })).load('app/admin/page').default(), /NEXT_REDIRECT/)
+    assert.equal(redirected, '/admin/settings')
+})
+
+// A function exported from a 'use server' file is a public HTTP endpoint: anyone can call it with any
+// arguments, without ever opening the page that uses it. Each one must therefore identify its caller
+// before it does anything else. A new action that should be open to visitors is added to this list on purpose.
+const PUBLIC_ACTIONS = new Set(['getAnnouncementConfig', 'getActiveAnnouncement', 'getCurrentVersion'])
+
+function serverActions() {
+    const directory = new URL('../src/actions/', import.meta.url)
+    return readdirSync(directory).filter(name => name.endsWith('.ts')).flatMap(name => {
+        const text = readFileSync(new URL(name, directory), 'utf8').replace(/\r\n/g, '\n')
+        assert.match(text, /^['"]use server['"]/, name + ' must be a server action file')
+        assert.doesNotMatch(text, /^export (?:const|let|var|default|\{|\*)/m, name + ' exports something this check cannot follow; export async functions only')
+        const found = [...text.matchAll(/^export (?:async )?function (\w+)/gm)]
+        return found.map((match, index) => ({ file: name, name: match[1], body: text.slice(match.index, found[index + 1]?.index ?? text.length) }))
+    })
+}
+
+test('every server action identifies its caller before it reads or changes anything', () => {
+    const actions = serverActions()
+    assert.ok(actions.length >= 100, 'server actions were not found')
+    const database = /\b(?:db\.|dbRun|dbBatchRaw|dbBatch|getSetting|setSetting|fetch\(|ensureDatabaseInitialized|cookies\(\))/
+    for (const action of actions) {
+        if (PUBLIC_ACTIONS.has(action.name) || action.name === 'checkAdmin') continue
+        const guard = /await checkAdmin\(\)|await auth\(\)/.exec(action.body)
+        assert.ok(guard, `${action.file}: ${action.name} never checks who is calling`)
+        const before = action.body.slice(action.body.indexOf('{'), guard.index).replace(/\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '')
+        assert.doesNotMatch(before, database, `${action.file}: ${action.name} touches data before it checks who is calling`)
+        // An administrator check must not be something the function can skip.
+        if (guard[0].includes('checkAdmin')) assert.doesNotMatch(before, /\b(?:if|return|catch)\b/, `${action.file}: ${action.name} can return before its administrator check`)
+    }
+    const guardedByAdmin = actions.filter(action => /await checkAdmin\(\)/.test(action.body)).length
+    assert.ok(guardedByAdmin >= 70, 'administrator actions were not recognised')
+})
+
+test('a signed-in buyer is refused by every administrator action, and a visitor by every action', async t => {
+    const f = await setup(t, { user: null })
+    await f.db.insert(f.schema.orders).values({ orderId: 'ORDER', productId: 'product', productName: 'Product', amount: '3', status: 'paid', userId: 'buyer', username: 'buyer', tradeNo: 'T' })
+    const digest = async () => JSON.stringify([await f.db.select().from(f.schema.orders), await f.db.select().from(f.schema.products), await f.db.select().from(f.schema.settings),
+        await f.db.select().from(f.schema.loginUsers), await f.db.select().from(f.schema.cards)])
+    const before = await digest()
+    let fetched = 0
+    f.setFetch(async () => { fetched++; return Response.json({ code: 1, status: 0 }) })
+    const call = async action => {
+        const formData = new FormData()
+        formData.set('id', 'product'); formData.set('name', 'Hacked'); formData.set('price', '0')
+        const args = /formData: FormData/.test(action.body) ? [formData] : ['ORDER', 'product', true, 1]
+        try { return await f.load('actions/' + action.file.replace(/\.ts$/, ''))[action.name](...args) } catch (error) { return { thrown: error.message } }
+    }
+    for (const user of [null, { id: 'buyer', username: 'buyer', trustLevel: 4 }]) {
+        f.state.user = user
+        for (const action of serverActions()) {
+            const adminOnly = /await checkAdmin\(\)/.test(action.body)
+            if (PUBLIC_ACTIONS.has(action.name) || (user && !adminOnly)) continue
+            const result = await call(action)
+            const refused = !result || result.thrown === 'Unauthorized' || result.success === false || result.ok === false
+                || (typeof result === 'object' && !('success' in result) && !('processed' in result) && Object.values(result).every(value => !value || value === 0 || (Array.isArray(value) && !value.length)))
+            assert.ok(refused, `${action.name} answered ${user ? 'a buyer' : 'a visitor'}: ${JSON.stringify(result)?.slice(0, 200)}`)
+        }
+        assert.equal(await digest(), before, `the database changed for ${user ? 'a buyer' : 'a visitor'}`)
+    }
+    assert.equal(fetched, 0, 'an outside request was made for an unauthorised caller')
+})
+
+test('a payment return address can only lead to an order page of this shop', async t => {
+    const f = await setup(t, { env: { APP_URL: 'https://shop.example' } })
+    const { orderPagePath } = f.load('lib/order-path')
+    assert.equal(orderPagePath('ORDMWUD762OTOJKCVHLJS'), '/order/ORDMWUD762OTOJKCVHLJS')
+    assert.equal(orderPagePath(' PAY_abc-123 '), '/order/PAY_abc-123')
+    const hostile = ['../../admin', '..%2F..%2Fadmin', '//attacker.example', 'https://attacker.example', '/admin', 'a/b', 'a\\b', 'a?b=c', 'a#b', 'x\r\nSet-Cookie: a=b', '.', '', null, undefined, 'x'.repeat(81)]
+    for (const value of hostile) assert.equal(orderPagePath(value), null, String(value))
+    const byQuery = f.load('app/callback/route').GET, byPath = f.load('app/callback/[id]/route').GET
+    for (const value of hostile.filter(Boolean)) {
+        const first = await byQuery(new Request('https://shop.example/callback?out_trade_no=' + encodeURIComponent(value)))
+        assert.match(first.headers.get('location'), /^https:\/\/shop\.example\/(?:orders|order\/[A-Za-z0-9_-]+)$/, value)
+        const second = await byPath(new Request('https://shop.example/callback/x'), { params: Promise.resolve({ id: value }) })
+        assert.equal(second.headers.get('location'), 'https://shop.example/', value)
+    }
+    const ok = await byPath(new Request('https://attacker.example/callback/ORDER1', { headers: { 'x-forwarded-host': 'attacker.example' } }), { params: Promise.resolve({ id: 'ORDER1' }) })
+    assert.equal(ok.headers.get('location'), 'https://shop.example/order/ORDER1')
+})
+
+test('exported spreadsheets do not run formulas typed by buyers, and card keys are exported unchanged', async t => {
+    const f = await setup(t, { user: { id: 'boss', username: 'boss' } })
+    await f.db.insert(f.schema.orders).values([
+        { orderId: 'ORDER-1', productId: 'product', productName: 'Product', amount: '3', status: 'delivered', userId: 'buyer', username: '=HYPERLINK("https://attacker.example","open")',
+            email: '+1+1@attacker.example', cardKey: '=KEY-STARTING-WITH-EQUALS', createdAt: new Date() },
+        { orderId: 'ORDER-2', productId: 'product', productName: '@SUM(1,2)', amount: '-3', status: 'delivered', userId: 'buyer', username: 'plain, "quoted"', email: null, cardKey: '-KEY', createdAt: new Date() },
+    ])
+    await f.db.insert(f.schema.reviews).values({ productId: 'product', orderId: 'ORDER-1', userId: 'buyer', username: '-2+3', rating: 5, comment: '\t=cmd|\' /C calc\'!A0', createdAt: new Date() })
+    const download = async query => (await f.load('app/admin/data/download/route').GET(new Request('https://shop.example/admin/data/download?' + query))).text()
+    const orders = await download('type=orders&format=csv&includeSecrets=1')
+    assert.ok(orders.includes(`"'=HYPERLINK(""https://attacker.example"",""open"")"`), orders)
+    assert.ok(orders.includes("'+1+1@attacker.example"), orders)
+    assert.ok(orders.includes("'@SUM(1,2)") || orders.includes(`"'@SUM(1,2)"`), orders)
+    assert.ok(orders.includes('"plain, ""quoted"""'), orders)
+    assert.ok(orders.includes(',=KEY-STARTING-WITH-EQUALS') && orders.includes(',-KEY'), 'card keys must be exported unchanged: ' + orders)
+    assert.ok(!/(^|,)"?[=+@]/m.test(orders.replace(/,=KEY-STARTING-WITH-EQUALS|,-KEY/g, ',')), 'a cell still starts a formula: ' + orders)
+    assert.ok(/,-3(,|$)/m.test(orders), 'plain numbers are exported unchanged: ' + orders)
+    const reviews = await download('type=reviews&format=csv')
+    assert.ok(reviews.includes("'-2+3"), reviews)
+    assert.ok(reviews.includes(`'\t=cmd|`), reviews)
+    f.state.user = { id: 'buyer', username: 'buyer' }
+    assert.equal((await f.load('app/admin/data/download/route').GET(new Request('https://shop.example/admin/data/download?type=orders&format=csv&includeSecrets=1'))).status, 401)
 })
 
 test('a GitHub login reassigned to another account never takes over the previous owner orders', async t => {
@@ -314,9 +425,9 @@ test('a GitHub login reassigned to another account never takes over the previous
     const previous = (await f.db.select().from(f.schema.loginUsers)).find(user => user.userId === 'github:111')
     assert.equal(previous.points, 50)
     assert.equal(previous.username, null)
-    const { canAccessOrder } = f.load('lib/order-access')
-    assert.equal(canAccessOrder({ id: token.id, username: token.username }, order, 'OLD-OWNER'), false)
-    assert.equal(canAccessOrder({ id: 'github:111', username: 'gh_renamed' }, order, 'OLD-OWNER'), true)
+    const { isOrderOwner } = f.load('lib/order-access')
+    assert.equal(isOrderOwner({ id: token.id, username: token.username }, order), false)
+    assert.equal(isOrderOwner({ id: 'github:111', username: 'gh_renamed' }, order), true)
 
     // The same stable account stored in a legacy ID format is still migrated.
     await f.db.insert(f.schema.loginUsers).values({ userId: 'github:github:333', username: 'gh_legacy', points: 7 })

@@ -5,7 +5,7 @@ import { getErrorMessage } from '@/lib/errors'
 import { cancelPendingOrder as cancelInventoryOrder } from '@/lib/order-transitions'
 import { fulfillPaidOrder } from '@/lib/fulfillment'
 import { scheduleInventoryEvents } from '@/lib/inventory-events'
-import { canAccessOrder } from '@/lib/order-access'
+import { isOrderOwner } from '@/lib/order-access'
 import { auth } from "@/lib/auth"
 import { queryOrderStatus } from "@/lib/epay"
 import { processOrderFulfillment } from "@/lib/order-processing"
@@ -14,7 +14,6 @@ import { db } from "@/lib/db"
 import { orders } from "@/lib/db/schema"
 import { eq } from "drizzle-orm"
 import { withOrderColumnFallback, recalcProductAggregates } from "@/lib/db/queries"
-import { cookies } from "next/headers"
 import { updateTag } from "next/cache"
 
 export async function checkOrderStatus(orderId: string) {
@@ -30,9 +29,7 @@ export async function checkOrderStatus(orderId: string) {
     })
 
     if (!order) return { success: false, error: 'Order not found' }
-    const cookieStore = await cookies()
-    const pending = cookieStore.get('ldc_pending_order')?.value
-    if (!canAccessOrder(session.user, order, orderId, pending)) {
+    if (!isOrderOwner(session.user, order)) {
         return { success: false, error: 'Unauthorized' }
     }
 

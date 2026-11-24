@@ -3,10 +3,9 @@ import { db } from "@/lib/db"
 import { orders, refundRequests } from "@/lib/db/schema"
 import { and, desc, eq } from "drizzle-orm"
 import { notFound } from "next/navigation"
-import { cookies } from "next/headers"
 import { OrderContent } from "@/components/order-content"
 import { getProductVariantLabels } from "@/lib/db/queries"
-import { isOrderOwner, canAccessOrder } from '@/lib/order-access'
+import { isOrderOwner } from '@/lib/order-access'
 
 export default async function OrderPage({ params }: { params: Promise<{ id: string }> }) {
     const { id } = await params
@@ -19,13 +18,9 @@ export default async function OrderPage({ params }: { params: Promise<{ id: stri
 
     if (!order) return notFound()
 
-    // Access Control
+    // Only the signed-in owner receives the card keys.
     const isOwner = isOrderOwner(user, order)
-
-    // Check Cookie
-    const cookieStore = await cookies()
-    const pending = cookieStore.get('ldc_pending_order')
-    const canViewKey = canAccessOrder(user, order, id, pending?.value)
+    const canViewKey = isOwner
 
     // Refund request status (best effort)
     let refundRequest: typeof refundRequests.$inferSelect | null | undefined = null

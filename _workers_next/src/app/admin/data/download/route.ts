@@ -33,18 +33,26 @@ function requireAdminUsername(username?: string | null) {
   }
 }
 
-function csvEscape(value: unknown): string {
+// Card keys are exported byte for byte: they come from the administrator, and a changed key is a wrong key.
+const CSV_VERBATIM_COLUMNS = new Set(["cardKey"])
+
+/**
+ * Spreadsheet programs run a cell that starts with = + - or @ as a formula. Names, e-mail addresses,
+ * reviews and refund reasons are typed by buyers, so such text is exported with a leading apostrophe.
+ */
+function csvEscape(value: unknown, verbatim = false): string {
   if (value === null || value === undefined) return ""
-  const str = String(value)
-  if (/[",\n]/.test(str)) return `"${str.replace(/"/g, '""')}"`
+  let str = String(value)
+  if (!verbatim && typeof value === "string" && /^[=+\-@\t\r]/.test(str) && !/^[+-]?\d+(\.\d+)?$/.test(str)) str = `'${str}`
+  if (/[",\n\r]/.test(str)) return `"${str.replace(/"/g, '""')}"`
   return str
 }
 
 function toCsv(headers: string[], rows: Array<Record<string, unknown>>): string {
   const lines: string[] = []
-  lines.push(headers.map(csvEscape).join(","))
+  lines.push(headers.map((h) => csvEscape(h)).join(","))
   for (const row of rows) {
-    lines.push(headers.map((h) => csvEscape(row[h])).join(","))
+    lines.push(headers.map((h) => csvEscape(row[h], CSV_VERBATIM_COLUMNS.has(h))).join(","))
   }
   return lines.join("\n") + "\n"
 }

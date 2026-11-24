@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { createHash } from 'node:crypto'
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 import { dockerProductionFixture, nativeMerchantKey } from './docker-production-fixture.mjs'
 
 async function setup(t, options) {
@@ -9,6 +9,54 @@ async function setup(t, options) {
     await f.database.prepare('INSERT INTO products (id,name,price) VALUES (?,?,?)').bind('product', 'Native product', '3').run()
     await f.database.prepare('INSERT INTO login_users (user_id,username,points) VALUES (?,?,?)').bind('owner', 'audit-admin', 20).run()
     return { ...f, sessionCookie: await f.cookie() }
+}
+
+// Calls each administrator action of the running build over HTTP, as a visitor and as a signed-in buyer.
+async function assertAdminSurfaceIsClosed(f) {
+    const directory = new URL('../src/actions/', import.meta.url)
+    const adminActions = readdirSync(directory).filter(name => name.endsWith('.ts')).flatMap(name => {
+        const text = readFileSync(new URL(name, directory), 'utf8'), found = [...text.matchAll(/^export (?:async )?function (\w+)/gm)]
+        return found.filter((match, index) => /await checkAdmin\(\)/.test(text.slice(match.index, found[index + 1]?.index ?? text.length))).map(match => match[1])
+    })
+    assert.ok(adminActions.length >= 70, 'administrator actions were not found')
+    const digest = async () => JSON.stringify(await Promise.all(['orders', 'products', 'settings', 'cards', 'login_users'].map(async table =>
+        (await f.database.prepare('SELECT * FROM ' + table + ' ORDER BY 1').bind().all()).results)))
+    const buyer = await f.cookie('buyer-id', 'ordinary-buyer', 4)
+    await f.request('/', { headers: { Cookie: buyer } })
+    const before = await digest()
+    for (const [who, cookie] of [['a visitor', undefined], ['a buyer', buyer]]) {
+        for (const name of adminActions) {
+            const response = await f.action(name, '/admin/orders', ['GUARDED', 'product', true, 1], cookie)
+            assert.ok(!/"(?:success|processed|ok)":true/.test(response.body) && !response.body.includes('GUARDED-'), name + ' answered ' + who + ': ' + response.body.slice(0, 200))
+        }
+        for (const path of ['/admin/data/download?type=orders&format=csv&includeSecrets=1', '/admin/data/download?type=full&format=sql', '/admin/export/download?type=full&format=json',
+            '/admin/orders', '/admin/orders/GUARDED', '/admin/cards/product', '/admin/users', '/admin/settings']) {
+            for (const headers of [{}, { RSC: '1' }]) {
+                const { response, body } = await requestPageData(f, path, { ...headers, ...(cookie ? { Cookie: cookie } : {}) })
+                assert.ok(!body.includes('GUARDED-') && !body.includes('"cardKey"'), path + ' sent order data to ' + who)
+                if (path.includes('/download')) assert.equal(response.status, 401, path)
+            }
+        }
+        assert.equal(await digest(), before, 'the database changed for ' + who)
+    }
+    // The same requests succeed for the administrator, so the refusals above are not an artefact of the requests.
+    const admin = await f.request('/admin/data/download?type=orders&format=csv&includeSecrets=1', { headers: { Cookie: f.sessionCookie } })
+    assert.ok((await admin.text()).includes('GUARDED-'), 'the administrator must still be able to export')
+    for (const headers of [{}, { RSC: '1' }]) {
+        const page = await requestPageData(f, '/admin/orders/GUARDED', { ...headers, Cookie: f.sessionCookie })
+        assert.ok(page.body.includes('GUARDED-'), 'the administrator must still receive the order')
+    }
+}
+
+// A data request (RSC) is first redirected to the same page with the _rsc value Next expects; the data follows.
+async function requestPageData(f, path, headers) {
+    for (let hops = 0; ; hops++) {
+        const response = await f.request(path, { redirect: 'manual', headers })
+        const body = await response.text(), location = response.headers.get('location')
+        const next = location ? new URL(location, 'http://shop.invalid') : null
+        if (response.status !== 307 || !next || next.pathname !== path.split('?')[0] || hops >= 3) return { response, body }
+        path = next.pathname + next.search
+    }
 }
 
 async function pay(f, id, money = '3.00') {
@@ -58,9 +106,13 @@ test('native production routes authenticate, deliver once and protect cards from
     const id = created.result.params.out_trade_no
     await Promise.all(Array.from({ length: 3 }, () => pay(f, id)))
     assert.equal((await f.database.prepare('SELECT count(*) AS count FROM order_deliveries').bind().all()).results[0].count, 1)
+    await f.database.prepare('INSERT INTO orders (order_id,product_id,product_name,amount,status,card_key) VALUES (?,?,?,?,?,?)').bind('OWNERLESS', 'product', 'Native product', '3', 'delivered', 'OWNERLESS-NATIVE-KEY').run()
     for (const cookie of ['', await f.cookie('other', 'other-user')]) {
         const response = await f.request('/order/' + id, { headers: { Cookie: cookie + '; ldc_pending_order=' + id } })
         assert.ok(!(await response.text()).includes('PRIVATE-NATIVE-DELIVERY'))
+        // An order without an owner is not opened by a cookie the browser sets itself.
+        const ownerless = await f.request('/order/OWNERLESS', { headers: { Cookie: cookie + '; ldc_pending_order=OWNERLESS' } })
+        assert.ok(!(await ownerless.text()).includes('OWNERLESS-NATIVE-KEY'))
     }
     assert.ok((await (await f.request('/order/' + id, { headers: { Cookie: f.sessionCookie } })).text()).includes('PRIVATE-NATIVE-DELIVERY'))
 })
@@ -369,4 +421,10 @@ test('native admin pages never stream private data to anonymous or non-admin req
     }
     const admin = await (await f.request('/admin/orders/MARK-ORDER', { headers: { Cookie: f.sessionCookie } })).text()
     assert.ok(admin.includes('MARK-CARD-KEY'))
+})
+
+test('the running native server refuses every administrator action and export to visitors and buyers', async t => {
+    const f = await setup(t)
+    await f.database.prepare('INSERT INTO orders (order_id,product_id,product_name,amount,status,user_id,username,card_key,trade_no) VALUES (?,?,?,?,?,?,?,?,?)').bind('GUARDED', 'product', 'Native product', '3', 'delivered', 'owner', 'audit-admin', 'GUARDED-NATIVE-KEY', 'T1').run()
+    await assertAdminSurfaceIsClosed(f)
 })

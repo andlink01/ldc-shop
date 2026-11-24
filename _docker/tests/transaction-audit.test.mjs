@@ -132,12 +132,18 @@ test('refunds use the configured payment API and reject unsuccessful responses w
     assert.equal(calls, 2)
 })
 
-test('owners retain access and legacy guest keys remain limited to the matching pending cookie', async t => {
+test('owners retain access, and an order without an owner never shows its keys to whoever names it in a cookie', async t => {
     const f = await setup(t)
     await f.db.insert(f.schema.orders).values(order('order', { status: 'delivered', cardKey: 'OWNER-CARD' }))
     const page = await f.load('app/order/[id]/page').default({ params: Promise.resolve({ id: 'order' }) })
     assert.equal(page.props.order.cardKey, 'OWNER-CARD')
-    const guest = await setup(t, { user: null, cookie: 'guest' })
-    await guest.db.insert(guest.schema.orders).values(order('guest', { userId: null, username: null, status: 'delivered', cardKey: 'GUEST-CARD' }))
-    assert.equal((await guest.load('app/order/[id]/page').default({ params: Promise.resolve({ id: 'guest' }) })).props.order.cardKey, 'GUEST-CARD')
+    // The cookie is set by the browser, so anyone who learns the order number could present it.
+    for (const user of [null, { id: 'other', username: 'other' }, { id: 'nameless' }]) {
+        const guest = await setup(t, { user, cookie: 'guest' })
+        await guest.db.insert(guest.schema.orders).values(order('guest', { userId: null, username: null, status: 'delivered', cardKey: 'GUEST-CARD' }))
+        const page = await guest.load('app/order/[id]/page').default({ params: Promise.resolve({ id: 'guest' }) })
+        assert.equal(page.props.canViewKey, false)
+        assert.equal(page.props.order.cardKey, null)
+        if (user) assert.equal((await guest.load('actions/order').checkOrderStatus('guest')).success, false)
+    }
 })

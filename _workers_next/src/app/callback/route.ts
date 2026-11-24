@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { cookies } from "next/headers"
 import { getRequestBaseUrl } from "@/lib/url"
+import { orderPagePath } from "@/lib/order-path"
 
 function normalizeOrderId(input: string | null): string | null {
   if (!input) return null
@@ -26,6 +27,5 @@ export async function GET(request: Request) {
     orderId = normalizeOrderId(cookieStore.get("ldc_pending_order")?.value ?? null)
   }
 
-  const destination = orderId ? `/order/${orderId}` : "/orders"
-  return NextResponse.redirect(new URL(destination, getRequestBaseUrl(request)))
+  return NextResponse.redirect(new URL(orderPagePath(orderId) || "/orders", getRequestBaseUrl(request)))
 }
