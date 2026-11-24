@@ -45,6 +45,22 @@ test('cancel returns points once; a late successful payment recharges them once 
     assert.equal((await f.db.select().from(f.schema.orders))[0].status, 'delivered')
 })
 
+test('a payment keeps the merchant order number it was paid under, also after delivery', async t => {
+    const f = await setup(t)
+    // Two retry links were created and the buyer paid the earlier one.
+    await f.db.insert(f.schema.orders).values(order({ currentPaymentId: 'order_retry222' }))
+    await f.db.insert(f.schema.cards).values({ productId: 'product', cardKey: 'key' })
+    await f.processOrderFulfillment('order', 3, 'trade', 'order_retry111')
+    const [paid] = await f.db.select().from(f.schema.orders)
+    assert.equal(paid.status, 'delivered')
+    assert.equal(paid.currentPaymentId, 'order_retry111')
+
+    const other = await setup(t)
+    await other.db.insert(other.schema.orders).values(order({ currentPaymentId: 'order_retry222' }))
+    for (const unrelated of ['another_retry1', 'order_retryX', 'order2', undefined]) await other.processOrderFulfillment('order', 3, 'trade', unrelated)
+    assert.equal((await other.db.select().from(other.schema.orders))[0].currentPaymentId, 'order_retry222')
+})
+
 test('duplicate refunds return points and reclaim finite inventory only once', async t => {
     const f = await setup(t)
     await f.db.insert(f.schema.orders).values(order({ status: 'paid', pointsUsed: 2 }))

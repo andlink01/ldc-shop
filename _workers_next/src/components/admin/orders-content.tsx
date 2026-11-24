@@ -211,11 +211,11 @@ export function AdminOrdersContent({
                 </div>
             </div>
 
-            <div className="flex items-center justify-between text-sm text-muted-foreground">
-                <div>
+            <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-muted-foreground">
+                <div className="shrink-0">
                     {t('admin.orders.showing', { from: showingFrom, to: showingTo, total })}
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                     <Button asChild type="button" variant="outline" size="sm">
                         <a href={exportUrl({ type: 'orders', format: 'csv', q: query, status })}>
                             {t('admin.orders.exportCsv')}

@@ -5,8 +5,10 @@ import { isPaymentOrder } from '@/lib/payment'
 import { ensureDatabaseInitialized } from '@/lib/db/queries'
 import { fulfillPaidOrder, invalidateInventory } from '@/lib/fulfillment'
 import { scheduleInventoryEvents } from '@/lib/inventory-events'
+import { isPaymentIdOf } from '@/lib/epay'
 
-export async function processOrderFulfillment(orderId: string, paidAmount: number, tradeNo: string) {
+/** `paymentId` is the merchant order number the payment was made under; status checks and refund verification need it later. */
+export async function processOrderFulfillment(orderId: string, paidAmount: number, tradeNo: string, paymentId?: string) {
     await ensureDatabaseInitialized()
     const order = await db.query.orders.findFirst({ where: eq(orders.orderId, orderId) })
     if (!order) throw new Error('Order not found')
@@ -24,8 +26,9 @@ export async function processOrderFulfillment(orderId: string, paidAmount: numbe
         sql: "DELETE FROM inventory_events WHERE event_id = ? AND EXISTS (SELECT 1 FROM orders WHERE order_id = ? AND status = 'cancelled')",
         params: [`points-returned:${orderId}`, orderId],
     }, {
-        sql: "UPDATE orders SET status = 'paid', paid_at = ?, trade_no = ? WHERE order_id = ? AND status IN ('pending', 'cancelled')",
-        params: [now, tradeNo, orderId],
+        sql: `UPDATE orders SET status = 'paid', paid_at = ?, trade_no = ?, current_payment_id = COALESCE(?, current_payment_id)
+            WHERE order_id = ? AND status IN ('pending', 'cancelled')`,
+        params: [now, tradeNo, isPaymentIdOf(orderId, paymentId) ? paymentId : null, orderId],
     }, {
         sql: `INSERT OR IGNORE INTO inventory_events (event_id, kind, order_id, product_id, created_at)
             SELECT ?, 'payment', order_id, product_id, ? FROM orders

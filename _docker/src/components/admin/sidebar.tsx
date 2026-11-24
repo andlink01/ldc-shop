@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { Sheet, SheetContent, SheetTrigger, SheetClose } from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetTitle, SheetTrigger, SheetClose } from "@/components/ui/sheet";
 import { Package, CreditCard, Megaphone, Star, Download, Tags, RotateCcw, Users, Settings, QrCode, Bell, Menu, MessageSquare } from "lucide-react";
 import { useI18n } from "@/lib/i18n/context";
 import { getPendingRefundRequestCount } from "@/actions/refund-requests";
@@ -163,7 +163,9 @@ export function AdminSidebar({ username }: { username: string }) {
                             </Button>
                         </SheetTrigger>
                         <SheetContent side="left" className="w-4/5 max-w-sm">
-                            <div className="flex flex-1 flex-col gap-4 px-4 pb-4 pt-6">
+                            <SheetTitle className="sr-only">{t('common.menu')}</SheetTitle>
+                            {/* The menu is taller than a phone screen: it must scroll inside the panel. */}
+                            <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto overscroll-contain px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-10">
                                 <SidebarContent closeOnNavigate showTitle={false} username={username} t={t} />
                             </div>
                         </SheetContent>

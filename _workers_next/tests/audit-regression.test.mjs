@@ -237,6 +237,42 @@ test('signature and token comparison rejects missing, empty and different values
     assert.equal(unsigned.status, 500)
 })
 
+test('an order paid through an earlier retry link is still verifiable on the payment platform after delivery', async t => {
+    const f = await setup(t, { mocks: { '@/actions/admin': { checkAdmin: async () => {} } } })
+    await f.db.insert(f.schema.cards).values({ productId: 'product', cardKey: 'CARD' })
+    await f.db.insert(f.schema.orders).values({ orderId: 'ORDER', productId: 'product', productName: 'Product', amount: '3',
+        status: 'pending', userId: 'buyer', username: 'buyer', currentPaymentId: 'ORDER_retry222' })
+    const { generateSign } = f.load('lib/crypto')
+    const params = { pid: 'test-merchant', out_trade_no: 'ORDER_retry111', trade_no: 'PAID-TRADE', trade_status: 'TRADE_SUCCESS', money: '3.00', sign_type: 'MD5' }
+    const notified = await f.load('app/api/notify/route').GET(new Request('https://shop.example/api/notify?'
+        + new URLSearchParams({ ...params, sign: generateSign(params, 'test-merchant-key') })))
+    assert.equal(await notified.text(), 'success')
+    const [order] = await f.db.select().from(f.schema.orders)
+    assert.equal(order.status, 'delivered')
+    assert.equal(order.currentPaymentId, 'ORDER_retry111')
+
+    // The platform finds an order by out_trade_no alone; the other two attempts were never paid.
+    const records = { ORDER: { status: 0, trade_no: 'UNPAID-1' }, ORDER_retry222: { status: 0, trade_no: 'UNPAID-2' }, ORDER_retry111: { status: 1, trade_no: 'PAID-TRADE' } }
+    const queried = []
+    f.setFetch(async url => {
+        const outTradeNo = new URL(url).searchParams.get('out_trade_no')
+        queried.push(outTradeNo)
+        return records[outTradeNo] ? Response.json({ code: 1, out_trade_no: outTradeNo, ...records[outTradeNo] }) : Response.json({ code: -1 }, { status: outTradeNo ? 404 : 400 })
+    })
+    const verified = await f.load('actions/admin-orders').verifyOrderRefundStatus('ORDER')
+    assert.equal(verified.success, true, verified.error)
+    assert.equal(verified.status, 1)
+    assert.deepEqual(queried, ['ORDER_retry111'])
+    assert.equal((await f.db.select().from(f.schema.orders))[0].status, 'delivered')
+
+    // An order delivered before the number was recorded cannot be matched: it reports that, and changes nothing.
+    await f.db.update(f.schema.orders).set({ currentPaymentId: null })
+    const unmatched = await f.load('actions/admin-orders').verifyOrderRefundStatus('ORDER')
+    assert.equal(unmatched.success, false)
+    assert.equal(unmatched.errorKey, 'admin.orders.paymentRecordUnmatched')
+    assert.equal((await f.db.select().from(f.schema.orders))[0].status, 'delivered')
+})
+
 test('admin name lists are parsed the same way everywhere', async t => {
     const f = await setup(t, { env: { ADMIN_USERS: ' Boss , second ,, ' } })
     const { isAdminUsername, getAdminUsernames } = f.load('lib/admin-auth')

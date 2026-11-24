@@ -62,7 +62,7 @@ export async function checkOrderStatus(orderId: string) {
                 return { success: false, error: 'order.paymentVerificationFailed' }
             }
 
-            await processOrderFulfillment(orderId, paidAmount, tradeNo)
+            await processOrderFulfillment(orderId, paidAmount, tradeNo, tradeNoToCheck)
 
             revalidatePath(`/order/${orderId}`)
             return { success: true, status: 'paid' } // or 'delivered' implicitly via revalidate

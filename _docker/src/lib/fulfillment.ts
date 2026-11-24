@@ -95,7 +95,7 @@ export async function fulfillPaidOrder(orderId: string, { reservationOnly = fals
                 AND EXISTS (SELECT 1 FROM order_deliveries WHERE order_id = ? AND attempt_id = ? AND is_shared = 0)`,
             params: [now, order.productId, ids, orderId, token],
         }, {
-            sql: `UPDATE orders SET status = 'delivered', delivered_at = ?, card_key = ?, card_ids = ?, current_payment_id = NULL
+            sql: `UPDATE orders SET status = 'delivered', delivered_at = ?, card_key = ?, card_ids = ?
                 WHERE order_id = ? AND status = 'paid'
                 AND EXISTS (SELECT 1 FROM order_deliveries WHERE order_id = ? AND attempt_id = ?)`,
             params: [now, keys, ids, orderId, orderId, token],

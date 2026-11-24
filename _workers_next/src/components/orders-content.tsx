@@ -103,7 +103,7 @@ export function OrdersContent({ orders, productVariantLabels = {}, productImages
                 </div>
             </div>
 
-            <div className="grid gap-4">
+            <div className="grid grid-cols-1 gap-4">
                 {filtered.length > 0 ? (
                     filtered.map(order => (
                         <Card key={order.orderId} className="hover:border-primary/50 transition-colors">

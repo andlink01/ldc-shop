@@ -165,7 +165,7 @@ export async function deleteOrders(orderIds: string[]) {
 
 import { queryOrderStatus } from "@/lib/epay"
 
-type RefundVerificationResult = { success: false; error: string } | {
+type RefundVerificationResult = { success: false; error: string; errorKey?: string } | {
   success: true; status: number; msg: string; canRetry?: boolean; needsReview?: boolean
 }
 
@@ -204,7 +204,7 @@ export async function verifyOrderRefundStatus(orderId: string): Promise<RefundVe
         return { success: true, status: result.status, msg: `Status: ${result.status}` }
       }
     } else {
-      return { success: false, error: result.error }
+      return { success: false, error: result.error, ...('unmatched' in result ? { errorKey: 'admin.orders.paymentRecordUnmatched' } : {}) }
     }
 
   } catch (e) {

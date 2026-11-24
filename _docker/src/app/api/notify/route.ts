@@ -71,7 +71,7 @@ async function processNotify(params: Record<string, string>) {
             if (order.status === 'pending' || order.status === 'cancelled') {
                 try {
                     const { processOrderFulfillment } = await import("@/lib/order-processing");
-                    await processOrderFulfillment(orderId, notifyMoney, tradeNo);
+                    await processOrderFulfillment(orderId, notifyMoney, tradeNo, params.out_trade_no);
                 } catch (e) {
                     console.error("[Notify] Fulfillment error:", e);
                     const message = getErrorMessage(e).toLowerCase();

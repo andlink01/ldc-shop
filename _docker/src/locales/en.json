@@ -631,6 +631,7 @@
             "refundInfo": "After verifying the refund was successful, click 'Mark Refunded'",
             "refundVerifyPlatform": "Have you confirmed on the payment platform that the refund is complete?",
             "checkStatus": "Check Status",
+            "paymentRecordUnmatched": "The payment platform has no record matching this order's transaction number, so it cannot be verified automatically. Check it in the payment platform.",
             "verifySuccessRefunded": "Refund verified successfully!",
             "verifyInfoPaid": "Verified: Order is Paid (Active).",
             "verifyStatus": "Status Verified",

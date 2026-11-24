@@ -84,7 +84,7 @@ export function RefundButton({ order, compact = false }: { order: AdminOrderSumm
                     toast.info(`${t('admin.orders.verifyStatus')}: ${result.msg}`)
                 }
             } else {
-                toast.error(result.error || t('common.error'))
+                toast.error(result.errorKey ? t(result.errorKey) : result.error || t('common.error'), { duration: 8000 })
             }
         } catch (e) {
             toast.error(getErrorMessage(e))
