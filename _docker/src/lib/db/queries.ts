@@ -523,7 +523,7 @@ async function isProductAggregatesBackfilled(): Promise<boolean> {
     try {
         const result = await db.select({ value: settings.value })
             .from(settings)
-            .where(eq(settings.key, 'product_aggregates_backfilled_v2'));
+            .where(eq(settings.key, 'product_aggregates_backfilled_v3'));
         return result[0]?.value === '1';
     } catch (error) {
         if (isMissingTable(error)) {
@@ -536,7 +536,7 @@ async function isProductAggregatesBackfilled(): Promise<boolean> {
 
 async function markProductAggregatesBackfilled() {
     await db.insert(settings).values({
-        key: 'product_aggregates_backfilled_v2',
+        key: 'product_aggregates_backfilled_v3',
         value: '1',
         updatedAt: new Date()
     }).onConflictDoUpdate({
@@ -840,6 +840,16 @@ export async function getLiveCardStats(productIds: string[]): Promise<Map<string
     }
 
     return stats;
+}
+
+let productAggregatesChecked = false;
+
+// Earlier versions never applied bulk aggregate updates. Maintenance calls this
+// so existing shops recalculate every product once; later calls are free.
+export async function backfillProductAggregatesOnce() {
+    if (productAggregatesChecked) return;
+    await backfillProductAggregates();
+    productAggregatesChecked = true;
 }
 
 async function backfillProductAggregates() {
@@ -1229,9 +1239,13 @@ export async function getProductVariants(
 export async function getProductVariantLabels(productIds: string[]): Promise<Record<string, string | null>> {
     const ids = Array.from(new Set((productIds || []).map((id) => String(id).trim()).filter(Boolean)));
     if (!ids.length) return {};
-    const rows = await db.select({ id: products.id, variantLabel: products.variantLabel })
-        .from(products)
-        .where(inArray(products.id, ids));
+    // Stay under the D1 limit of 100 bound parameters per statement.
+    const rows: Array<{ id: string; variantLabel: string | null }> = [];
+    for (let offset = 0; offset < ids.length; offset += 90) {
+        rows.push(...await db.select({ id: products.id, variantLabel: products.variantLabel })
+            .from(products)
+            .where(inArray(products.id, ids.slice(offset, offset + 90))));
+    }
     const out: Record<string, string | null> = {};
     for (const row of rows) {
         const label = row.variantLabel?.trim() || null;

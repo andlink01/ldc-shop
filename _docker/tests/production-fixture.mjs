@@ -17,7 +17,7 @@ function productionBundle() {
     if (bundled) return bundled
     const directory = mkdtempSync(path.join(tmpdir(), 'ldc-production-worker-'))
     try {
-        execFileSync(process.execPath, [require.resolve('wrangler/bin/wrangler.js'), 'deploy', '--dry-run', '--outdir', directory], { cwd: root, stdio: 'pipe', timeout: 60_000 })
+        execFileSync(process.execPath, [path.join(path.dirname(require.resolve('wrangler/package.json')), 'bin', 'wrangler.js'), 'deploy', '--dry-run', '--outdir', directory], { cwd: root, stdio: 'pipe', timeout: 60_000 })
         bundled = readFileSync(path.join(directory, 'worker-entry.js'), 'utf8')
         return bundled
     } finally {

@@ -108,3 +108,32 @@ test('recalculating many products at once updates each one from its own rows', a
     assert.equal(rows.b.reviewCount, 0)
     assert.equal(rows.c.stockCount, 999999)
 })
+
+test('maintenance recalculates stale stored totals once for an existing shop', async t => {
+    const f = await setup(t)
+    await f.db.insert(f.schema.products).values({ id: 'stale', name: 'Stale', price: '1' })
+    await f.dbBatchRaw([
+        { sql: "INSERT INTO cards (product_id, card_key, is_used) VALUES ('stale','S1',0),('stale','S2',0)", params: [] },
+        { sql: "INSERT INTO orders (order_id, product_id, product_name, amount, status, quantity, created_at) VALUES ('S-O','stale','Stale','1','delivered',3,1)", params: [] },
+        // An upgraded shop has wrong totals and no marker for this recalculation yet.
+        { sql: "DELETE FROM settings WHERE key = 'product_aggregates_backfilled_v3'", params: [] },
+        { sql: "UPDATE products SET stock_count = 99, sold_count = 0 WHERE id = 'stale'", params: [] },
+    ])
+    await f.reload('lib/db/queries').backfillProductAggregatesOnce()
+    let row = (await f.db.select().from(f.schema.products))[0]
+    assert.equal(row.stockCount, 2)
+    assert.equal(row.soldCount, 3)
+    // A later run in a new instance sees the marker and leaves the rows alone.
+    await f.dbBatchRaw([{ sql: "UPDATE products SET stock_count = 77 WHERE id = 'stale'", params: [] }])
+    await f.reload('lib/db/queries').backfillProductAggregatesOnce()
+    row = (await f.db.select().from(f.schema.products))[0]
+    assert.equal(row.stockCount, 77)
+})
+
+test('variant labels load for more products than one statement can bind', async t => {
+    const f = await setup(t)
+    await f.dbBatchRaw(Array.from({ length: 230 }, (_, i) => ({ sql: 'INSERT INTO products (id, name, price, variant_label) VALUES (?, ?, ?, ?)', params: ['v' + i, 'V' + i, '1', i % 2 ? 'Label ' + i : null] })))
+    const labels = await f.queries.getProductVariantLabels(Array.from({ length: 230 }, (_, i) => 'v' + i))
+    assert.equal(Object.keys(labels).length, 115)
+    assert.equal(labels.v229, 'Label 229')
+})

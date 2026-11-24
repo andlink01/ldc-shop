@@ -25,9 +25,11 @@ export default async function OrdersPage() {
     let reviewedOrderIds: string[] = []
     if (deliveredOrderIds.length > 0) {
         try {
+            // Filter by owner in SQL: binding every order ID exceeds the D1 parameter limit for frequent buyers.
             const reviewedOrders = await db.select({ orderId: reviews.orderId })
                 .from(reviews)
-                .where(inArray(reviews.orderId, deliveredOrderIds))
+                .innerJoin(orders, eq(orders.orderId, reviews.orderId))
+                .where(eq(orders.userId, session.user.id || ''))
             reviewedOrderIds = reviewedOrders.map((r: { orderId: string }) => r.orderId)
         } catch {
             // Ignore errors (table might not exist)

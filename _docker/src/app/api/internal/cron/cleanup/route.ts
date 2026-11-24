@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { safeEqual } from "@/lib/crypto";
-import { cancelExpiredOrders, cleanupExpiredCardsIfNeeded, ensureDatabaseInitialized } from "@/lib/db/queries";
+import { cancelExpiredOrders, cleanupExpiredCardsIfNeeded, ensureDatabaseInitialized, backfillProductAggregatesOnce } from "@/lib/db/queries";
 import { fulfillPendingOrders } from '@/lib/fulfillment'
 import { enqueueExpiryAlerts, processInventoryEvents } from '@/lib/inventory-events'
 
@@ -37,6 +37,7 @@ export async function POST(request: Request) {
 
     const startedAt = Date.now();
     await ensureDatabaseInitialized();
+    try { await backfillProductAggregatesOnce() } catch { console.error("[cron-cleanup] aggregate backfill deferred") }
     const [cardsResult, ordersResult] = await Promise.allSettled([
         cleanupExpiredCardsIfNeeded(CARD_CLEANUP_THROTTLE_MS),
         cancelExpiredOrders(),
