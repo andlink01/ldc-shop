@@ -26,15 +26,22 @@ async function assertAdminSurfaceIsClosed(f) {
     const before = await digest()
     for (const [who, cookie] of [['a visitor', undefined], ['a buyer', buyer]]) {
         for (const name of adminActions) {
-            const response = await f.action(name, '/admin/orders', ['GUARDED', 'product', true, 1], cookie)
+            // Posted to a storefront path: the check in front of /admin must not be what stops an action.
+            const response = await f.action(name, '/', ['GUARDED', 'product', true, 1], cookie)
             assert.ok(!/"(?:success|processed|ok)":true/.test(response.body) && !response.body.includes('GUARDED-'), name + ' answered ' + who + ': ' + response.body.slice(0, 200))
         }
         for (const path of ['/admin/data/download?type=orders&format=csv&includeSecrets=1', '/admin/data/download?type=full&format=sql', '/admin/export/download?type=full&format=json',
             '/admin/orders', '/admin/orders/GUARDED', '/admin/cards/product', '/admin/users', '/admin/settings']) {
-            for (const headers of [{}, { RSC: '1' }]) {
+            for (const headers of [{}, { RSC: '1' }, { RSC: '1', 'Next-Router-Prefetch': '1' }]) {
                 const { response, body } = await requestPageData(f, path, { ...headers, ...(cookie ? { Cookie: cookie } : {}) })
                 assert.ok(!body.includes('GUARDED-') && !body.includes('"cardKey"'), path + ' sent order data to ' + who)
+                // Refused before anything is rendered: an export answers 401, a page redirects to the storefront.
                 if (path.includes('/download')) assert.equal(response.status, 401, path)
+                else {
+                    assert.equal(response.status, 307, path + ' must redirect ' + who)
+                    assert.equal(new URL(response.headers.get('location'), 'http://shop.invalid').pathname, '/', path)
+                    assert.ok(body.length < 200, path + ' sent page content to ' + who)
+                }
             }
         }
         assert.equal(await digest(), before, 'the database changed for ' + who)
