@@ -649,7 +649,7 @@ test('an accepted refund survives a local rollback and recovers without resubmis
     assert.equal((await f.json('/snapshot')).users[0].points, 20)
 })
 
-test('a lost refund acknowledgement is recovered by its transaction ID in real workerd', async t => {
+test('a lost refund acknowledgement remains uncertain when the platform returns status zero in real workerd', async t => {
     let refunds = 0, queries = 0, orderId
     const f = await refundSetup(t, request => {
         const url = new URL(request.url)
@@ -662,10 +662,14 @@ test('a lost refund acknowledgement is recovered by its transaction ID in real w
     })
     orderId = f.orderId
     assert.equal((await f.json('/refund', { orderId })).needsVerification, true)
-    assert.equal((await f.json('/refund', { orderId })).processed, true)
+    assert.equal((await f.json('/refund', { orderId })).needsVerification, true)
+    assert.equal((await f.json('/refund-verify', { orderId })).needsVerification, true)
     assert.equal(refunds, 1)
-    assert.equal(queries, 1)
-    assert.equal((await f.json('/snapshot')).users[0].points, 20)
+    assert.equal(queries, 2)
+    const state = await f.json('/snapshot')
+    assert.equal(state.users[0].points, 18)
+    assert.equal(state.orders[0].status, 'delivered')
+    assert.equal(state.cards[0].isUsed, true)
 })
 
 test('an uncertain refund needs explicit verification and confirmation before retry in real D1', async t => {

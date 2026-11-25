@@ -55,7 +55,7 @@ export function RefundButton({ order, compact = false }: { order: AdminOrderSumm
         lock.current = true
         setLoading(true)
         try {
-            await markOrderRefunded(order.orderId)
+            await markOrderRefunded(order.orderId, true)
             toast.success(t('admin.orders.refundSuccess'))
             setShowMarkDone(false)
         } catch (e) {
@@ -74,8 +74,10 @@ export function RefundButton({ order, compact = false }: { order: AdminOrderSumm
         try {
             const result = await verifyOrderRefundStatus(order.orderId)
             if (result.success) {
-                if (result.status === 0) { // Refunded
-                    toast.success(t('admin.orders.verifySuccessRefunded'))
+                if (result.needsVerification) {
+                    toast.error(t('admin.orders.refundStatusUncertain'), { duration: 8000 })
+                    setRetryNeedsReview(false)
+                    setShowMarkDone(true)
                 } else if (result.status === 1) { // Paid
                     toast.info(t(result.canRetry === false ? 'admin.orders.refundInProgress' : 'admin.orders.verifyInfoPaid'))
                     setRetryNeedsReview(result.needsReview === true)

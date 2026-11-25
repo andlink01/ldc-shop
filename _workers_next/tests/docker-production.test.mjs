@@ -278,7 +278,7 @@ test('native refunds submit once concurrently and recover an accepted refund aft
     assert.equal((await f.database.prepare('SELECT points FROM login_users WHERE user_id = ?').bind('owner').all()).results[0].points, 20)
 })
 
-test('native refunds recover a lost response by trade ID and require review before resubmission', async t => {
+test('native refunds require external confirmation for status zero and review before resubmission', async t => {
     let refunds = 0, status = 0, accepted = false
     const f = await setup(t, { provider: async request => {
         const url = new URL(request.url)
@@ -291,7 +291,12 @@ test('native refunds recover a lost response by trade ID and require review befo
     } })
     const id = await refundPurchase(f)
     assert.equal((await f.action('proxyRefund', '/admin/orders/' + id, [id], f.sessionCookie)).result?.needsVerification, true)
-    assert.equal((await f.action('proxyRefund', '/admin/orders/' + id, [id], f.sessionCookie)).result?.processed, true)
+    assert.equal((await f.action('proxyRefund', '/admin/orders/' + id, [id], f.sessionCookie)).result?.needsVerification, true)
+    assert.equal((await f.action('verifyOrderRefundStatus', '/admin/orders/' + id, [id], f.sessionCookie)).result?.needsVerification, true)
+    assert.equal((await f.database.prepare('SELECT status FROM orders WHERE order_id = ?').bind(id).all()).results[0].status, 'delivered')
+    assert.equal((await f.database.prepare('SELECT points FROM login_users WHERE user_id = ?').bind('owner').all()).results[0].points, 18)
+    assert.ok(!(await f.action('markOrderRefunded', '/admin/orders/' + id, [id], f.sessionCookie)).result?.success)
+    assert.equal((await f.action('markOrderRefunded', '/admin/orders/' + id, [id, true], f.sessionCookie)).result?.success, true)
     assert.equal(refunds, 1)
     status = 1
     const second = await refundPurchase(f)
@@ -304,6 +309,39 @@ test('native refunds recover a lost response by trade ID and require review befo
     accepted = true
     assert.equal((await refund(true)).result?.processed, true)
     assert.equal(refunds, 3)
+    assert.equal((await f.database.prepare('SELECT points FROM login_users WHERE user_id = ?').bind('owner').all()).results[0].points, 20)
+})
+
+test('native approval preserves an order without a transaction and sends the complete Credit refund form once', async t => {
+    let refunds = 0
+    const f = await setup(t, { provider: async request => {
+        if (new URL(request.url).hostname !== 'credit.linux.do') return undefined
+        assert.equal(request.method, 'POST')
+        assert.equal(new URL(request.url).pathname, '/epay/api.php')
+        const form = await request.formData()
+        assert.equal(form.get('pid'), 'TEST-MERCHANT')
+        assert.equal(form.get('key'), nativeMerchantKey)
+        assert.equal(form.get('trade_no'), '7654321')
+        assert.equal(form.get('out_trade_no'), 'APPROVAL')
+        assert.equal(form.get('money'), '3.00')
+        refunds++
+        return Response.json({ code: 1, msg: 'Refund completed' })
+    } })
+    await f.database.prepare('UPDATE login_users SET points = 18 WHERE user_id = ?').bind('owner').run()
+    await f.database.prepare('INSERT INTO orders (order_id,product_id,product_name,amount,status,user_id,points_used) VALUES (?,?,?,?,?,?,?)')
+        .bind('APPROVAL', 'product', 'Approval product', '3', 'paid', 'owner', 2).run()
+    await f.database.prepare('INSERT INTO refund_requests (order_id,user_id,status) VALUES (?,?,?)').bind('APPROVAL', 'owner', 'pending').run()
+    const requestId = (await f.database.prepare('SELECT id FROM refund_requests WHERE order_id = ?').bind('APPROVAL').all()).results[0].id
+    const approve = () => f.action('adminApproveRefund', '/admin/refunds', [requestId], f.sessionCookie)
+    assert.equal((await approve()).result?.processed, false)
+    assert.equal(refunds, 0)
+    assert.equal((await f.database.prepare('SELECT status FROM refund_requests WHERE id = ?').bind(requestId).all()).results[0].status, 'pending')
+    assert.equal((await f.database.prepare('SELECT status FROM orders WHERE order_id = ?').bind('APPROVAL').all()).results[0].status, 'paid')
+    await f.database.prepare('UPDATE orders SET trade_no = ? WHERE order_id = ?').bind('7654321', 'APPROVAL').run()
+    assert.equal((await approve()).result?.processed, true)
+    assert.equal((await approve()).result?.processed, true)
+    assert.equal(refunds, 1)
+    assert.equal((await f.database.prepare('SELECT status FROM refund_requests WHERE id = ?').bind(requestId).all()).results[0].status, 'processed')
     assert.equal((await f.database.prepare('SELECT points FROM login_users WHERE user_id = ?').bind('owner').all()).results[0].points, 20)
 })
 

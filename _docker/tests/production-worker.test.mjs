@@ -497,6 +497,39 @@ test('production refund actions call the payment refund operation and restore in
     assert.equal(orders.results[0].status, 'refunded')
 })
 
+test('production refund approval refuses a missing transaction and sends the Credit refund form once when it is present', async t => {
+    let refunds = 0
+    const f = await setup(t, { provider: async request => {
+        if (new URL(request.url).hostname !== 'credit.linux.do') return undefined
+        assert.equal(request.method, 'POST')
+        assert.equal(new URL(request.url).pathname, '/epay/api.php')
+        const form = await request.formData()
+        assert.equal(form.get('pid'), 'TEST-MERCHANT')
+        assert.equal(form.get('key'), 'isolated-production-merchant-key')
+        assert.equal(form.get('trade_no'), '7654321')
+        assert.equal(form.get('out_trade_no'), 'APPROVAL')
+        assert.equal(form.get('money'), '3.00')
+        refunds++
+        return Response.json({ code: 1, msg: 'Refund completed' })
+    } })
+    await f.database.prepare('UPDATE login_users SET points = 18 WHERE user_id = ?').bind('owner').run()
+    await f.database.prepare('INSERT INTO orders (order_id,product_id,product_name,amount,status,user_id,points_used) VALUES (?,?,?,?,?,?,?)')
+        .bind('APPROVAL', 'product', 'Approval product', '3', 'paid', 'owner', 2).run()
+    await f.database.prepare('INSERT INTO refund_requests (order_id,user_id,status) VALUES (?,?,?)').bind('APPROVAL', 'owner', 'pending').run()
+    const requestId = (await f.database.prepare('SELECT id FROM refund_requests WHERE order_id = ?').bind('APPROVAL').all()).results[0].id
+    const approve = () => f.action('adminApproveRefund', '/admin/refunds', [requestId], f.sessionCookie)
+    assert.equal((await approve()).result?.processed, false)
+    assert.equal(refunds, 0)
+    assert.equal((await f.database.prepare('SELECT status FROM refund_requests WHERE id = ?').bind(requestId).all()).results[0].status, 'pending')
+    assert.equal((await f.database.prepare('SELECT status FROM orders WHERE order_id = ?').bind('APPROVAL').all()).results[0].status, 'paid')
+    await f.database.prepare('UPDATE orders SET trade_no = ? WHERE order_id = ?').bind('7654321', 'APPROVAL').run()
+    assert.equal((await approve()).result?.processed, true)
+    assert.equal((await approve()).result?.processed, true)
+    assert.equal(refunds, 1)
+    assert.equal((await f.database.prepare('SELECT status FROM refund_requests WHERE id = ?').bind(requestId).all()).results[0].status, 'processed')
+    assert.equal((await f.database.prepare('SELECT points FROM login_users WHERE user_id = ?').bind('owner').all()).results[0].points, 20)
+})
+
 test('production checkout rejects a direct trust-level bypass without spending points or reserving stock', async t => {
     const f = await setup(t)
     await f.database.prepare('UPDATE products SET visibility_level = ? WHERE id = ?').bind(2, 'product').run()
@@ -670,7 +703,7 @@ test('a production refund accepted before a local failure restores stock and poi
     assert.equal((await f.database.prepare('SELECT is_used FROM cards').bind().all()).results[0].is_used, 0)
 })
 
-test('production refunds recover lost acknowledgements by trade ID and reject mismatched transactions', async t => {
+test('production refunds reject mismatched transactions and require external confirmation after a lost acknowledgement', async t => {
     let refunds = 0, queries = 0, id, wrongTrade = true
     const f = await productionRefundSetup(t, request => {
         const url = new URL(request.url)
@@ -687,9 +720,17 @@ test('production refunds recover lost acknowledgements by trade ID and reject mi
     assert.equal(denied.result?.success, false, denied.body)
     assert.equal((await f.database.prepare('SELECT status FROM orders WHERE order_id = ?').bind(id).all()).results[0].status, 'delivered')
     wrongTrade = false
-    assert.equal((await f.refund()).result?.processed, true)
+    assert.equal((await f.refund()).result?.needsVerification, true)
+    const uncertain = await f.action('verifyOrderRefundStatus', `/admin/orders/${id}`, [id], f.sessionCookie)
+    assert.equal(uncertain.result?.needsVerification, true, uncertain.body)
+    assert.equal((await f.database.prepare('SELECT status FROM orders WHERE order_id = ?').bind(id).all()).results[0].status, 'delivered')
+    assert.equal((await f.database.prepare('SELECT points FROM login_users WHERE user_id = ?').bind('owner').all()).results[0].points, 18)
+    const unconfirmed = await f.action('markOrderRefunded', `/admin/orders/${id}`, [id], f.sessionCookie)
+    assert.ok(!unconfirmed.result?.success)
+    const confirmed = await f.action('markOrderRefunded', `/admin/orders/${id}`, [id, true], f.sessionCookie)
+    assert.equal(confirmed.result?.success, true, confirmed.body)
     assert.equal(refunds, 1)
-    assert.equal(queries, 2)
+    assert.equal(queries, 3)
     assert.equal((await f.database.prepare('SELECT points FROM login_users WHERE user_id = ?').bind('owner').all()).results[0].points, 20)
 })
 

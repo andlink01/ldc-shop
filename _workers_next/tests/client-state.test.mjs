@@ -522,6 +522,25 @@ test('refund buttons translate uncertainty, verify before retry and require the 
     assert.equal(successes.length, 1)
 })
 
+test('a status-zero payment query warns the administrator and local synchronization requires explicit platform confirmation', async t => {
+    const errors = [], successes = [], confirmations = [], marked = []
+    const f = setup(t, {
+        '@/actions/admin-orders': { verifyOrderRefundStatus: async () => ({ success: true, status: 0, needsVerification: true, canRetry: false }) },
+        '@/actions/refund': { markOrderRefunded: async (...args) => { marked.push(args) } },
+        sonner: { toast: { success: value => successes.push(value), error: value => errors.push(value), info() {} } },
+    }, { confirm: value => { confirmations.push(value); return true } })
+    const { RefundButton } = f.load('components/admin/refund-button')
+    const view = await mount(t, React.createElement(RefundButton, { order: { orderId: 'refund-order', amount: '3', status: 'paid', tradeNo: 'trade' } }))
+    const buttons = () => view.root.findAllByType('button')
+    await act(async () => buttons()[0].props.onClick())
+    assert.match(errors[0], /does not confirm a refund/i)
+    assert.equal(successes.length, 0)
+    assert.equal(buttons()[1].props.disabled, true)
+    await act(async () => buttons()[2].props.onClick())
+    assert.match(confirmations[0], /does not issue a payment refund/i)
+    assert.deepEqual(marked, [['refund-order', true]])
+})
+
 test('a rejected or active refund keeps the compact controls and never suggests a manual completed refund', async t => {
     const messages = []
     let response = { processed: false, inProgress: true, messageKey: 'admin.orders.refundInProgress' }

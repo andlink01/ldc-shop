@@ -7,10 +7,10 @@ import { orders } from "@/lib/db/schema"
 import { and, eq } from "drizzle-orm"
 import { revalidatePath, updateTag } from "next/cache"
 import { checkAdmin } from "@/actions/admin"
-import { recalcProductAggregates, recalcProductAggregatesForMany, ensureDatabaseInitialized, getSetting } from "@/lib/db/queries"
+import { recalcProductAggregates, recalcProductAggregatesForMany, ensureDatabaseInitialized } from "@/lib/db/queries"
 import { fulfillPaidOrder, queuePaymentNotification } from '@/lib/fulfillment'
 import { scheduleInventoryEvents } from '@/lib/inventory-events'
-import { cancelPendingOrder, deleteOrderInventory, refundOrderInventory } from '@/lib/order-transitions'
+import { cancelPendingOrder, deleteOrderInventory } from '@/lib/order-transitions'
 import { allowVerifiedRefundRetry } from '@/lib/payment-refund'
 
 export async function markOrderPaid(orderId: string) {
@@ -166,7 +166,7 @@ export async function deleteOrders(orderIds: string[]) {
 import { queryOrderStatus } from "@/lib/epay"
 
 type RefundVerificationResult = { success: false; error: string; errorKey?: string } | {
-  success: true; status: number; msg: string; canRetry?: boolean; needsReview?: boolean
+  success: true; status: number; msg: string; canRetry?: boolean; needsReview?: boolean; needsVerification?: boolean
 }
 
 export async function verifyOrderRefundStatus(orderId: string): Promise<RefundVerificationResult> {
@@ -175,28 +175,15 @@ export async function verifyOrderRefundStatus(orderId: string): Promise<RefundVe
 
   try {
     const order = await db.query.orders.findFirst({ where: eq(orders.orderId, orderId),
-      columns: { orderId: true, productId: true, tradeNo: true, amount: true, currentPaymentId: true } })
+      columns: { orderId: true, productId: true, tradeNo: true, amount: true, currentPaymentId: true, status: true } })
     if (!order) return { success: false, error: 'Order not found' }
+    if (!order.tradeNo) return { success: false, error: 'Missing payment transaction number', errorKey: 'admin.orders.refundMissingTrade' }
     const result = await queryOrderStatus(orderId, order.tradeNo || undefined, order.currentPaymentId)
 
     if (result.success) {
-      // status 0 = Refunded
+      // The platform maps every non-successful payment state to 0, including pending and failed.
       if (result.status === 0) {
-        await refundOrderInventory(orderId, (await getSetting('refund_reclaim_cards')) !== 'false')
-        revalidatePath('/admin/orders')
-        if (order?.productId) {
-          try {
-            await recalcProductAggregates(order.productId)
-          } catch {
-            // best effort
-          }
-        }
-        try {
-          updateTag('home:products')
-        } catch {
-          // best effort
-        }
-        return { success: true, status: result.status, msg: 'Refunded (Verified)' }
+        return { success: true, status: result.status, msg: 'Payment status does not confirm a refund', canRetry: false, needsVerification: true }
       } else if (result.status === 1) {
         const retry = await allowVerifiedRefundRetry(order)
         return { success: true, status: result.status, msg: 'Paid (Not Refunded)', ...retry }

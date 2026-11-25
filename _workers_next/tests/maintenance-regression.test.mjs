@@ -304,7 +304,7 @@ test('a refund accepted by the gateway survives local rollback without another e
     assert.equal((await f.db.select().from(f.schema.loginUsers))[0].points, 12)
 })
 
-test('an uncertain refund result is queried by transaction ID before any further submission', async t => {
+test('querying an uncertain refund by transaction ID cannot interpret status zero as refund evidence', async t => {
     const f = await refundSetup(t)
     let posts = 0, queries = 0
     f.setFetch(async (url, options) => {
@@ -315,10 +315,10 @@ test('an uncertain refund result is queried by transaction ID before any further
     })
     const action = f.load('actions/refund').proxyRefund
     assert.equal((await action('refund-order')).processed, false)
-    assert.equal((await action('refund-order')).processed, true)
+    assert.equal((await action('refund-order')).needsVerification, true)
     assert.equal(posts, 1)
     assert.equal(queries, 1)
-    assert.equal((await f.db.select().from(f.schema.loginUsers))[0].points, 12)
+    assert.equal((await f.db.select().from(f.schema.loginUsers))[0].points, 10)
 })
 
 // Mirrors the payment platform: an order is found by out_trade_no alone, and a query without it is HTTP 400.
@@ -365,8 +365,8 @@ test('a payment completed on a retry is checked under the retry number, never th
     assert.equal((await f.db.select().from(f.schema.orders))[0].status, 'paid')
     assert.equal((await f.db.select().from(f.schema.loginUsers))[0].points, 10)
     f.setFetch(paymentPlatform({ 'refund-order_retry123': { status: 0, trade_no: 'test-trade' } }).fetch)
-    assert.equal((await verify()).status, 0)
-    assert.equal((await f.db.select().from(f.schema.orders))[0].status, 'refunded')
+    assert.equal((await verify()).needsVerification, true)
+    assert.equal((await f.db.select().from(f.schema.orders))[0].status, 'paid')
 })
 
 test('an unconfirmed refund cannot be resubmitted until verification and administrator confirmation', async t => {

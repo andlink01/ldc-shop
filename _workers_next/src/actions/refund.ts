@@ -7,14 +7,26 @@ import { eq } from "drizzle-orm";
 import { revalidatePath, updateTag } from "next/cache";
 import { getSetting, recalcProductAggregates } from "@/lib/db/queries";
 import { checkAdmin } from "@/actions/admin";
-import { getEpayApiUrl, queryOrderStatus } from '@/lib/epay';
+import { getEpayApiUrl, isPaymentIdOf, queryOrderStatus } from '@/lib/epay';
 import { claimPaymentRefund, savePaymentRefundState, type RefundResult } from '@/lib/payment-refund';
 
-export async function markOrderRefunded(orderId: string) {
+// This action only records a refund completed outside the shop; it never moves money.
+export async function markOrderRefunded(orderId: string, confirmPlatformRefund = false) {
     await checkAdmin()
 
     const order = await db.query.orders.findFirst({ where: eq(orders.orderId, orderId) })
     if (!order) throw new Error("Order not found")
+    if (order.status === 'refunded') return { success: true }
+    if (!['paid', 'delivered'].includes(order.status || '')) throw new Error('Order is not refundable')
+    const amount = Number(order.amount)
+    if (!order.amount.trim() || !Number.isFinite(amount) || amount < 0) throw new Error('Invalid payment refund amount')
+    if (amount > 0 && confirmPlatformRefund !== true) throw new Error('Confirm the refund on the payment platform first')
+
+    return finalizeOrderRefund(order)
+}
+
+async function finalizeOrderRefund(order: typeof orders.$inferSelect) {
+    const orderId = order.orderId
 
     const reclaimCards = (await getSetting('refund_reclaim_cards')) !== 'false'
     await refundOrderInventory(orderId, reclaimCards)
@@ -44,11 +56,8 @@ function parseRefundResponse(text: string): 'accepted' | 'retryable' | 'unknown'
         const json = JSON.parse(text)
         if (json?.code === 1 || json?.code === '1') return 'accepted'
         if (json?.code === 0 || json?.code === '0' || json?.code === -1 || json?.code === '-1') return 'retryable'
-        if (json?.code === undefined && (json?.status === 'success' || json?.msg === 'success')) return 'accepted'
-        if (json?.status === 'failed' || json?.status === 'error') return 'retryable'
     } catch {
         const plain = text.trim().toLowerCase()
-        if (plain === 'success') return 'accepted'
         if (['fail', 'failed', 'failure', 'unsuccessful'].includes(plain)) return 'retryable'
     }
     return 'unknown'
@@ -88,7 +97,7 @@ export async function proxyRefund(orderId: string, confirmVerifiedRetry = false)
     const completeLocalRefund = async (): Promise<RefundResult> => {
         try {
             if (!await savePaymentRefundState(order, token, 'accepted', null, false)) return storageFailure()
-            await markOrderRefunded(orderId)
+            await finalizeOrderRefund(order)
             try { await savePaymentRefundState(order, token, 'accepted') } catch { /* The refunded order prevents another submission. */ }
             return { ok: true, processed: true, message: 'Refund processed' }
         } catch {
@@ -99,8 +108,8 @@ export async function proxyRefund(orderId: string, confirmVerifiedRetry = false)
     }
     if (attempt.state === 'accepted') return completeLocalRefund()
     if (attempt.state === 'submitted' || attempt.state === 'unknown') {
-        const result = await queryOrderStatus(order.orderId, order.tradeNo, order.currentPaymentId)
-        if (result.success && result.status === 0) return completeLocalRefund()
+        await queryOrderStatus(order.orderId, order.tradeNo, order.currentPaymentId)
+        // EPay status 0 also covers unpaid, failed and processing orders. It is not refund evidence.
         try { await savePaymentRefundState(order, token, 'unknown', 'refund_verification_required') } catch { return storageFailure() }
         return uncertain()
     }
@@ -109,7 +118,7 @@ export async function proxyRefund(orderId: string, confirmVerifiedRetry = false)
         pid,
         key,
         trade_no: order.tradeNo,
-        out_trade_no: order.orderId,
+        out_trade_no: isPaymentIdOf(order.orderId, order.currentPaymentId) ? order.currentPaymentId : order.orderId,
         money: Number(order.amount).toFixed(2),
     })
 

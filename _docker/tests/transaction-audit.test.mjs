@@ -62,14 +62,18 @@ test('concurrent pending order deletion returns points once and rolls back when 
     assert.equal((await f.db.select().from(f.schema.orders)).length, 0)
 })
 
-test('refund verification applies the same card and point recovery as normal refunds', async t => {
+test('ambiguous payment status leaves stock and points intact until the administrator confirms an external refund', async t => {
     const f = await setup(t)
     f.env.MERCHANT_ID = 'test-merchant'; f.env.MERCHANT_KEY = 'test-merchant-key'
     await f.db.insert(f.schema.orders).values(order('order', { status: 'paid', tradeNo: 'test-trade' }))
     await f.db.insert(f.schema.cards).values({ productId: 'product', cardKey: 'card' })
     await f.load('lib/fulfillment').fulfillPaidOrder('order')
     f.setFetch(async () => Response.json({ code: 1, status: 0, trade_no: 'test-trade' }))
-    assert.equal((await f.load('actions/admin-orders').verifyOrderRefundStatus('order')).success, true)
+    assert.equal((await f.load('actions/admin-orders').verifyOrderRefundStatus('order')).needsVerification, true)
+    assert.equal((await f.db.select().from(f.schema.cards))[0].isUsed, true)
+    assert.equal((await f.db.select().from(f.schema.loginUsers))[0].points, 8)
+    await assert.rejects(f.load('actions/refund').markOrderRefunded('order'), /Confirm the refund/)
+    await f.load('actions/refund').markOrderRefunded('order', true)
     assert.equal((await f.db.select().from(f.schema.cards))[0].isUsed, false)
     assert.equal((await f.db.select().from(f.schema.loginUsers))[0].points, 10)
     await f.load('actions/admin-orders').verifyOrderRefundStatus('order')

@@ -104,21 +104,28 @@ export async function adminApproveRefund(requestId: number, adminNote?: string) 
 
   const order = await db.query.orders.findFirst({
     where: eq(orders.orderId, req.orderId),
-    columns: { orderId: true, tradeNo: true, amount: true, userId: true, productName: true }
+    columns: { orderId: true, tradeNo: true, amount: true, userId: true, productName: true, status: true }
   })
   if (!order) {
     throw new Error("Order not found")
   }
+  if (order.status === 'refunded') return { ok: true, processed: true }
+  if (!['paid', 'delivered'].includes(order.status || '')) throw new Error('Order is not refundable')
+  const amount = Number(order.amount)
+  if (!order.amount.trim() || !Number.isFinite(amount) || amount < 0) throw new Error('Invalid payment refund amount')
+  if (amount > 0 && !order.tradeNo) return { ok: false, processed: false, error: 'admin.orders.refundMissingTrade' }
+  if (!['pending', 'approved'].includes(req.status || 'pending')) throw new Error('Refund request is not pending')
 
-  await db.update(refundRequests).set({
+  const newlyApproved = await db.update(refundRequests).set({
     status: 'approved',
     adminUsername: username,
     adminNote: adminNote || null,
     updatedAt: new Date(),
-  }).where(eq(refundRequests.id, requestId))
+  }).where(and(eq(refundRequests.id, requestId), sql`COALESCE(${refundRequests.status}, 'pending') = 'pending'`)).returning({ id: refundRequests.id })
+  if (!newlyApproved.length && req.status !== 'approved') return { ok: false, processed: false, error: 'Refund request has already been handled' }
 
-  if (order.userId) {
-    await createUserNotification({
+  if (order.userId && newlyApproved.length) {
+    try { await createUserNotification({
       userId: order.userId,
       type: 'refund_approved',
       titleKey: 'profile.notifications.refundApprovedTitle',
@@ -130,13 +137,13 @@ export async function adminApproveRefund(requestId: number, adminNote?: string) 
         },
         href: `/order/${order.orderId}`
       }
-    })
+    }) } catch { /* An inbox failure must not prevent the approved payment refund. */ }
   }
 
   revalidatePath('/admin/refunds')
 
-  // Auto refund for approved requests
-  if (!order.tradeNo || Number(order.amount) <= 0) {
+  // Only zero-payment orders can be completed locally without a payment gateway refund.
+  if (amount === 0) {
     await markOrderRefunded(order.orderId)
     return { ok: true, processed: true }
   }
