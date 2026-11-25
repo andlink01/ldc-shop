@@ -20,7 +20,7 @@ export default async function OrderPage({ params }: { params: Promise<{ id: stri
 
     // Only the signed-in owner receives the card keys.
     const isOwner = isOrderOwner(user, order)
-    const canViewKey = isOwner
+    const canViewKey = isOwner && order.status === 'delivered'
 
     // Refund request status (best effort)
     let refundRequest: typeof refundRequests.$inferSelect | null | undefined = null

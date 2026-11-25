@@ -50,6 +50,7 @@ export async function checkIn() {
             })
             .where(and(
                 eq(loginUsers.userId, userId),
+                sql`COALESCE(${loginUsers.isBlocked}, 0) = 0`,
                 or(
                     isNull(loginUsers.lastCheckinAt),
                     lt(loginUsers.lastCheckinAt, new Date(todayStartUtcMs))

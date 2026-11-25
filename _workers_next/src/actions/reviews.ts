@@ -8,6 +8,7 @@ import { and, eq, gt, sql } from 'drizzle-orm'
 import { revalidatePath, updateTag } from 'next/cache'
 import { oncePerIsolate } from '@/lib/once'
 import { MAX_REVIEW_COMMENT_LENGTH, MAX_REVIEW_REPLIES_PER_WINDOW, USER_CONTENT_WINDOW_MS } from '@/lib/constants'
+import { isOrderOwner } from '@/lib/order-access'
 
 const ensureReviewsTable = oncePerIsolate(async () => {
     await dbRun(sql`
@@ -87,12 +88,7 @@ export async function submitReview(
             return { success: false, error: 'review.invalidOrder' }
         }
 
-        const sessionUsername = session.user.username || session.user.name || ''
-        const isOwner =
-            (order.userId && order.userId === session.user.id) ||
-            (order.username && sessionUsername && order.username === sessionUsername)
-
-        if (!isOwner) {
+        if (!isOrderOwner(session.user, order)) {
             return { success: false, error: 'review.notOwner' }
         }
 

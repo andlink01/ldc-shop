@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
 import vm from 'node:vm'
 import ts from 'typescript'
+import { fixture } from './database-fixture.mjs'
 
 // Execute the real entry points with isolated auth/storage dependencies.
 function loadModule(path, mocks) {
@@ -58,18 +59,15 @@ test('authenticated product purchases still reach product validation', async () 
     assert.equal(result.error, 'buy.productNotFound')
 })
 
-test('authenticated payment orders retain the account identity', async () => {
-    const writes = []
-    const { createPaymentOrder } = loadModule('actions/payment.ts', {
+test('authenticated payment orders retain the account identity', async t => {
+    const f = fixture(t, { env: { MERCHANT_ID: 'test', MERCHANT_KEY: 'isolated-key' }, mocks: {
         '@/lib/auth': { auth: async () => ({ user: { id: 'user-1', username: 'buyer' } }) },
-        '@/lib/db': { db: { insert: () => ({ values: async (value) => writes.push(value) }) } },
-        '@/lib/db/queries': { withOrderColumnFallback: (fn) => fn() },
-        '@/lib/admin-auth': { getAdminUsernames: () => ['merchant'] },
-        '@/lib/crypto': { generateOrderId: () => 'test-order', generateSign: () => 'test-signature' },
-        '@/lib/payment': { PAYMENT_PRODUCT_ID: 'payment', PAYMENT_PRODUCT_NAME: 'Payment' },
         'next/headers': { cookies: async () => ({ set() {} }) },
-    })
-    const result = await createPaymentOrder(1)
+    } })
+    await f.ready
+    await f.db.insert(f.schema.loginUsers).values({ userId: 'user-1', username: 'buyer' })
+    const result = await f.load('actions/payment').createPaymentOrder(1)
+    const writes = await f.db.select().from(f.schema.orders)
     assert.equal(result.success, true)
     assert.equal(writes.length, 1)
     assert.equal(writes[0].userId, 'user-1')

@@ -6,6 +6,7 @@ import { cancelPendingOrder as cancelInventoryOrder } from '@/lib/order-transiti
 import { fulfillPaidOrder } from '@/lib/fulfillment'
 import { scheduleInventoryEvents } from '@/lib/inventory-events'
 import { isOrderOwner } from '@/lib/order-access'
+import { moneyCents } from '@/lib/order-policy'
 import { auth } from "@/lib/auth"
 import { queryOrderStatus } from "@/lib/epay"
 import { processOrderFulfillment } from "@/lib/order-processing"
@@ -32,6 +33,7 @@ export async function checkOrderStatus(orderId: string) {
     if (!isOrderOwner(session.user, order)) {
         return { success: false, error: 'Unauthorized' }
     }
+    if (order.status === 'refunded' || order.status === 'failed') return { success: true, status: order.status }
 
     if (order.status === 'paid' || order.status === 'delivered') {
         if (order.status === 'paid' && !order.cardKey && order.productId !== 'payment_link') {
@@ -53,16 +55,16 @@ export async function checkOrderStatus(orderId: string) {
             // queryOrderStatus returns { ..., data: fullResponse }
 
             const tradeNo = result.data?.trade_no || result.data?.transaction_id
-            const money = result.data?.money
-            const paidAmount = typeof money === 'number' || (typeof money === 'string' && money.trim()) ? Number(money) : NaN
-            if (typeof tradeNo !== 'string' || !tradeNo.trim() || !Number.isFinite(paidAmount)) {
+            const cents = moneyCents(result.data?.money)
+            if (typeof tradeNo !== 'string' || !tradeNo.trim() || cents === null || cents <= 0) {
                 return { success: false, error: 'order.paymentVerificationFailed' }
             }
 
-            await processOrderFulfillment(orderId, paidAmount, tradeNo, tradeNoToCheck)
+            await processOrderFulfillment(orderId, cents / 100, tradeNo, tradeNoToCheck)
 
             revalidatePath(`/order/${orderId}`)
-            return { success: true, status: 'paid' } // or 'delivered' implicitly via revalidate
+            const refreshed = await db.query.orders.findFirst({ where: eq(orders.orderId, orderId), columns: { status: true } })
+            return { success: true, status: refreshed?.status || order.status }
         }
 
         return { success: false, status: 'pending' }
@@ -90,7 +92,7 @@ export async function cancelPendingOrder(orderId: string) {
     if (order.status !== 'pending') return { success: false, error: 'order.cannotCancel' }
 
     try {
-        await cancelInventoryOrder(orderId)
+        if (!await cancelInventoryOrder(orderId)) return { success: false, error: 'order.cannotCancel' }
 
         revalidatePath(`/order/${orderId}`)
         revalidatePath('/orders')

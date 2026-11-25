@@ -1733,6 +1733,9 @@ export async function createReview(data: {
     const res = await dbRun<{ id: number }>(sql`INSERT INTO reviews (product_id, order_id, user_id, username, rating, comment, created_at)
         SELECT ${data.productId}, ${data.orderId}, ${data.userId}, ${data.username}, ${data.rating}, ${data.comment ?? null}, ${Date.now()}
         WHERE NOT EXISTS (SELECT 1 FROM reviews WHERE order_id = ${data.orderId})
+        AND EXISTS (SELECT 1 FROM orders WHERE order_id = ${data.orderId} AND product_id = ${data.productId}
+            AND user_id = ${data.userId} AND status = 'delivered')
+        AND EXISTS (SELECT 1 FROM login_users WHERE user_id = ${data.userId} AND COALESCE(is_blocked, 0) = 0)
         RETURNING id`);
     if (!res.results.length) return [];
 
@@ -1755,7 +1758,7 @@ export async function createReviewReply(data: {
     }).returning();
 }
 
-export async function canUserReview(userId: string, productId: string, username?: string): Promise<{ canReview: boolean; orderId?: string }> {
+export async function canUserReview(userId: string, productId: string): Promise<{ canReview: boolean; orderId?: string }> {
     try {
         const findUnreviewedOrder = async (whereClause: SQL | undefined) => {
             const rows = await db.select({ orderId: orders.orderId })
@@ -1772,31 +1775,10 @@ export async function canUserReview(userId: string, productId: string, username?
             return rows[0]?.orderId;
         };
 
-        // Prefer userId; only fallback to username when userId has no delivered orders.
+        // Usernames may be reassigned; only a stable account ID proves purchase ownership.
         const byUserIdOrderId = await findUnreviewedOrder(eq(orders.userId, userId));
         if (byUserIdOrderId) {
             return { canReview: true, orderId: byUserIdOrderId };
-        }
-
-        const hasDeliveredByUserId = await db.select({ orderId: orders.orderId })
-            .from(orders)
-            .where(and(
-                eq(orders.userId, userId),
-                eq(orders.productId, productId),
-                eq(orders.status, 'delivered')
-            ))
-            .limit(1);
-        if (hasDeliveredByUserId.length > 0) {
-            return { canReview: false };
-        }
-
-        if (!username) {
-            return { canReview: false };
-        }
-
-        const byUsernameOrderId = await findUnreviewedOrder(eq(orders.username, username));
-        if (byUsernameOrderId) {
-            return { canReview: true, orderId: byUsernameOrderId };
         }
 
         return { canReview: false };

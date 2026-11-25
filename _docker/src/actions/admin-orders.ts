@@ -19,10 +19,14 @@ export async function markOrderPaid(orderId: string) {
   if (!orderId) throw new Error("Missing order id")
 
   const order = await db.query.orders.findFirst({ where: eq(orders.orderId, orderId), columns: { productId: true } })
-  await db.update(orders).set({
+  const updated = await db.update(orders).set({
     status: 'paid',
     paidAt: new Date(),
-  }).where(and(eq(orders.orderId, orderId), eq(orders.status, 'pending')))
+  }).where(and(eq(orders.orderId, orderId), eq(orders.status, 'pending'))).returning({ orderId: orders.orderId })
+  if (!updated.length) {
+    const current = await db.query.orders.findFirst({ where: eq(orders.orderId, orderId), columns: { status: true } })
+    if (!current || !['paid', 'delivered'].includes(current.status || '')) throw new Error('Order is not awaiting payment')
+  }
   await queuePaymentNotification(orderId)
   await fulfillPaidOrder(orderId)
   scheduleInventoryEvents()
@@ -82,7 +86,7 @@ export async function cancelOrder(orderId: string) {
   if (!orderId) throw new Error("Missing order id")
 
   const order = await db.query.orders.findFirst({ where: eq(orders.orderId, orderId), columns: { productId: true } })
-  await cancelPendingOrder(orderId)
+  if (!await cancelPendingOrder(orderId)) throw new Error('Order is not awaiting payment')
 
   revalidatePath('/admin/orders')
   revalidatePath(`/admin/orders/${orderId}`)

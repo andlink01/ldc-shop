@@ -3,7 +3,7 @@
 import { getErrorMessage } from '@/lib/errors'
 
 import { auth } from "@/lib/auth"
-import { db, dbExecRaw } from "@/lib/db"
+import { db, dbRun, dbExecRaw } from "@/lib/db"
 import { orders, refundRequests } from "@/lib/db/schema"
 import { and, desc, eq, sql } from "drizzle-orm"
 import { revalidatePath } from "next/cache"
@@ -13,6 +13,7 @@ import { notifyAdminRefundRequest } from "@/lib/notifications"
 import { markOrderRefunded, proxyRefund } from "@/actions/refund"
 import { createUserNotification } from "@/lib/db/queries"
 import { oncePerIsolate } from "@/lib/once"
+import { moneyCents } from '@/lib/order-policy'
 
 const ensureRefundRequestsTable = oncePerIsolate(() => createRefundRequestsTable())
 
@@ -59,15 +60,18 @@ export async function requestRefund(orderId: string, reason: string) {
     return { ok: true }
   }
 
-  await db.insert(refundRequests).values({
-    orderId,
-    userId: user.id,
-    username: user.username || null,
-    reason: (reason || '').trim() || null,
-    status: 'pending',
-    createdAt: new Date(),
-    updatedAt: new Date(),
-  })
+  const now = Date.now()
+  const inserted = await dbRun<{ id: number }>(sql`INSERT INTO refund_requests (order_id, user_id, username, reason, status, created_at, updated_at)
+    SELECT order_id, user_id, ${user.username || null}, ${reason || null}, 'pending', ${now}, ${now} FROM orders
+    WHERE order_id = ${orderId} AND user_id = ${user.id} AND status IN ('paid', 'delivered')
+    AND NOT EXISTS (SELECT 1 FROM refund_requests r WHERE r.order_id = orders.order_id
+      AND COALESCE(r.status, 'pending') IN ('pending', 'approved')) RETURNING id`)
+  if (!inserted.results.length) {
+    const active = await db.query.refundRequests.findFirst({ where: and(eq(refundRequests.orderId, orderId),
+      eq(refundRequests.userId, user.id), sql`COALESCE(${refundRequests.status}, 'pending') IN ('pending', 'approved')`) })
+    if (active) return { ok: true }
+    throw new Error('Order is not refundable')
+  }
 
   const product = await db.query.products.findFirst({
     where: eq(products.id, order.productId),
@@ -89,6 +93,8 @@ export async function requestRefund(orderId: string, reason: string) {
 
 export async function adminApproveRefund(requestId: number, adminNote?: string) {
   await checkAdmin()
+  if (!Number.isSafeInteger(requestId) || requestId <= 0) throw new Error('Invalid refund request')
+  adminNote = typeof adminNote === 'string' ? adminNote.trim().slice(0, 1000) : ''
   await ensureRefundRequestsTable()
 
   const session = await auth()
@@ -111,9 +117,9 @@ export async function adminApproveRefund(requestId: number, adminNote?: string) 
   }
   if (order.status === 'refunded') return { ok: true, processed: true }
   if (!['paid', 'delivered'].includes(order.status || '')) throw new Error('Order is not refundable')
-  const amount = Number(order.amount)
-  if (!order.amount.trim() || !Number.isFinite(amount) || amount < 0) throw new Error('Invalid payment refund amount')
-  if (amount > 0 && !order.tradeNo) return { ok: false, processed: false, error: 'admin.orders.refundMissingTrade' }
+  const cents = moneyCents(order.amount)
+  if (cents === null) throw new Error('Invalid payment refund amount')
+  if (cents > 0 && !order.tradeNo) return { ok: false, processed: false, error: 'admin.orders.refundMissingTrade' }
   if (!['pending', 'approved'].includes(req.status || 'pending')) throw new Error('Refund request is not pending')
 
   const newlyApproved = await db.update(refundRequests).set({
@@ -121,7 +127,8 @@ export async function adminApproveRefund(requestId: number, adminNote?: string) 
     adminUsername: username,
     adminNote: adminNote || null,
     updatedAt: new Date(),
-  }).where(and(eq(refundRequests.id, requestId), sql`COALESCE(${refundRequests.status}, 'pending') = 'pending'`)).returning({ id: refundRequests.id })
+  }).where(and(eq(refundRequests.id, requestId), sql`COALESCE(${refundRequests.status}, 'pending') = 'pending'`,
+    sql`EXISTS (SELECT 1 FROM orders WHERE order_id = ${req.orderId} AND status IN ('paid', 'delivered'))`)).returning({ id: refundRequests.id })
   if (!newlyApproved.length && req.status !== 'approved') return { ok: false, processed: false, error: 'Refund request has already been handled' }
 
   if (order.userId && newlyApproved.length) {
@@ -143,7 +150,7 @@ export async function adminApproveRefund(requestId: number, adminNote?: string) 
   revalidatePath('/admin/refunds')
 
   // Only zero-payment orders can be completed locally without a payment gateway refund.
-  if (amount === 0) {
+  if (cents === 0) {
     await markOrderRefunded(order.orderId)
     return { ok: true, processed: true }
   }
@@ -161,6 +168,8 @@ export async function adminApproveRefund(requestId: number, adminNote?: string) 
 
 export async function adminRejectRefund(requestId: number, adminNote?: string) {
   await checkAdmin()
+  if (!Number.isSafeInteger(requestId) || requestId <= 0) throw new Error('Invalid refund request')
+  adminNote = typeof adminNote === 'string' ? adminNote.trim().slice(0, 1000) : ''
   await ensureRefundRequestsTable()
 
   const session = await auth()
@@ -179,16 +188,18 @@ export async function adminRejectRefund(requestId: number, adminNote?: string) {
     columns: { orderId: true, userId: true, productName: true }
   })
 
-  await db.update(refundRequests).set({
+  const rejected = await db.update(refundRequests).set({
     status: 'rejected',
     adminUsername: username,
     adminNote: adminNote || null,
     updatedAt: new Date(),
-  }).where(eq(refundRequests.id, requestId))
+  }).where(and(eq(refundRequests.id, requestId), sql`COALESCE(${refundRequests.status}, 'pending') = 'pending'`,
+    sql`EXISTS (SELECT 1 FROM orders WHERE order_id = ${req.orderId} AND status IN ('paid', 'delivered'))`)).returning({ id: refundRequests.id })
+  if (!rejected.length) throw new Error('Refund request has already been handled')
 
   if (order?.userId) {
     const note = (adminNote || "").trim()
-    await createUserNotification({
+    try { await createUserNotification({
       userId: order.userId,
       type: 'refund_rejected',
       titleKey: 'profile.notifications.refundRejectedTitle',
@@ -201,7 +212,7 @@ export async function adminRejectRefund(requestId: number, adminNote?: string) {
         },
         href: `/order/${order.orderId}`
       }
-    })
+    }) } catch { /* The rejection is durable even if its inbox notification must be retried separately. */ }
   }
 
   revalidatePath('/admin/refunds')

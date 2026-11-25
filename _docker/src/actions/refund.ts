@@ -9,6 +9,7 @@ import { getSetting, recalcProductAggregates } from "@/lib/db/queries";
 import { checkAdmin } from "@/actions/admin";
 import { getEpayApiUrl, isPaymentIdOf, queryOrderStatus } from '@/lib/epay';
 import { claimPaymentRefund, savePaymentRefundState, type RefundResult } from '@/lib/payment-refund';
+import { moneyCents } from '@/lib/order-policy';
 
 // This action only records a refund completed outside the shop; it never moves money.
 export async function markOrderRefunded(orderId: string, confirmPlatformRefund = false) {
@@ -18,18 +19,18 @@ export async function markOrderRefunded(orderId: string, confirmPlatformRefund =
     if (!order) throw new Error("Order not found")
     if (order.status === 'refunded') return { success: true }
     if (!['paid', 'delivered'].includes(order.status || '')) throw new Error('Order is not refundable')
-    const amount = Number(order.amount)
-    if (!order.amount.trim() || !Number.isFinite(amount) || amount < 0) throw new Error('Invalid payment refund amount')
-    if (amount > 0 && confirmPlatformRefund !== true) throw new Error('Confirm the refund on the payment platform first')
+    const cents = moneyCents(order.amount)
+    if (cents === null) throw new Error('Invalid payment refund amount')
+    if (cents > 0 && confirmPlatformRefund !== true) throw new Error('Confirm the refund on the payment platform first')
 
-    return finalizeOrderRefund(order)
+    return finalizeOrderRefund(order, true)
 }
 
-async function finalizeOrderRefund(order: typeof orders.$inferSelect) {
+async function finalizeOrderRefund(order: typeof orders.$inferSelect, requireNoActiveRefund = false) {
     const orderId = order.orderId
 
     const reclaimCards = (await getSetting('refund_reclaim_cards')) !== 'false'
-    await refundOrderInventory(orderId, reclaimCards)
+    await refundOrderInventory(orderId, reclaimCards, requireNoActiveRefund)
 
     revalidatePath('/admin/orders')
     revalidatePath('/admin/refunds')
@@ -74,7 +75,8 @@ export async function proxyRefund(orderId: string, confirmVerifiedRetry = false)
     if (!order) return { ok: false, processed: false, message: 'Order not found' }
     if (order.status === 'refunded') return { ok: true, processed: true, message: 'Already refunded' }
     if (!order.tradeNo || !['paid', 'delivered'].includes(order.status || '')) return { ok: false, processed: false, message: 'Order is not eligible for a payment refund' }
-    if (!Number.isFinite(Number(order.amount)) || Number(order.amount) <= 0) return { ok: false, processed: false, message: 'Invalid payment refund amount' }
+    const cents = moneyCents(order.amount)
+    if (cents === null || cents <= 0) return { ok: false, processed: false, message: 'Invalid payment refund amount' }
 
     const uncertain = (): RefundResult => ({ ok: false, processed: false, needsVerification: true,
         message: 'Refund result is uncertain; check the payment platform before retrying', messageKey: 'admin.orders.refundNeedsVerification' })
@@ -119,7 +121,7 @@ export async function proxyRefund(orderId: string, confirmVerifiedRetry = false)
         key,
         trade_no: order.tradeNo,
         out_trade_no: isPaymentIdOf(order.orderId, order.currentPaymentId) ? order.currentPaymentId : order.orderId,
-        money: Number(order.amount).toFixed(2),
+        money: (cents / 100).toFixed(2),
     })
 
     let state: 'accepted' | 'retryable' | 'unknown' = 'unknown'

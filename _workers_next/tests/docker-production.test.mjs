@@ -67,7 +67,7 @@ async function requestPageData(f, path, headers) {
 }
 
 async function pay(f, id, money = '3.00') {
-    const params = { out_trade_no: id, trade_no: 'native-trade-' + id, trade_status: 'TRADE_SUCCESS', money }
+    const params = { pid: 'TEST-MERCHANT', out_trade_no: id, trade_no: 'native-trade-' + id, trade_status: 'TRADE_SUCCESS', money }
     const sorted = Object.keys(params).sort().map(key => `${key}=${params[key]}`).join('&')
     const response = await f.request(`/api/notify?${new URLSearchParams({ ...params, sign_type: 'MD5', sign: createHash('md5').update(sorted + nativeMerchantKey).digest('hex') })}`)
     assert.equal(response.status, 200, await response.clone().text())

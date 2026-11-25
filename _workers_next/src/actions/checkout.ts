@@ -15,6 +15,7 @@ import { getProductCardApiConfig } from '@/lib/card-api'
 import { commitCheckoutOrder } from "@/lib/checkout-inventory"
 import { INFINITE_STOCK, RESERVATION_TTL_MS, MAX_PENDING_ORDERS_PER_USER, MAX_UNPAID_ORDERS_PER_HOUR, UNPAID_ORDER_WINDOW_MS } from "@/lib/constants"
 import { validatePurchaseAnswers } from '@/lib/purchase-questions'
+import { merchantConfigured, moneyCents } from '@/lib/order-policy'
 
 const MAX_ORDER_QUANTITY = 10000
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -53,6 +54,7 @@ export async function createOrder(productId: string, quantity: number = 1, email
     const user = session?.user
 
     if (!user?.id) return { success: false, error: 'common.loginRequired' }
+    if (typeof productId !== 'string' || !productId || productId.length > 200) return { success: false, error: 'buy.productNotFound' }
 
     const normalizedQuantity = Number(quantity)
 
@@ -90,6 +92,9 @@ export async function createOrder(productId: string, quantity: number = 1, email
     }
     const product = await getCheckoutProduct()
     if (!product) return { success: false, error: 'buy.productNotFound' }
+    const priceCents = moneyCents(product.price)
+    if (priceCents === null) return { success: false, error: 'buy.productNotFound' }
+    if (!Number.isSafeInteger(priceCents * quantity)) return { success: false, error: 'buy.quantityTooLarge' }
 
     const trustLevel = Math.max(0, Number.isFinite(Number(user.trustLevel)) ? Number(user.trustLevel) : 0)
     if (Number(product.visibilityLevel ?? -1) > trustLevel) {
@@ -133,7 +138,7 @@ export async function createOrder(productId: string, quantity: number = 1, email
 
     // Points Calculation
     let pointsToUse = 0
-    let finalAmount = Number(product.price) * quantity
+    let finalAmount = (priceCents * quantity) / 100
 
     if (usePoints && user?.id) {
         const userRec = await db.query.loginUsers.findFirst({
@@ -151,7 +156,7 @@ export async function createOrder(productId: string, quantity: number = 1, email
 
     if (!Number.isFinite(finalAmount) || finalAmount < 0) return { success: false, error: 'buy.productNotFound' }
     const isZeroPrice = finalAmount <= 0
-    if (typeof productId !== 'string' || productId.length > 200) return { success: false, error: 'buy.productNotFound' }
+    if (!isZeroPrice && !merchantConfigured()) return { success: false, error: 'payment.unavailable' }
     const contactInfo = (typeof email === 'string' ? email : '').trim().slice(0, 254)
     const resolvedContactInfo = contactInfo || null
     const resolvedDeliveryEmail = isValidEmail(contactInfo) ? contactInfo : null
@@ -287,14 +292,23 @@ export async function getRetryPaymentParams(orderId: string) {
 
     if (!order) return { success: false, error: 'buy.productNotFound' }
     if (order.status !== 'pending') return { success: false, error: 'order.status.paid' }
+    if (!order.createdAt || order.createdAt.getTime() <= Date.now() - RESERVATION_TTL_MS) return { success: false, error: 'order.paymentExpired' }
+    const cents = moneyCents(order.amount)
+    if (cents === null || cents <= 0) return { success: false, error: 'payment.invalidAmount' }
+    if (!merchantConfigured()) return { success: false, error: 'payment.unavailable' }
 
     const baseUrl = getAppBaseUrl() || 'http://localhost:3000';
 
-    const uniqueTradeNo = `${order.orderId}_retry${Date.now()}`;
+    const uniqueTradeNo = `${order.orderId}_retry${Date.now()}${crypto.getRandomValues(new Uint32Array(1))[0].toString().padStart(10, '0')}`;
 
-    await db.update(orders)
+    const updated = await db.update(orders)
         .set({ currentPaymentId: uniqueTradeNo })
-        .where(eq(orders.orderId, orderId))
+        .where(and(eq(orders.orderId, orderId), eq(orders.userId, user.id), eq(orders.status, 'pending'),
+            gt(orders.createdAt, new Date(Date.now() - RESERVATION_TTL_MS)),
+            sql`COALESCE(${orders.currentPaymentId}, '') = ${order.currentPaymentId || ''}`,
+            sql`EXISTS (SELECT 1 FROM login_users WHERE user_id = ${user.id} AND COALESCE(is_blocked, 0) = 0)`))
+        .returning({ orderId: orders.orderId })
+    if (!updated.length) return { success: false, error: 'order.paymentRetryChanged' }
 
     const payParams: Record<string, string> = {
         pid: process.env.MERCHANT_ID!,
@@ -303,7 +317,7 @@ export async function getRetryPaymentParams(orderId: string) {
         notify_url: `${baseUrl}/api/notify`,
         return_url: `${baseUrl}/callback/${order.orderId}`,
         name: order.productName,
-        money: Number(order.amount).toFixed(2),
+        money: (cents / 100).toFixed(2),
         sign_type: 'MD5'
     }
 

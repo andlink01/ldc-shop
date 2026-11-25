@@ -212,7 +212,7 @@ function sign(params) {
 }
 
 async function pay(f, checkout, overrides = {}, method = 'GET') {
-    const params = { out_trade_no: checkout.params.out_trade_no, trade_no: 'test-trade', trade_status: 'TRADE_SUCCESS', money: checkout.params.money, ...overrides }
+    const params = { pid: 'TEST-MERCHANT', out_trade_no: checkout.params.out_trade_no, trade_no: 'test-trade', trade_status: 'TRADE_SUCCESS', money: checkout.params.money, ...overrides }
     const query = new URLSearchParams({ ...params, sign: sign(params), sign_type: 'MD5' })
     return f.worker.dispatchFetch(`https://shop.example/api/notify${method === 'GET' ? '?' + query : ''}`, method === 'POST' ? {
         method, body: query.toString(), headers: { 'Content-Type': 'application/x-www-form-urlencoded' },

@@ -2,7 +2,8 @@ import { db, dbBatchRaw } from '@/lib/db'
 import { orders } from '@/lib/db/schema'
 import { ensureDatabaseInitialized } from '@/lib/db/queries'
 import { eq } from 'drizzle-orm'
-import { RESERVATION_TTL_MS, MAX_PENDING_ORDERS_PER_USER } from '@/lib/constants'
+import { RESERVATION_TTL_MS } from '@/lib/constants'
+import { NEW_ORDER_ALLOWED_SQL, newOrderAllowedParams } from '@/lib/order-policy'
 import { fulfillPaidOrder, invalidateInventory } from '@/lib/fulfillment'
 import { scheduleInventoryEvents } from '@/lib/inventory-events'
 
@@ -32,13 +33,13 @@ export async function commitCheckoutOrder(input: CheckoutInput) {
                 OR ? = 0 AND (SELECT COUNT(*) FROM cards WHERE product_id = ? AND ${eligible}) >= ?)
             AND (? IS NULL OR (SELECT COALESCE(SUM(quantity), 0) FROM orders WHERE user_id = ? AND product_id = ?
                 AND status IN ('pending', 'paid', 'delivered')) + ? <= ?)
-            AND (SELECT COUNT(*) FROM orders WHERE user_id = ? AND status = 'pending') < ?`,
+            AND ${NEW_ORDER_ALLOWED_SQL}`,
         params: [input.orderId, input.productId, input.productName, input.amount.toFixed(2), input.email, input.userId, input.username,
             paid ? 'paid' : 'pending', input.points, input.quantity, paid ? null : input.orderId, paid ? 'POINTS_REDEMPTION' : null, paid ? now : null, now,
             input.productId, input.price, Number(input.shared), trustLevel, input.purchaseQuestions || '', input.userId, input.points, Number(input.onDemand), input.productId, input.productId, Number(input.onDemand), input.productId,
             expiresAfter, Number(input.shared), cutoff, input.shared ? 1 : input.quantity,
             input.purchaseLimit, input.userId, input.productId, input.quantity, input.purchaseLimit,
-            input.userId, MAX_PENDING_ORDERS_PER_USER],
+            ...newOrderAllowedParams(input.userId, now)],
     }, {
         sql: 'UPDATE login_users SET points = points - ? WHERE user_id = ? AND EXISTS (SELECT 1 FROM orders WHERE order_id = ?)',
         params: [input.points, input.userId, input.orderId],

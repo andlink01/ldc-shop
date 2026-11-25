@@ -1,8 +1,8 @@
 import { requireAdminPage } from "@/lib/admin-guard"
 import { notFound } from "next/navigation"
 import { db } from "@/lib/db"
-import { orders } from "@/lib/db/schema"
-import { eq } from "drizzle-orm"
+import { orders, inventoryEvents } from "@/lib/db/schema"
+import { and, desc, eq } from "drizzle-orm"
 import { AdminOrderDetailContent } from "@/components/admin/order-detail-content"
 import { getProductVariantLabels } from "@/lib/db/queries"
 import { unstable_noStore } from "next/cache"
@@ -16,9 +16,19 @@ export default async function AdminOrderDetailPage({ params }: { params: Promise
 
   const labels = order.productId ? await getProductVariantLabels([order.productId]) : {}
   const productVariantLabel = order.productId ? labels[order.productId] ?? null : null
+  const conflicts = await db.select({ data: inventoryEvents.data }).from(inventoryEvents)
+    .where(and(eq(inventoryEvents.orderId, id), eq(inventoryEvents.kind, 'payment_conflict')))
+    .orderBy(desc(inventoryEvents.createdAt)).limit(100)
+  const paymentConflicts = conflicts.flatMap(({ data }) => {
+    try {
+      const value = JSON.parse(data || '') as { tradeNo?: unknown; amount?: unknown }
+      return typeof value.tradeNo === 'string' && typeof value.amount === 'string' ? [{ tradeNo: value.tradeNo, amount: value.amount }] : []
+    } catch { return [] }
+  })
 
   return (
     <AdminOrderDetailContent
+      paymentConflicts={paymentConflicts}
       order={{
         orderId: order.orderId,
         username: order.username,

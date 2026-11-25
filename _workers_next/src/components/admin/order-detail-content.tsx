@@ -31,7 +31,7 @@ function statusVariant(status: string | null) {
   }
 }
 
-export function AdminOrderDetailContent({ order }: { order: AdminOrderDetail }) {
+export function AdminOrderDetailContent({ order, paymentConflicts = [] }: { order: AdminOrderDetail; paymentConflicts?: Array<{ tradeNo: string; amount: string }> }) {
   const { t } = useI18n()
   const router = useRouter()
   const [email, setEmail] = useState(order.email || '')
@@ -43,7 +43,7 @@ export function AdminOrderDetailContent({ order }: { order: AdminOrderDetail }) 
   const canMarkPaid = status === 'pending'
   const canMarkDelivered = status === 'paid' && !!order.cardKey
   const canCancel = status === 'pending'
-  const canDelete = true
+  const canDelete = (status !== 'paid' || order.productId === 'payment_link') && paymentConflicts.length === 0
 
   const handleStatus = async (action: 'paid' | 'delivered' | 'cancel' | 'retry') => {
     if (actionLock.current) return
@@ -113,6 +113,21 @@ export function AdminOrderDetailContent({ order }: { order: AdminOrderDetail }) 
           <Link href="/admin/orders">{t('common.back')}</Link>
         </Button>
       </div>
+
+      {paymentConflicts.length > 0 && (
+        <Card className="border-amber-500/50" role="alert">
+          <CardHeader><CardTitle>{t('admin.orders.additionalPayments')}</CardTitle></CardHeader>
+          <CardContent className="space-y-3">
+            <p className="text-sm">{t('admin.orders.additionalPaymentsReview')}</p>
+            {paymentConflicts.map((payment) => (
+              <div key={payment.tradeNo} className="flex flex-wrap gap-3 text-sm">
+                <span className="font-mono break-all">{t('admin.orders.tradeNo')}: {payment.tradeNo}</span>
+                <span>{t('admin.orders.amount')}: {payment.amount}</span>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">

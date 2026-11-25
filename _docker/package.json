@@ -1,6 +1,6 @@
 {
   "name": "ldc-shop-docker",
-  "version": "1.5.21",
+  "version": "1.5.22",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -14,7 +14,7 @@
     "test:client": "node --test tests/client-state.test.mjs tests/catalog-availability.test.mjs",
     "test:storefront": "node --test tests/storefront.test.mjs tests/pending-delivery.test.mjs tests/supplier-recovery.test.mjs",
     "test:card-config": "node --test tests/card-api-config.test.mjs",
-    "test:features": "node --test tests/fulfillment.test.mjs tests/inventory-management.test.mjs tests/inventory-key-recovery.test.mjs tests/supplier-fulfillment.test.mjs tests/order-processing.test.mjs tests/transaction-audit.test.mjs tests/notification-events.test.mjs tests/inventory-backup.test.mjs tests/maintenance-regression.test.mjs tests/audit-regression.test.mjs tests/audit-followup.test.mjs tests/refund-regression.test.mjs",
+    "test:features": "node --test tests/fulfillment.test.mjs tests/inventory-management.test.mjs tests/inventory-key-recovery.test.mjs tests/supplier-fulfillment.test.mjs tests/order-processing.test.mjs tests/transaction-audit.test.mjs tests/notification-events.test.mjs tests/inventory-backup.test.mjs tests/maintenance-regression.test.mjs tests/audit-regression.test.mjs tests/audit-followup.test.mjs tests/refund-regression.test.mjs tests/transaction-flow.test.mjs",
     "test:production": "node --test tests/docker-production.test.mjs",
     "db:push": "drizzle-kit push",
     "db:migrate": "drizzle-kit push"

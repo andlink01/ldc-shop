@@ -47,6 +47,21 @@ export async function processInventoryEvents(limit = 10) {
                     done = telegramDone && barkDone
                     if (!done) error = 'payment_notification_failed'
                 }
+            } else if (event.kind === 'payment_conflict') {
+                const data = JSON.parse(event.data || '{}') as { orderId: string; tradeNo: string; amount: string }
+                const title = settings.language === 'en' ? 'Additional payment requires review' : '检测到额外付款，请核对'
+                const body = `${data.orderId}\n${settings.language === 'en' ? 'Transaction' : '交易号'}: ${data.tradeNo}\n${settings.language === 'en' ? 'Amount' : '金额'}: ${data.amount}`
+                if (!telegramDone) {
+                    const text = `${title}\n${body}`.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                    telegramDone = !settings.telegramEnabled || (await sendTelegramMessage(text)).success
+                    if (telegramDone) await save({ telegramSent: true })
+                }
+                if (!barkDone) {
+                    barkDone = !settings.barkEnabled || (await sendBarkMessage(title, body, { group: 'LDC Shop' })).success
+                    if (barkDone) await save({ barkSent: true })
+                }
+                done = telegramDone && barkDone
+                if (!done) error = 'payment_conflict_notification_failed'
             } else if (event.kind === 'delivery') {
                 const order = event.orderId ? await db.query.orders.findFirst({ where: eq(orders.orderId, event.orderId) }) : null
                 if (!order || order.status !== 'delivered' || !order.cardKey) done = true

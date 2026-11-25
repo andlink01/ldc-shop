@@ -8,6 +8,5 @@ type OwnedOrder = { userId: string | null; username?: string | null }
  */
 export function isOrderOwner(user: OrderUser, order: OwnedOrder) {
     if (!user?.id) return false
-    if (order.userId) return user.id === order.userId
-    return Boolean(order.username && user.username === order.username)
+    return Boolean(order.userId && user.id === order.userId)
 }

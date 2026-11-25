@@ -4,6 +4,9 @@ import { orders } from "@/lib/db/schema";
 import { generateSign, safeEqual } from "@/lib/crypto";
 import { eq } from "drizzle-orm";
 import { withOrderColumnFallback } from "@/lib/db/queries";
+import { isPaymentIdOf } from '@/lib/epay';
+import { moneyCents } from '@/lib/order-policy';
+import { savePaymentReceipt } from '@/lib/payment-receipts';
 
 const LOG_NOTIFY_DETAILS = process.env.NODE_ENV !== 'production';
 
@@ -33,6 +36,7 @@ async function processNotify(params: Record<string, string>) {
         console.log("[Notify] Signature mismatch!");
         return new Response('fail', { status: 400 });
     }
+    if (!process.env.MERCHANT_ID || params.pid !== process.env.MERCHANT_ID) return new Response('fail', { status: 400 });
 
     console.log("[Notify] Signature verified OK. trade_status:", params.trade_status);
 
@@ -43,8 +47,18 @@ async function processNotify(params: Record<string, string>) {
         if (orderId.includes('_retry')) {
             orderId = orderId.split('_retry')[0];
         }
+        if (!orderId || !isPaymentIdOf(orderId, params.out_trade_no) || orderId.length > 200 || params.out_trade_no.length > 260
+            || !params.trade_no.trim() || params.trade_no.length > 200) return new Response('fail', { status: 400 });
 
         const tradeNo = params.trade_no;
+        const receivedCents = moneyCents(params.money);
+        if (receivedCents === null || receivedCents <= 0) return new Response('fail', { status: 400 });
+        try {
+            await savePaymentReceipt({ orderId, paymentId: params.out_trade_no, tradeNo, amount: (receivedCents / 100).toFixed(2) });
+        } catch (e) {
+            if (getErrorMessage(e).includes('receipt mismatch')) return new Response('fail', { status: 400 });
+            throw e;
+        }
 
         console.log("[Notify] Processing order:", orderId);
 
@@ -59,23 +73,23 @@ async function processNotify(params: Record<string, string>) {
 
         if (order) {
             // Verify Amount (Prevent penny-dropping)
-            const notifyMoney = Number(params.money);
+            const notifyMoney = receivedCents / 100;
+            const orderCents = moneyCents(order.amount);
             const orderMoney = Number(order.amount);
 
-            if (!params.money?.trim() || !Number.isFinite(notifyMoney) || !Number.isFinite(orderMoney)
-                || notifyMoney < 0 || Math.round(notifyMoney * 100) !== Math.round(orderMoney * 100)) {
+            if (orderCents === null || receivedCents !== orderCents) {
                 console.error(`[Notify] Amount mismatch! Order: ${orderMoney}, Notify: ${notifyMoney}`);
                 return new Response('fail', { status: 400 });
             }
 
-            if (order.status === 'pending' || order.status === 'cancelled') {
+            if (['pending', 'cancelled', 'paid', 'delivered', 'refunded'].includes(order.status || '')) {
                 try {
                     const { processOrderFulfillment } = await import("@/lib/order-processing");
                     await processOrderFulfillment(orderId, notifyMoney, tradeNo, params.out_trade_no);
                 } catch (e) {
                     console.error("[Notify] Fulfillment error:", e);
                     const message = getErrorMessage(e).toLowerCase();
-                    if (message.includes('amount mismatch') || message.includes('invalid trade number')) {
+                    if (message.includes('amount mismatch') || message.includes('invalid trade number') || message.includes('receipt mismatch')) {
                         return new Response('fail', { status: 400 });
                     }
                     // Fulfillment defers delivery failures itself. An exception here means
@@ -83,7 +97,7 @@ async function processNotify(params: Record<string, string>) {
                     return new Response('error', { status: 500 });
                 }
             }
-        }
+        } else return new Response('fail', { status: 404 });
     }
 
     return new Response('success');

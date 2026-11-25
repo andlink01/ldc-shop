@@ -223,7 +223,8 @@ test('signature and token comparison rejects missing, empty and different values
     for (const [a, b] of [['secret', 'secreT'], ['secret', 'secret '], ['', ''], [undefined, undefined], [null, 'x'], ['x', undefined], [1, 1]]) {
         assert.equal(safeEqual(a, b), false)
     }
-    const params = { pid: 'm', out_trade_no: 'ORDER', trade_no: 'T', trade_status: 'TRADE_SUCCESS', money: '3.00', sign_type: 'MD5' }
+    await f.db.insert(f.schema.orders).values({ orderId: 'ORDER', productId: 'product', productName: 'Product', amount: '3', status: 'pending' })
+    const params = { pid: 'test-merchant', out_trade_no: 'ORDER', trade_no: 'T', trade_status: 'TRADE_SUCCESS', money: '3.00', sign_type: 'MD5' }
     const { GET } = f.load('app/api/notify/route')
     const call = extra => GET(new Request('https://shop.example/api/notify?' + new URLSearchParams({ ...params, ...extra })))
     assert.equal((await call({ sign: 'wrong' })).status, 400)

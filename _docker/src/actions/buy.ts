@@ -101,7 +101,7 @@ export async function getBuyPageMeta(productId: string): Promise<BuyPageMeta> {
 
     if (session?.user?.id) {
         try {
-            const eligibility = await canUserReview(session.user.id, id, session.user.username || undefined)
+            const eligibility = await canUserReview(session.user.id, id)
             canReview = eligibility.canReview
             reviewOrderId = eligibility.orderId
         } catch {
