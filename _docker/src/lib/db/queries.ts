@@ -586,18 +586,6 @@ export async function recalcProductAggregates(productId: string) {
         if (!isMissingTableOrColumn(error)) throw error;
     }
 
-    let soldCount = 0;
-    try {
-        const soldRows = await db.select({
-            total: sql<number>`COALESCE(SUM(CASE WHEN ${orders.status} IN ('paid', 'delivered') THEN ${orders.quantity} ELSE 0 END), 0)`
-        })
-            .from(orders)
-            .where(eq(orders.productId, pid));
-        soldCount = Number(soldRows[0]?.total || 0);
-    } catch (error) {
-        if (!isMissingTableOrColumn(error)) throw error;
-    }
-
     let rating = 0;
     let reviewCount = 0;
     try {
@@ -619,7 +607,7 @@ export async function recalcProductAggregates(productId: string) {
         .set({
             stockCount,
             lockedCount,
-            soldCount,
+            soldCount: sql<number>`COALESCE((SELECT SUM(sale.quantity) FROM orders sale WHERE sale.product_id = ${products.id} AND sale.status IN ('paid', 'delivered')), 0)`,
             rating,
             reviewCount
         })
@@ -648,7 +636,6 @@ export async function recalcProductAggregatesForMany(productIds: string[]) {
         unused: number;
         available: number;
         locked: number;
-        sold: number;
         rating: number;
         reviewCount: number;
     }>();
@@ -664,7 +651,6 @@ export async function recalcProductAggregatesForMany(productIds: string[]) {
                 unused: 0,
                 available: 0,
                 locked: 0,
-                sold: 0,
                 rating: 0,
                 reviewCount: 0
             });
@@ -702,27 +688,6 @@ export async function recalcProductAggregatesForMany(productIds: string[]) {
     try {
         for (let i = 0; i < existingIds.length; i += QUERY_BATCH_SIZE) {
             const batch = existingIds.slice(i, i + QUERY_BATCH_SIZE);
-            const soldRows = await db.select({
-                productId: orders.productId,
-                total: sql<number>`COALESCE(SUM(CASE WHEN ${orders.status} IN ('paid', 'delivered') THEN ${orders.quantity} ELSE 0 END), 0)`
-            })
-                .from(orders)
-                .where(inArray(orders.productId, batch))
-                .groupBy(orders.productId);
-
-            for (const row of soldRows) {
-                const agg = aggregates.get(row.productId);
-                if (!agg) continue;
-                agg.sold = Number(row.total || 0);
-            }
-        }
-    } catch (error) {
-        if (!isMissingTableOrColumn(error)) throw error;
-    }
-
-    try {
-        for (let i = 0; i < existingIds.length; i += QUERY_BATCH_SIZE) {
-            const batch = existingIds.slice(i, i + QUERY_BATCH_SIZE);
             const reviewRows = await db.select({
                 productId: reviews.productId,
                 avg: sql<number>`COALESCE(AVG(${reviews.rating}), 0)`,
@@ -750,7 +715,6 @@ export async function recalcProductAggregatesForMany(productIds: string[]) {
             id,
             stockCount,
             lockedCount: agg.locked,
-            soldCount: agg.sold,
             rating: agg.rating,
             reviewCount: agg.reviewCount
         };
@@ -767,10 +731,6 @@ export async function recalcProductAggregatesForMany(productIds: string[]) {
             batch.map((row) => sql`WHEN ${products.id} = ${row.id} THEN ${row.lockedCount}`),
             sql` `
         );
-        const soldCases = sql.join(
-            batch.map((row) => sql`WHEN ${products.id} = ${row.id} THEN ${row.soldCount}`),
-            sql` `
-        );
         const ratingCases = sql.join(
             batch.map((row) => sql`WHEN ${products.id} = ${row.id} THEN ${row.rating}`),
             sql` `
@@ -785,7 +745,7 @@ export async function recalcProductAggregatesForMany(productIds: string[]) {
             SET
                 stock_count = CASE ${stockCases} ELSE ${products.stockCount} END,
                 locked_count = CASE ${lockedCases} ELSE ${products.lockedCount} END,
-                sold_count = CASE ${soldCases} ELSE ${products.soldCount} END,
+                sold_count = COALESCE((SELECT SUM(sale.quantity) FROM orders sale WHERE sale.product_id = ${products.id} AND sale.status IN ('paid', 'delivered')), 0),
                 rating = CASE ${ratingCases} ELSE ${products.rating} END,
                 review_count = CASE ${reviewCases} ELSE ${products.reviewCount} END
             WHERE ${inArray(products.id, idsBatch)}

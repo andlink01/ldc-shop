@@ -56,6 +56,11 @@ export async function commitCheckoutOrder(input: CheckoutInput) {
         sql: `INSERT OR IGNORE INTO inventory_events (event_id, kind, order_id, product_id, created_at)
             SELECT ?, 'payment', order_id, product_id, ? FROM orders WHERE order_id = ? AND status = 'paid'`,
         params: [`payment:${input.orderId}`, now, input.orderId],
+    }, {
+        sql: `UPDATE products SET sold_count = COALESCE((SELECT SUM(quantity) FROM orders
+            WHERE product_id = products.id AND status IN ('paid', 'delivered')), 0)
+            WHERE id = ? AND EXISTS (SELECT 1 FROM orders WHERE order_id = ? AND status = 'paid')`,
+        params: [input.productId, input.orderId],
     }])
     const order = await db.query.orders.findFirst({ where: eq(orders.orderId, input.orderId), columns: { status: true } })
     if (!order) return { success: false as const }

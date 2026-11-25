@@ -44,6 +44,12 @@ export async function refundOrderInventory(orderId: string, reclaim: boolean, re
         sql: `UPDATE orders SET status = 'refunded' WHERE order_id = ? AND EXISTS
             (SELECT 1 FROM inventory_events WHERE event_id = ? AND lease_token = ?)`, params: [orderId, eventId, token],
     }, {
+        sql: `UPDATE products SET sold_count = COALESCE((SELECT SUM(quantity) FROM orders
+            WHERE product_id = products.id AND status IN ('paid', 'delivered')), 0)
+            WHERE id = (SELECT product_id FROM orders WHERE order_id = ?)
+            AND EXISTS (SELECT 1 FROM inventory_events WHERE event_id = ? AND lease_token = ?)`,
+        params: [orderId, eventId, token],
+    }, {
         // Read the final delivered card IDs inside the transaction, including a concurrent fulfillment that won first.
         sql: `UPDATE cards SET is_used = 0, used_at = NULL, reserved_order_id = NULL, reserved_at = NULL
             WHERE EXISTS (SELECT 1 FROM orders refunded JOIN products p ON p.id = refunded.product_id

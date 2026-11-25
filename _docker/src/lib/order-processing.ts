@@ -46,6 +46,11 @@ export async function processOrderFulfillment(orderId: string, paidAmount: numbe
                 json_object('orderId', order_id, 'tradeNo', ?, 'originalTradeNo', trade_no, 'amount', ?, 'paymentId', ?), ?
             FROM orders WHERE order_id = ? AND status IN ('paid', 'delivered', 'refunded') AND COALESCE(trade_no, '') != ?`,
         params: [`payment-conflict:${orderId}:${tradeNo}`, tradeNo, (paidCents / 100).toFixed(2), paymentId ?? null, now, orderId, tradeNo],
+    }, {
+        sql: `UPDATE products SET sold_count = COALESCE((SELECT SUM(quantity) FROM orders
+            WHERE product_id = products.id AND status IN ('paid', 'delivered')), 0)
+            WHERE id = (SELECT product_id FROM orders WHERE order_id = ?)`,
+        params: [orderId],
     }])
     const saved = await db.query.orders.findFirst({ where: eq(orders.orderId, orderId), columns: { status: true } })
     if (!saved) throw new Error('Order not found')
