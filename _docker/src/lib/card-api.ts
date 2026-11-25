@@ -5,6 +5,7 @@ import { settings, products } from "@/lib/db/schema"
 import { ensureDatabaseInitialized } from "@/lib/db/queries"
 import { inArray, eq, sql } from "drizzle-orm"
 import { CardApiConfigError, validateCardApiConfig } from './card-api-validation'
+import { safeOutboundHttpUrl } from './safe-url'
 
 export interface ProductCardApiConfig {
     enabled: boolean
@@ -20,7 +21,9 @@ function keyOf(productId: string, field: "enabled" | "url" | "token" | "mode") {
 function resolveApiUrl(rawUrl: string): string {
     const trimmed = rawUrl.trim()
     if (!trimmed) return ""
-    return new URL(trimmed).toString()
+    const safe = safeOutboundHttpUrl(trimmed)
+    if (!safe) throw new Error('Invalid outbound API URL')
+    return safe
 }
 
 function extractCardKey(payload: unknown): string {

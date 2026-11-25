@@ -3,6 +3,7 @@ import { orders, supplierRequests } from '@/lib/db/schema'
 import { getProductCardApiConfig } from '@/lib/card-api'
 import { ensureDatabaseInitialized, recalcProductAggregates } from '@/lib/db/queries'
 import { fulfillPaidOrder, invalidateInventory } from '@/lib/fulfillment'
+import { safeOutboundHttpUrl } from '@/lib/safe-url'
 import { and, eq, sql } from 'drizzle-orm'
 
 export async function procureOrderCards(orderId: string, maxRequests = 3) {
@@ -12,9 +13,8 @@ export async function procureOrderCards(orderId: string, maxRequests = 3) {
     if ((await fulfillPaidOrder(orderId)).delivered) return { done: true }
     const config = await getProductCardApiConfig(order.productId)
     if (!config.enabled || config.mode !== 'on_demand' || !config.url) return { done: false, error: 'supplier_disabled' }
-    const endpoint = new URL(config.url)
-    if (!['https:', 'http:'].includes(endpoint.protocol) || endpoint.username || endpoint.password || endpoint.search || endpoint.hash) return { done: false, error: 'supplier_url_invalid' }
-    const serverUrl = endpoint.toString()
+    const serverUrl = safeOutboundHttpUrl(config.url, { disallowSearch: true })
+    if (!serverUrl) return { done: false, error: 'supplier_url_invalid' }
     let requests = 0
     for (let index = 0; index < order.quantity && requests < Math.min(5, Math.max(1, maxRequests)); index++) {
         const current = await db.query.orders.findFirst({ where: eq(orders.orderId, orderId), columns: { status: true } })

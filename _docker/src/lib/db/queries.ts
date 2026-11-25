@@ -2188,7 +2188,7 @@ async function migrateGitHubUsersDedupAndCanonicalize() {
         lastLoginAt: loginUsers.lastLoginAt,
     })
         .from(loginUsers)
-        .where(sql`${loginUsers.username} IS NOT NULL AND LOWER(${loginUsers.username}) LIKE 'gh_%'`)
+        .where(sql`${loginUsers.username} IS NOT NULL AND LOWER(${loginUsers.username}) LIKE 'gh_%' AND LOWER(${loginUsers.userId}) LIKE 'github:%'`)
 
     if (!githubUsers.length) return
 

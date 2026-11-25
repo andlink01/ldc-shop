@@ -50,7 +50,7 @@ COPY --from=builder --chown=nextjs:nodejs /app/package.json ./package.json
 COPY --from=builder --chown=nextjs:nodejs /app/cron.mjs ./cron.mjs
 
 # Data directory for SQLite
-RUN mkdir -p /app/data && chown -R nextjs:nodejs /app/data && chmod 777 /app/data
+RUN mkdir -p /app/data && chown -R nextjs:nodejs /app/data && chmod 700 /app/data
 
 # Pre-create .next directory
 RUN mkdir -p .next && chown nextjs:nodejs .next

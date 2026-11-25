@@ -1,3 +1,5 @@
+import { safeOutboundHttpUrl } from './safe-url'
+
 export type CardApiMode = 'stock' | 'on_demand'
 export type CardApiConfigErrorCode =
     | 'admin.cards.apiUrlRequired'
@@ -28,7 +30,7 @@ export function validateCardApiConfig(input: { enabled: boolean; url: string; to
     if (url) {
         try {
             const parsed = new URL(url)
-            if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password) return 'admin.cards.apiUrlInvalid'
+            if (!safeOutboundHttpUrl(url)) return 'admin.cards.apiUrlInvalid'
             if (input.mode === 'on_demand' && (parsed.search || parsed.hash)) return 'admin.cards.apiUrlQueryUnsupported'
         } catch { return 'admin.cards.apiUrlInvalid' }
     }

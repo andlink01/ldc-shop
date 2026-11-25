@@ -2,7 +2,7 @@
 
 基于 **Next.js 16**、**Cloudflare Workers** (OpenNext)、**D1 Database** 和 **Shadcn UI** 构建的无服务器虚拟商品商店。
 
-当前版本为 **1.5.23 / 数据库结构 25**。Docker 自托管部署请查看 [Docker 部署指南](../_docker/README.md)。
+当前版本为 **1.5.24 / 数据库结构 25**。Docker 自托管部署请查看 [Docker 部署指南](../_docker/README.md)。
 
 ## 🛠 技术架构 (Technical Architecture)
 

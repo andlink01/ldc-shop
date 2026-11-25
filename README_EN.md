@@ -9,7 +9,7 @@ A virtual goods shop built with **Next.js 16** and **Shadcn UI**, with separate 
 > [!IMPORTANT]
 > The root Vercel application has been removed from this fork. Only `_workers_next/` and `_docker/` remain.
 > 
-> **Current version: 1.5.23 / database schema 25.** See the [inventory API](./docs/inventory-api.md) and [payment-triggered procurement](./docs/supplier-api.md) guides. Build Docker from this repository and follow its deployment instructions.
+> **Current version: 1.5.24 / database schema 25.** See the [inventory API](./docs/inventory-api.md) and [payment-triggered procurement](./docs/supplier-api.md) guides. Build Docker from this repository and follow its deployment instructions.
 
 > 🚀 **Recommended: Cloudflare Workers or Docker self-hosted**
 > 

@@ -4,6 +4,7 @@ import { settings } from "./db/schema"
 import { inArray } from "drizzle-orm"
 import { resolveEffectiveShopLogo } from "@/lib/shop-logo"
 import { getAppBaseUrl } from "@/lib/url"
+import { safeOutboundHttpUrl } from "@/lib/safe-url"
 
 async function getSettingsUncached(keys: string[]): Promise<Record<string, string>> {
     try {
@@ -147,8 +148,9 @@ export async function sendTelegramMessage(text: string) {
 function normalizeBarkServerUrl(raw: string) {
     const trimmed = (raw || "").trim()
     const withProtocol = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`
-    const parsed = new URL(withProtocol)
-    if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password || parsed.search || parsed.hash) throw new Error('Invalid Bark server address')
+    const safeUrl = safeOutboundHttpUrl(withProtocol, { disallowSearch: true })
+    if (!safeUrl) throw new Error('Invalid Bark server address')
+    const parsed = new URL(safeUrl)
     const pathname = parsed.pathname.replace(/\/+$/, "")
     return `${parsed.origin}${pathname}`
 }

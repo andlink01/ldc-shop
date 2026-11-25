@@ -9,7 +9,7 @@
 > [!IMPORTANT]
 > 本仓库已移除根目录的 Vercel 版，仅保留 `_workers_next/` 和 `_docker/`。
 > 
-> **当前版本为 1.5.23，数据库结构为 25。** 支持 [外部程序补卡](./docs/inventory-api.md) 和 [付款后采购](./docs/supplier-api.md)。Docker 请从本仓库构建镜像，并按对应部署指南配置。
+> **当前版本为 1.5.24，数据库结构为 25。** 支持 [外部程序补卡](./docs/inventory-api.md) 和 [付款后采购](./docs/supplier-api.md)。Docker 请从本仓库构建镜像，并按对应部署指南配置。
 
 > 🚀 **推荐部署方式：Cloudflare Workers 或 Docker 自托管**
 > 

@@ -65,7 +65,7 @@ async function resolveExistingGitHubUserIdByUsername(username?: string | null) {
         const rows = await db
             .select({ userId: loginUsers.userId })
             .from(loginUsers)
-            .where(sql`LOWER(${loginUsers.username}) = ${normalizedUsername}`)
+            .where(sql`LOWER(${loginUsers.username}) = ${normalizedUsername} AND LOWER(${loginUsers.userId}) LIKE 'github:%'`)
             .orderBy(sql`COALESCE(${loginUsers.lastLoginAt}, 0) DESC`)
             .limit(1)
         return rows[0]?.userId ?? null
@@ -356,6 +356,12 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
             if (user) {
                 let resolvedId = String(user.id)
                 let resolvedUsername = user.username ? String(user.username) : null
+                let resolvedProvider =
+                    typeof user.provider === 'string' && user.provider.trim()
+                        ? user.provider.trim().toLowerCase()
+                        : typeof token.provider === 'string' && token.provider.trim()
+                            ? token.provider.trim().toLowerCase()
+                            : undefined
 
                 if (account?.provider === "linuxdo") {
                     // Match legacy working behavior: Linux DO id must come from profile.id only.
@@ -373,6 +379,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
                     }
 
                     resolvedId = linuxDoId
+                    resolvedProvider = "linuxdo"
                     if (profile?.username) {
                         resolvedUsername = String(profile.username)
                     }
@@ -394,6 +401,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
                         throw new Error("GITHUB_PROVIDER_ID_MISSING")
                     }
                     resolvedId = canonicalGitHubId
+                    resolvedProvider = "github"
 
                     // If this GitHub username already exists in login_users, keep using that user_id.
                     const existingUserId = await resolveExistingGitHubUserIdByUsername(resolvedUsername)
@@ -411,6 +419,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
                 }
 
                 token.id = resolvedId
+                if (resolvedProvider) token.provider = resolvedProvider
                 if (resolvedUsername) token.username = resolvedUsername
                 if (user.trustLevel !== undefined) token.trustLevel = user.trustLevel
                 if (user.avatar_url) token.avatar_url = user.avatar_url
@@ -433,6 +442,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
                 }
 
                 token.id = linuxDoId
+                token.provider = "linuxdo"
                 token.username = typeof profile.username === 'string' ? profile.username : undefined
                 token.trustLevel = typeof profile.trust_level === 'number' ? profile.trust_level : undefined
                 token.avatar_url = typeof profile.avatar_url === 'string' ? profile.avatar_url : undefined
@@ -442,6 +452,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         async session({ session, token }) {
             if (token) {
                 session.user.id = token.id as string
+                session.user.provider = typeof token.provider === 'string' ? token.provider : undefined
                 session.user.username = typeof token.username === 'string' ? token.username : undefined
                 session.user.trustLevel = typeof token.trustLevel === 'number' ? token.trustLevel : undefined
                 session.user.avatar_url = typeof token.avatar_url === 'string' ? token.avatar_url : undefined

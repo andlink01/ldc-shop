@@ -10,7 +10,7 @@ import { HeaderLogo, HeaderNav, HeaderUserMenuItems, HeaderUnreadBadge, Language
 import { ModeToggle } from "@/components/mode-toggle";
 import { recordLoginUser, getUserUnreadNotificationCount, getLoginUserDesktopNotificationsEnabled } from "@/lib/db/queries";
 import { isRegistryEnabled } from "@/lib/registry";
-import { getAdminUsernames, isAdminUsername } from "@/lib/admin-auth";
+import { getAdminUsernames, isAdminUser } from "@/lib/admin-auth";
 
 export async function SiteHeader() {
     const [session, storefront] = await Promise.all([
@@ -21,8 +21,8 @@ export async function SiteHeader() {
         await recordLoginUser(user.id, user.username || user.name || null, user.email || null)
     }
 
-    // Check if admin (case-insensitive)
-    const isAdmin = isAdminUsername(user?.username)
+    // Check if admin (case-insensitive, provider-scoped)
+    const isAdmin = isAdminUser(user)
     const firstAdminName = getAdminUsernames()[0] // Get first admin name for branding
     const shopNameOverride = storefront?.shop_name ?? null
     const shopLogoVersion = storefront?.shop_logo_updated_at ?? null

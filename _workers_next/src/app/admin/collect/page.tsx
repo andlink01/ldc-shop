@@ -4,19 +4,10 @@ import { auth } from "@/lib/auth"
 import { AdminPaymentCodeContent } from "@/components/admin/payment-code-content"
 import { md5 } from "@/lib/crypto"
 import { getAdminUsernames } from "@/lib/admin-auth"
-import { getAppBaseUrl } from "@/lib/url"
+import { getBaseUrlFromHeaders } from "@/lib/url"
 
 async function resolveBaseUrl() {
-    const configured = getAppBaseUrl()
-    if (configured) return configured
-
-    const headerList = await headers()
-    const forwardedProto = headerList.get('x-forwarded-proto')
-    const forwardedHost = headerList.get('x-forwarded-host')
-    const host = forwardedHost || headerList.get('host')
-    const proto = forwardedProto || 'http'
-    if (host) return `${proto}://${host}`
-    return 'http://localhost:3000'
+    return getBaseUrlFromHeaders(await headers(), 'http://localhost:3000')
 }
 
 export default async function AdminCollectPage() {

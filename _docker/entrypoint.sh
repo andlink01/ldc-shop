@@ -2,6 +2,12 @@
 
 echo "Starting LDC Shop (Docker)..."
 
+if [ "$AUTH_SECRET" = "replace_with_a_random_secret_string" ] || [ "$NEXTAUTH_SECRET" = "replace_with_a_random_secret_string" ]; then
+    echo "ERROR: AUTH_SECRET is still set to the example placeholder 'replace_with_a_random_secret_string'."
+    echo "Please generate a strong random secret before starting the container."
+    exit 1
+fi
+
 # Auto-set AUTH_URL from APP_URL so NextAuth uses the correct external origin
 # (Docker sets HOSTNAME=0.0.0.0 which would make NextAuth generate wrong callback URLs)
 if [ -z "$AUTH_URL" ] && [ -n "$APP_URL" ]; then

@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { getToken } from 'next-auth/jwt'
-import { isAdminUsername } from '@/lib/admin-auth'
+import { isAdminUser } from '@/lib/admin-auth'
 import { getRequestBaseUrl } from '@/lib/url'
 
 /**
@@ -14,15 +14,19 @@ import { getRequestBaseUrl } from '@/lib/url'
  */
 export async function middleware(request: NextRequest) {
     const secret = process.env.AUTH_SECRET || process.env.NEXTAUTH_SECRET || process.env.OAUTH_CLIENT_SECRET
-    let username: unknown
+    let token: { id?: unknown; sub?: unknown; username?: unknown; provider?: unknown } | null = null
     if (secret) {
         // The session cookie carries the __Secure- prefix on HTTPS and no prefix on plain HTTP.
         for (const secureCookie of [true, false]) {
-            try { username = (await getToken({ req: request, secret, secureCookie }))?.username } catch { /* not a session of this shop */ }
-            if (username) break
+            try { token = await getToken({ req: request, secret, secureCookie }) } catch { /* not a session of this shop */ }
+            if (token?.username || token?.id || token?.sub) break
         }
     }
-    if (typeof username === 'string' && isAdminUsername(username)) return NextResponse.next()
+    if (isAdminUser({
+        id: typeof token?.id === 'string' ? token.id : (typeof token?.sub === 'string' ? token.sub : undefined),
+        username: typeof token?.username === 'string' ? token.username : undefined,
+        provider: typeof token?.provider === 'string' ? token.provider : undefined,
+    })) return NextResponse.next()
 
     // Only a page visit is sent to the storefront; an export or a submitted request is simply refused.
     const refused = { headers: { 'Cache-Control': 'no-store' } }

@@ -8,6 +8,7 @@ declare module "next-auth" {
     interface Session {
         user: {
             username?: string
+            provider?: string
             trustLevel?: number
             avatar_url?: string
         } & DefaultSession["user"]
@@ -15,6 +16,7 @@ declare module "next-auth" {
 
     interface User {
         username?: string
+        provider?: string
         trustLevel?: number
         avatar_url?: string
     }
@@ -23,6 +25,7 @@ declare module "next-auth" {
 declare module "next-auth/jwt" {
     interface JWT {
         username?: string
+        provider?: string
         trustLevel?: number
         avatar_url?: string
     }

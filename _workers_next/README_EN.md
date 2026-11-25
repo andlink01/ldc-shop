@@ -7,7 +7,7 @@
 
 Serverless virtual goods store built with **Next.js 16**, **Cloudflare Workers** (OpenNext), **D1 Database**, and **Shadcn UI**.
 
-Current version: **1.5.23 / database schema 25**. For self-hosted deployment, see the [Docker deployment guide](../_docker/README.md).
+Current version: **1.5.24 / database schema 25**. For self-hosted deployment, see the [Docker deployment guide](../_docker/README.md).
 
 ## 🛠 Technical Architecture
 

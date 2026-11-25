@@ -1,11 +1,18 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
+import React from 'react'
+import { renderToString } from 'react-dom/server'
 import { fixture } from './database-fixture.mjs'
+
+class NextResponse extends Response {
+    static json(data, init) { return Response.json(data, init) }
+}
 
 async function setup(t, user = { id: 'boss-id', username: 'boss' }) {
     const f = fixture(t, { env: { ADMIN_USERS: 'boss' }, mocks: {
         '@/lib/auth': { auth: async () => user ? { user } : null },
         'next/headers': { cookies: async () => ({ get() {}, set() {} }) },
+        'next/server': { NextResponse, after() {} },
     } })
     await f.ready
     return f
@@ -157,4 +164,236 @@ test('order IDs are unpredictable and keep the expected format', async t => {
     const ids = new Set(Array.from({ length: 2000 }, () => generateOrderId()))
     assert.equal(ids.size, 2000)
     for (const id of ids) assert.match(id, /^ORD[0-9A-Z]{17,20}$/)
+})
+
+test('provider-scoped admin checks prevent cross-provider username collision', async t => {
+    const f = await setup(t)
+    f.env.ADMIN_USERS = 'gh_boss,linux_boss'
+    const { isAdminUser } = f.load('lib/admin-auth')
+
+    // GitHub admins require provider=github or legacy github: user ID.
+    assert.equal(isAdminUser({ id: '999', username: 'gh_boss', provider: 'linuxdo' }), false)
+    assert.equal(isAdminUser({ id: '999', username: 'gh_boss' }), false)
+    assert.equal(isAdminUser({ id: 'github:123', username: 'gh_boss', provider: 'github' }), true)
+    assert.equal(isAdminUser({ id: 'github:123', username: 'gh_boss' }), true)
+
+    // GitHub users cannot claim non-gh_ admin names, while Linux DO admins can.
+    assert.equal(isAdminUser({ id: 'github:123', username: 'linux_boss', provider: 'github' }), false)
+    assert.equal(isAdminUser({ id: '456', username: 'linux_boss', provider: 'linuxdo' }), true)
+    assert.equal(isAdminUser({ id: 'owner', username: 'linux_boss' }), true)
+
+    // checkAdmin must reject a Linux DO user attempting to impersonate gh_boss.
+    const spoofed = await setup(t, { id: '999', username: 'gh_boss', provider: 'linuxdo' })
+    spoofed.env.ADMIN_USERS = 'gh_boss'
+    await assert.rejects(spoofed.load('actions/admin').checkAdmin(), /Unauthorized/)
+
+    // GitHub login must never merge a Linux DO row sharing numeric ID + gh_ username.
+    let authConfig
+    const authFixture = fixture(t, {
+        mocks: {
+            'next-auth': { __esModule: true, default: (value) => { authConfig = value; return { handlers: {}, auth: async () => null, signIn() {}, signOut() {} } } },
+            'next-auth/providers/github': { __esModule: true, default: (value) => ({ id: 'github', ...value }) },
+            '@/lib/auth': undefined,
+        },
+    })
+    await authFixture.ready
+    authFixture.load('lib/auth')
+    await authFixture.db.insert(authFixture.schema.loginUsers).values({ userId: '111', username: 'gh_shared', points: 99 })
+    const ghToken = await authConfig.callbacks.jwt({
+        token: {},
+        user: { id: '111', username: 'gh_shared' },
+        profile: { login: 'shared' },
+        account: { provider: 'github', providerAccountId: '111' },
+    })
+    assert.equal(ghToken.provider, 'github')
+    assert.equal(ghToken.id, 'github:111')
+    const linuxRow = (await authFixture.db.select().from(authFixture.schema.loginUsers)).find((r) => r.userId === '111')
+    assert.equal(linuxRow?.points, 99)
+    assert.equal(linuxRow?.username, 'gh_shared')
+})
+
+test('outbound URL checks block internal and metadata hosts', async t => {
+    const f = await setup(t)
+    const { safeOutboundHttpUrl } = f.load('lib/safe-url')
+
+    for (const unsafe of [
+        'http://127.0.0.1/cards',
+        'http://localhost:8080/x',
+        'http://169.254.169.254/latest/meta-data',
+        'http://10.0.0.1/x',
+        'http://172.16.0.1/x',
+        'http://192.168.1.1/x',
+        'http://100.64.0.1/x',
+        'http://[::1]/x',
+        'http://[::ffff:127.0.0.1]/x',
+        'http://[fe80::1]/x',
+        'http://2130706433/x',
+        'http://metadata.google.internal/x',
+        'http://redis/x',
+        'https://user:pass@supplier.example/cards',
+        'ftp://supplier.example/cards',
+    ]) {
+        assert.equal(safeOutboundHttpUrl(unsafe), null, unsafe)
+    }
+
+    assert.equal(safeOutboundHttpUrl('https://supplier.example/cards?a=1'), 'https://supplier.example/cards?a=1')
+    assert.equal(safeOutboundHttpUrl('https://supplier.example/cards?a=1', { disallowSearch: true }), null)
+    assert.equal(safeOutboundHttpUrl('https://api.day.app', { disallowSearch: true }), 'https://api.day.app/')
+
+    const { saveProductCardApiConfig } = f.load('lib/card-api')
+    await f.db.insert(f.schema.products).values({ id: 'p-ssrf', name: 'P', price: '1' })
+    await assert.rejects(
+        saveProductCardApiConfig('p-ssrf', { enabled: true, mode: 'stock', url: 'http://169.254.169.254/latest', token: '' }),
+        /apiUrlInvalid/
+    )
+})
+
+test('shop logo saving and /favicon route neutralize SVG XSS, non-image responses, and SSRF targets', async t => {
+    const f = await setup(t)
+    const { saveShopLogo } = f.load('actions/admin')
+
+    for (const unsafeLogo of [
+        'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)"></svg>',
+        'data:image/svg+xml,<svg/onload=alert(1)></svg>',
+        'data:image/svg+xml,<svg><a xlink:href="&#x6a;avascript:alert(1)"><text>x</text></a></svg>',
+        `data:image/svg+xml;base64,${Buffer.from('<svg><script>alert(1)</script></svg>').toString('base64')}`,
+        'data:image/svg+xml,<svg><foreignObject><body onload=alert(1)></body></foreignObject></svg>',
+        'data:text/html,<script>alert(1)</script>',
+        'http://169.254.169.254/latest/meta-data',
+        '/favicon',
+        'javascript:alert(1)',
+    ]) {
+        await assert.rejects(saveShopLogo(unsafeLogo), /Only safe image data URLs|Invalid logo/, unsafeLogo)
+    }
+
+    const safeSvg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><circle cx="5" cy="5" r="4"/></svg>'
+    const safeSvgDataUrl = `data:image/svg+xml;base64,${Buffer.from(safeSvg).toString('base64')}`
+    await saveShopLogo(safeSvgDataUrl)
+
+    const { GET: getFaviconSafe } = f.reload('app/favicon/route')
+    const safeRes = await getFaviconSafe(new Request('https://shop.example/favicon'))
+    assert.equal(safeRes.status, 200)
+    assert.equal(safeRes.headers.get('content-type'), 'image/svg+xml')
+    assert.equal(safeRes.headers.get('x-content-type-options'), 'nosniff')
+    assert.match(safeRes.headers.get('content-security-policy') || '', /\bsandbox\b/)
+    assert.match(await safeRes.text(), /<circle/)
+
+    // Even if database contains poisoned SVG or internal URL, /favicon refuses and falls back to generated logo without calling fetch.
+    await f.queries.setSetting('shop_logo', 'data:image/svg+xml,<svg onload="alert(1)"></svg>')
+    await f.queries.setSetting('shop_logo_source', 'custom')
+    const { GET: getFaviconUnsafeSvg } = f.reload('app/favicon/route')
+    const fallbackRes = await getFaviconUnsafeSvg(new Request('https://shop.example/favicon'))
+    const fallbackBody = await fallbackRes.text()
+    assert.doesNotMatch(fallbackBody, /onload=/)
+    assert.match(fallbackRes.headers.get('content-security-policy') || '', /\bsandbox\b/)
+
+    let fetchedCount = 0
+    f.setFetch(async (url) => {
+        fetchedCount++
+        if (String(url).includes('html-logo.example')) {
+            return new Response('<script>alert(1)</script>', { status: 200, headers: { 'content-type': 'text/html' } })
+        }
+        return new Response(null, { status: 302, headers: { location: 'http://127.0.0.1/secret' } })
+    })
+
+    await f.queries.setSetting('shop_logo', 'http://127.0.0.1:9999/secret.png')
+    const ssrfRes = await f.reload('app/favicon/route').GET(new Request('https://shop.example/favicon'))
+    assert.equal(fetchedCount, 0)
+    assert.equal(ssrfRes.headers.get('content-type'), 'image/svg+xml')
+
+    await f.queries.setSetting('shop_logo', 'https://html-logo.example/logo')
+    const htmlRes = await f.reload('app/favicon/route').GET(new Request('https://shop.example/favicon'))
+    assert.equal(fetchedCount, 1)
+    assert.equal(htmlRes.headers.get('content-type'), 'image/svg+xml')
+    assert.doesNotMatch(await htmlRes.text(), /<script>/)
+
+    await f.queries.setSetting('shop_logo', 'https://cdn-redirect.example/logo')
+    const redirectRes = await f.reload('app/favicon/route').GET(new Request('https://shop.example/favicon'))
+    assert.equal(fetchedCount, 2)
+    assert.equal(redirectRes.headers.get('content-type'), 'image/svg+xml')
+})
+
+test('FooterContent renders safe links without dangerouslySetInnerHTML or script injection', async t => {
+    const f = fixture(t, {
+        initialize: false,
+        mocks: {
+            react: React,
+            '@/lib/i18n/context': { useI18n: () => ({ t: (k) => k }) },
+        },
+    })
+    await f.ready
+    const { FooterContent } = f.load('components/footer-content')
+    const html = renderToString(React.createElement(FooterContent, {
+        version: '1.5.24',
+        customFooter: 'Shop <a href="https://example.com" onclick="alert(1)">Link</a> <a href="javascript:alert(1)">Bad</a> <script>alert(1)</script><img src=x onerror=alert(1)>',
+    }))
+    assert.match(html, /href="https:\/\/example\.com\/"/)
+    assert.match(html, /rel="noopener noreferrer"/)
+    assert.doesNotMatch(html, /href="javascript:/)
+    assert.doesNotMatch(html, /<script>/)
+    assert.doesNotMatch(html, /<img\b/)
+    assert.doesNotMatch(html, /onclick=/)
+})
+
+test('late payment on a cancelled order cannot create negative points when returned points were spent', async t => {
+    const f = await setup(t)
+    await f.db.insert(f.schema.products).values({ id: 'p-pts', name: 'Pts', price: '10', stockCount: 2 })
+    await f.db.insert(f.schema.cards).values([
+        { productId: 'p-pts', cardKey: 'C1', isUsed: false },
+        { productId: 'p-pts', cardKey: 'C2', isUsed: false },
+    ])
+    await f.db.insert(f.schema.loginUsers).values([
+        { userId: 'spender', username: 'spender', points: 0 },
+        { userId: 'keeper', username: 'keeper', points: 50 },
+    ])
+    await f.db.insert(f.schema.orders).values([
+        { orderId: 'ORD-SPENT', productId: 'p-pts', productName: 'Pts', amount: '5', status: 'pending', userId: 'spender', username: 'spender', pointsUsed: 100, quantity: 1, createdAt: new Date() },
+        { orderId: 'ORD-KEPT', productId: 'p-pts', productName: 'Pts', amount: '5', status: 'pending', userId: 'keeper', username: 'keeper', pointsUsed: 100, quantity: 1, createdAt: new Date() },
+    ])
+
+    const { cancelPendingOrder } = f.load('lib/order-transitions')
+    const { processOrderFulfillment } = f.load('lib/order-processing')
+    assert.equal(await cancelPendingOrder('ORD-SPENT'), true)
+    assert.equal(await cancelPendingOrder('ORD-KEPT'), true)
+
+    // Spender uses the refunded points down to 40 (< 100 required to reactivate ORD-SPENT).
+    await f.dbBatchRaw([{ sql: "UPDATE login_users SET points = 40 WHERE user_id = 'spender'", params: [] }])
+    const denied = await processOrderFulfillment('ORD-SPENT', 5, 'TRADE-SPENT')
+    assert.equal(denied.status, 'points_insufficient')
+
+    const spenderRow = (await f.db.select().from(f.schema.loginUsers)).find((u) => u.userId === 'spender')
+    const spentOrder = (await f.db.select().from(f.schema.orders)).find((o) => o.orderId === 'ORD-SPENT')
+    const conflict = (await f.db.select().from(f.schema.inventoryEvents)).find((e) => e.orderId === 'ORD-SPENT' && e.kind === 'payment_conflict')
+    assert.equal(spenderRow?.points, 40)
+    assert.equal(spentOrder?.status, 'cancelled')
+    assert.ok(conflict, 'insufficient points late payment must record payment_conflict')
+
+    // Keeper kept all refunded points (150 >= 100), so late payment succeeds cleanly.
+    const ok = await processOrderFulfillment('ORD-KEPT', 5, 'TRADE-KEPT')
+    assert.equal(ok.status, 'processed')
+    const keeperRow = (await f.db.select().from(f.schema.loginUsers)).find((u) => u.userId === 'keeper')
+    const keptOrder = (await f.db.select().from(f.schema.orders)).find((o) => o.orderId === 'ORD-KEPT')
+    assert.equal(keeperRow?.points, 50)
+    assert.equal(keptOrder?.status, 'delivered')
+})
+
+test('importData blocks stacked queries, subqueries, and non-INSERT SQL while supporting valid multiline values', async t => {
+    const f = await setup(t)
+    await f.db.insert(f.schema.products).values({ id: 'keep-prod', name: 'Keep', price: '1' })
+    const lines = [
+        "INSERT INTO cards (id, productId, cardKey, isUsed) VALUES (1, 'keep-prod', 'L1' || char(10) || 'L2', 0);",
+        "INSERT INTO cards (id, productId, cardKey, isUsed) VALUES (2, 'keep-prod', 'X', 0); DROP TABLE products; --",
+        "DELETE FROM products;",
+        "INSERT INTO sqlite_master (name) VALUES ('evil');",
+        "INSERT INTO cards (id, productId, cardKey, isUsed) VALUES (3, 'keep-prod', (SELECT 'sub'), 0);",
+        "INSERT INTO cards (id, bad$col, cardKey) VALUES (4, 'keep-prod', 'Z');",
+    ]
+    const result = await f.load('actions/data').importData({ get: () => ({ text: async () => lines.join('\n') }) })
+    assert.equal(result.success, true, JSON.stringify(result))
+    assert.equal(result.count, 1)
+    assert.equal(result.errors, 5)
+    assert.equal((await f.db.select().from(f.schema.products)).length, 1)
+    const cardsRows = await f.db.select().from(f.schema.cards)
+    assert.equal(cardsRows.length, 1)
+    assert.equal(cardsRows[0].cardKey, 'L1\nL2')
 })

@@ -1,16 +1,10 @@
 import { NextResponse } from "next/server"
 import { headers } from "next/headers"
 import { getRegistryMetadata } from "@/lib/registry"
+import { getBaseUrlFromHeaders, getRequestBaseUrl } from "@/lib/url"
 
-async function getRequestOrigin() {
-    const h = await headers()
-    const host = h.get("x-forwarded-host") || h.get("host") || ""
-    const proto = h.get("x-forwarded-proto") || "https"
-    return host ? `${proto}://${host}` : ""
-}
-
-export async function GET() {
-    const origin = await getRequestOrigin()
+export async function GET(request?: Request) {
+    const origin = request ? getRequestBaseUrl(request) : getBaseUrlFromHeaders(await headers(), "")
     const metadata = await getRegistryMetadata(origin)
     return NextResponse.json(metadata, {
         headers: {

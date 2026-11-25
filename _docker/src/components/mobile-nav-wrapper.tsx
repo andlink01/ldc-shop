@@ -1,6 +1,6 @@
 import { getStorefrontSession, getStorefrontSettings } from "@/lib/storefront"
 import { isRegistryEnabled } from "@/lib/registry"
-import { isAdminUsername } from "@/lib/admin-auth"
+import { isAdminUser } from "@/lib/admin-auth"
 import { MobileNav } from "./mobile-nav"
 
 export async function MobileNavWrapper() {
@@ -9,8 +9,8 @@ export async function MobileNavWrapper() {
     ])
     const user = session?.user
 
-    // Check if admin (case-insensitive)
-    const isAdmin = isAdminUsername(user?.username)
+    // Check if admin (case-insensitive, provider-scoped)
+    const isAdmin = isAdminUser(user)
 
     const registryEnabled = isRegistryEnabled()
     let registryOptIn = false

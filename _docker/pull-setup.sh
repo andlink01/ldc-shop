@@ -86,7 +86,7 @@ prompt() {
         value="$default_val"
     fi
 
-    eval "$var_name='$value'"
+    printf -v "$var_name" '%s' "$value"
 }
 
 # Helper: prompt yes/no
@@ -103,8 +103,8 @@ prompt_yn() {
     fi
 
     case "$value" in
-        [Yy]*) eval "$var_name=true" ;;
-        *) eval "$var_name=false" ;;
+        [Yy]*) printf -v "$var_name" '%s' "true" ;;
+        *) printf -v "$var_name" '%s' "false" ;;
     esac
 }
 
@@ -236,8 +236,14 @@ EOF
 
 echo -e "${GREEN}✓${NC} docker-compose.yml 已生成"
 
-# Create data directory with open permissions for container
-mkdir -p data && chmod 777 data
+# Create data directory with least-privilege permissions when UID mapping allows it
+mkdir -p data
+if chown 1001:1001 data 2>/dev/null; then
+    chmod 700 data
+else
+    chmod 775 data
+    echo -e "${YELLOW}!${NC} 未能自动将 data 目录属主设为 UID 1001，如需收紧权限请执行: sudo chown -R 1001:1001 data && chmod 700 data"
+fi
 echo -e "${GREEN}✓${NC} data 目录已创建"
 
 echo ""

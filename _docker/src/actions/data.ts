@@ -10,6 +10,123 @@ import { recalcProductAggregatesForMany, ensureDatabaseInitialized } from "@/lib
 import { products } from "@/lib/db/schema";
 
 const IMPORT_BATCH_SIZE = 50
+const MAX_IMPORT_BYTES = 50 * 1024 * 1024
+
+const ALLOWED_IMPORT_TABLES = new Set([
+    'products',
+    'cards',
+    'inventory_imports',
+    'inventory_api_keys',
+    'inventory_api_requests',
+    'orders',
+    'order_deliveries',
+    'inventory_events',
+    'supplier_requests',
+    'login_users',
+    'daily_checkins_v2',
+    'settings',
+    'reviews',
+    'review_replies',
+    'categories',
+    'refund_requests',
+    'user_notifications',
+    'admin_messages',
+    'user_messages',
+    'broadcast_messages',
+    'broadcast_reads',
+    'wishlist_items',
+    'wishlist_votes',
+])
+
+const VALID_IMPORT_IDENTIFIER_RE = /^[a-zA-Z_][a-zA-Z0-9_]*$/
+
+function isSafeSqlValuesExpression(valuesStr: string): boolean {
+    let i = 0
+    const len = valuesStr.length
+    let expectingValue = true
+    let hasValue = false
+
+    const skipWs = () => {
+        while (i < len && /\s/.test(valuesStr[i])) i++
+    }
+
+    while (i < len) {
+        skipWs()
+        if (i >= len) break
+
+        if (expectingValue) {
+            const ch = valuesStr[i]
+            if (ch === "'") {
+                i++
+                let closed = false
+                while (i < len) {
+                    if (valuesStr[i] === "'") {
+                        if (i + 1 < len && valuesStr[i + 1] === "'") {
+                            i += 2
+                            continue
+                        }
+                        i++
+                        closed = true
+                        break
+                    }
+                    i++
+                }
+                if (!closed) return false
+                hasValue = true
+                expectingValue = false
+                continue
+            }
+
+            if (ch === '-' || (ch >= '0' && ch <= '9')) {
+                const rest = valuesStr.slice(i)
+                const numMatch = /^-?\d+(?:\.\d+)?(?=\s*(?:,|\|\||$))/.exec(rest)
+                if (!numMatch) return false
+                i += numMatch[0].length
+                hasValue = true
+                expectingValue = false
+                continue
+            }
+
+            const rest = valuesStr.slice(i)
+            const identMatch = /^([a-zA-Z_][a-zA-Z0-9_]*)/.exec(rest)
+            if (!identMatch) return false
+            const word = identMatch[1].toLowerCase()
+            i += identMatch[1].length
+
+            if (word === 'null' || word === 'true' || word === 'false') {
+                hasValue = true
+                expectingValue = false
+                continue
+            }
+
+            if (word === 'char') {
+                skipWs()
+                const charArg = /^\(\s*\d{1,3}\s*\)/.exec(valuesStr.slice(i))
+                if (!charArg) return false
+                i += charArg[0].length
+                hasValue = true
+                expectingValue = false
+                continue
+            }
+
+            return false
+        } else {
+            if (valuesStr[i] === ',') {
+                i++
+                expectingValue = true
+                continue
+            }
+            if (valuesStr.slice(i, i + 2) === '||') {
+                i += 2
+                expectingValue = true
+                continue
+            }
+            return false
+        }
+    }
+
+    return hasValue && !expectingValue
+}
 
 async function executeStatement(statement: string) {
     if (!statement.trim()) return
@@ -83,10 +200,16 @@ export async function importData(formData: FormData) {
     if (!file) {
         return { success: false, error: 'No file provided' }
     }
+    if (typeof file.size === 'number' && file.size > MAX_IMPORT_BYTES) {
+        return { success: false, error: 'File too large (max 50MB)' }
+    }
 
     try {
         await ensureDatabaseInitialized()
         const text = await file.text()
+        if (text.length > MAX_IMPORT_BYTES) {
+            return { success: false, error: 'File too large (max 50MB)' }
+        }
         const lines = text.split('\n')
 
         // Comprehensive Column Mapping (CamelCase -> snake_case) for Vercel exports
@@ -192,33 +315,45 @@ export async function importData(formData: FormData) {
             const trimmed = line.trim()
             if (!trimmed || trimmed.startsWith('--')) continue
 
-            // Regex to parse INSERT OR IGNORE INTO <table> (...) VALUES (...)
-            const match = trimmed.match(/INSERT OR IGNORE INTO\s+(\w+)\s*\(([^)]+)\)\s*VALUES\s*\((.+)\);/i)
-
-            if (match) {
-                const table = match[1]
-                const columnsStr = match[2]
-                const valuesStr = match[3]
-
-                const columns = columnsStr.split(',').map(c => c.trim())
-
-                // Map table name
-                const tableMap: Record<string, string> = {
-                    'daily_checkins': 'daily_checkins_v2'
-                }
-                const targetTable = tableMap[table] || table
-
-                // Map columns
-                const newColumns = columns.map(c => columnMap[c] || c)
-
-                // Reconstruct statement
-                const newStatement = `INSERT OR IGNORE INTO ${targetTable} (${newColumns.join(', ')}) VALUES (${valuesStr});`
-
-                statements.push(newStatement)
-            } else if (trimmed.toUpperCase().startsWith('INSERT')) {
-                // Try executing other INSERTs directly if they match simple format
-                statements.push(trimmed)
+            const match = /^(INSERT(?:\s+OR\s+IGNORE)?\s+INTO)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\(([^)]+)\)\s*VALUES\s*\((.+)\)\s*;?$/i.exec(trimmed)
+            if (!match) {
+                errorCount++
+                continue
             }
+
+            const insertVerb = match[1].toUpperCase().replace(/\s+/g, ' ')
+            const table = match[2].toLowerCase()
+            const columnsStr = match[3]
+            const valuesStr = match[4].trim()
+
+            // Map legacy table names and allowlist targets
+            const tableMap: Record<string, string> = {
+                'daily_checkins': 'daily_checkins_v2'
+            }
+            const targetTable = tableMap[table] || table
+            if (!ALLOWED_IMPORT_TABLES.has(targetTable)) {
+                errorCount++
+                continue
+            }
+
+            const rawColumns = columnsStr.split(',').map((c) => c.trim()).filter(Boolean)
+            if (!rawColumns.length || rawColumns.some((c) => !VALID_IMPORT_IDENTIFIER_RE.test(c))) {
+                errorCount++
+                continue
+            }
+
+            const newColumns = rawColumns.map((c) => columnMap[c] || c)
+            if (newColumns.some((c) => !VALID_IMPORT_IDENTIFIER_RE.test(c))) {
+                errorCount++
+                continue
+            }
+
+            if (!isSafeSqlValuesExpression(valuesStr)) {
+                errorCount++
+                continue
+            }
+
+            statements.push(`${insertVerb} ${targetTable} (${newColumns.join(', ')}) VALUES (${valuesStr});`)
         }
 
         // One database round trip per group keeps large backups within the

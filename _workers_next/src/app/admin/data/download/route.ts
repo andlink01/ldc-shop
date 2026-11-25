@@ -25,10 +25,10 @@ import {
 } from "@/lib/db/schema"
 import { and, desc, eq, or, sql } from "drizzle-orm"
 import { getProducts, normalizeTimestampMs, ensureDatabaseInitialized } from "@/lib/db/queries"
-import { isAdminUsername } from '@/lib/admin-auth'
+import { isAdminUser, type AdminUserCandidate } from '@/lib/admin-auth'
 
-function requireAdminUsername(username?: string | null) {
-  if (!isAdminUsername(username)) {
+function requireAdminUser(user?: AdminUserCandidate | null) {
+  if (!isAdminUser(user)) {
     throw new Error("Unauthorized")
   }
 }
@@ -98,8 +98,8 @@ export async function GET(req: Request) {
 
 async function exportData(req: Request) {
   const session = await auth()
-  if (!isAdminUsername(session?.user?.username)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-  requireAdminUsername(session?.user?.username ?? null)
+  if (!isAdminUser(session?.user)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  requireAdminUser(session?.user ?? null)
 
   const { searchParams } = new URL(req.url)
   const type = (searchParams.get("type") || "").toLowerCase()

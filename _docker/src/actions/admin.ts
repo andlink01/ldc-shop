@@ -10,12 +10,13 @@ import { eq, sql } from "drizzle-orm";
 import { sendBarkMessage, sendTelegramMessage } from "@/lib/notifications";
 import { revalidatePath, updateTag } from "next/cache";
 import { setSetting, getSetting, recalcProductAggregates, getProductForAdmin } from "@/lib/db/queries";
-import { isAdminUsername } from "@/lib/admin-auth";
+import { isAdminUser } from "@/lib/admin-auth";
 import { getProductCardApiConfig, pullOneCardFromApi, saveProductCardApiConfig } from "@/lib/card-api";
 import { unstable_noStore } from "next/cache";
 import { isThemeFont } from "@/lib/theme-fonts";
 import { normalizeCurrencyUnit } from "@/lib/currency-unit";
 import { PRODUCT_GALLERY_MAX_ITEMS, PRODUCT_GALLERY_MAX_JSON_LENGTH, normalizeProductImageRefs, parseStoredProductImages, splitProductImageGallery, validateProductImageRef } from "@/lib/product-images";
+import { decodeSafeImageDataUrl, safeInternalPath, safeOutboundHttpUrl } from "@/lib/safe-url";
 import { CardApiConfigError, type CardApiMode } from '@/lib/card-api-validation';
 
 // Returns a plain decimal string with at most two places, or null when invalid.
@@ -28,7 +29,7 @@ function normalizeMoney(input: unknown): string | null {
 export async function checkAdmin() {
     const session = await auth()
     const user = session?.user
-    if (!user || !isAdminUsername(user.username)) {
+    if (!user || !isAdminUser(user)) {
         throw new Error("Unauthorized")
     }
 }
@@ -493,15 +494,27 @@ export async function saveShopLogo(logoUrl: string) {
     await checkAdmin()
 
     const url = logoUrl.trim()
-    if (url.startsWith('data:')) {
-        if (!url.startsWith('data:image/')) {
-            throw new Error("Only image data URLs are allowed")
-        }
+    if (url.toLowerCase().startsWith('data:')) {
         if (url.length > 1_000_000) {
             throw new Error("Logo image is too large")
         }
-    } else if (url && url.length > 500) {
-        throw new Error("Logo URL is too long")
+        if (!decodeSafeImageDataUrl(url)) {
+            throw new Error("Only safe image data URLs are allowed")
+        }
+    } else if (url) {
+        if (url.startsWith('/')) {
+            const safePath = safeInternalPath(url)
+            if (!safePath || safePath === '/favicon' || safePath === '/favicon.ico') {
+                throw new Error("Invalid logo path")
+            }
+        } else {
+            if (url.length > 500) {
+                throw new Error("Logo URL is too long")
+            }
+            if (!safeOutboundHttpUrl(url)) {
+                throw new Error("Invalid logo URL")
+            }
+        }
     }
 
     await setSetting('shop_logo', url)
@@ -709,6 +722,12 @@ export async function saveNotificationSettings(formData: FormData) {
     const barkEnabled = parseBooleanField('barkEnabled')
     const barkServerUrl = (formData.get('barkServerUrl') as string || '').trim()
     const barkDeviceKey = (formData.get('barkDeviceKey') as string || '').trim()
+    if (barkServerUrl) {
+        const barkCandidate = /^https?:\/\//i.test(barkServerUrl) ? barkServerUrl : `https://${barkServerUrl}`
+        if (!safeOutboundHttpUrl(barkCandidate, { disallowSearch: true })) {
+            throw new Error("Invalid Bark server address")
+        }
+    }
 
     await setSetting('bark_enabled', barkEnabled ? 'true' : 'false')
     await setSetting('bark_server_url', barkServerUrl || 'https://api.day.app')
